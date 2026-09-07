@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace winchisel::platform {
@@ -30,5 +31,12 @@ void show_error_message(const wchar_t* text);
 void set_console_visible(bool visible);
 void boot_log(const char* message);
 void set_current_directory_to_exe();
+
+using ProtectionProgress = std::function<void(bool is_stage, std::string_view text)>;
+
+winchisel::core::Result<void> create_restore_point();
+winchisel::core::Result<void> run_system_repair(ProtectionProgress const& progress);
+winchisel::core::Result<void> run_disk_cleanup();
+winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progress);
 
 }  // namespace winchisel::platform

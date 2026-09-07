@@ -6,6 +6,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <string>
 #include <vector>
 
 #pragma comment(lib, "shell32.lib")
@@ -212,6 +213,138 @@ void set_current_directory_to_exe() {
         return;
     }
     SetCurrentDirectoryW(path.parent_path().c_str());
+}
+
+winchisel::core::Result<void> fail(char const* message_key, std::string detail) {
+    return std::unexpected(winchisel::core::Error{
+        .code = winchisel::core::ErrorCode::platform,
+        .message_key = message_key,
+        .detail = std::move(detail),
+    });
+}
+
+void emit_lines(std::string& pending, ProtectionProgress const& progress) {
+    while (true) {
+        auto pos = pending.find_first_of("\r\n");
+        if (pos == std::string::npos) {
+            return;
+        }
+        auto line = pending.substr(0, pos);
+        auto skip = 1;
+        if (pending[pos] == '\r' && pos + 1 < pending.size() && pending[pos + 1] == '\n') {
+            skip = 2;
+        }
+        pending.erase(0, pos + skip);
+        while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) {
+            line.pop_back();
+        }
+        if (!line.empty() && progress) {
+            progress(false, line);
+        }
+    }
+}
+
+winchisel::core::Result<void> run_hidden(std::wstring command, char const* message_key) {
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+        return fail(message_key, "Failed to start process");
+    }
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD code{};
+    GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    if (code != 0) {
+        return fail(message_key, std::to_string(code));
+    }
+    return {};
+}
+
+winchisel::core::Result<void> run_logged(std::wstring inner, char const* message_key, ProtectionProgress const& progress) {
+    std::wstring command =
+        L"powershell.exe -NoProfile -NonInteractive -Command \"$ErrorActionPreference='Continue'; & { " + inner +
+        L" } 2>&1 | ForEach-Object { $_.ToString() }\"";
+    SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
+    HANDLE read{};
+    HANDLE write{};
+    if (!CreatePipe(&read, &write, &security, 0)) {
+        return fail(message_key, "Failed to start process");
+    }
+    SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdOutput = write;
+    startup.hStdError = write;
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+        CloseHandle(read);
+        CloseHandle(write);
+        return fail(message_key, "Failed to start process");
+    }
+    CloseHandle(write);
+    std::string pending;
+    char buffer[512]{};
+    DWORD read_count{};
+    while (ReadFile(read, buffer, sizeof(buffer), &read_count, nullptr) && read_count > 0) {
+        pending.append(buffer, read_count);
+        emit_lines(pending, progress);
+    }
+    emit_lines(pending, progress);
+    if (!pending.empty() && progress) {
+        progress(false, pending);
+    }
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD code{};
+    GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(read);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    if (code != 0) {
+        return fail(message_key, std::to_string(code));
+    }
+    return {};
+}
+
+winchisel::core::Result<void> create_restore_point() {
+    return run_hidden(
+        L"powershell.exe -NoProfile -NonInteractive -Command \"$ErrorActionPreference='Stop'; Enable-ComputerRestore -Drive 'C:\\' | Out-Null; Checkpoint-Computer -Description 'Winchisel Restore Point' -RestorePointType 'MODIFY_SETTINGS' | Out-Null\"",
+        "restore_point_failed");
+}
+
+winchisel::core::Result<void> run_system_repair(ProtectionProgress const& progress) {
+    if (progress) {
+        progress(true, "Running DISM /Online /Cleanup-Image /RestoreHealth");
+    }
+    if (auto result = run_logged(L"DISM /Online /Cleanup-Image /RestoreHealth", "repair_failed", progress); !result) {
+        return result;
+    }
+    if (progress) {
+        progress(true, "Running sfc /scannow");
+    }
+    return run_logged(L"sfc /scannow", "repair_failed", progress);
+}
+
+winchisel::core::Result<void> run_disk_cleanup() {
+    if (auto result = run_hidden(L"cleanmgr.exe /d C: /VERYLOWDISK", "settings_disk_cleanup_failed"); !result) {
+        return result;
+    }
+    return run_hidden(L"dism.exe /online /Cleanup-Image /StartComponentCleanup /ResetBase", "settings_disk_cleanup_failed");
+}
+
+winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progress) {
+    if (progress) {
+        progress(true, "Temporary Files - Remove");
+    }
+    return run_logged(
+        L"Remove-Item -Path $Env:Temp\\* -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path $Env:SystemRoot\\Temp\\* -Recurse -Force -ErrorAction SilentlyContinue",
+        "settings_temp_files_failed",
+        progress);
 }
 
 void set_console_visible(bool visible) {
