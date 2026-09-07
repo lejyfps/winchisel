@@ -27,9 +27,12 @@ LatencyPage::~LatencyPage() {
 
 void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
     if (analysis_.valid()) return;
-    progress_ = 4;
+    progress_ = 0;
+    target_progress_ = 4;
+    progress_tick_ = 0;
+    pending_result_.reset();
     Progress().Value(progress_);
-    ProgressPercent().Text(L"4%");
+    ProgressPercent().Text(L"0%");
     Status().Text(L"Starting USB topology analysis...");
     render_message(L"Scanning input devices, USB controllers, and hubs. This does not change any system setting.");
     AnalyzeButton().IsEnabled(false);
@@ -41,9 +44,7 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
             const auto status_text = to_hstring(status);
             queue.TryEnqueue([weak, value, status_text] {
                 if (auto page = weak.get()) {
-                    page->progress_ = value;
-                    page->Progress().Value(value);
-                    page->ProgressPercent().Text(to_hstring(std::to_string(value) + "%"));
+                    page->target_progress_ = std::max(page->target_progress_, value);
                     page->Status().Text(status_text);
                 }
             });
@@ -53,13 +54,25 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
 }
 
 void LatencyPage::poll_analysis() {
-    if (!analysis_.valid()) { timer_.Stop(); return; }
-    if (analysis_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-        return;
+    if (analysis_.valid() && analysis_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        pending_result_.emplace(analysis_.get());
+        target_progress_ = 100;
+        Status().Text(L"Building final report...");
+    } else if (analysis_.valid() && ++progress_tick_ % 2 == 0 && target_progress_ < 98) {
+        const int step = target_progress_ < 35 ? 3 : target_progress_ < 75 ? 2 : 1;
+        target_progress_ = std::min(target_progress_ + step, 98);
     }
-    const auto result = analysis_.get();
+
+    if (progress_ < target_progress_) {
+        progress_ = std::min(progress_ + 2, target_progress_);
+        Progress().Value(progress_);
+        ProgressPercent().Text(to_hstring(std::to_string(progress_) + "%"));
+    }
+    if (!pending_result_ || progress_ < 100) return;
+
+    auto result = std::move(*pending_result_);
+    pending_result_.reset();
     timer_.Stop();
-    Progress().Value(100);
     AnalyzeButton().IsEnabled(true);
     AnalyzeButton().Content(box_value(L"Analyze again"));
     if (result) {
