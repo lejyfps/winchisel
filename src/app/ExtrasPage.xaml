@@ -3,29 +3,401 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <ScrollViewer Padding="24">
-        <StackPanel Spacing="16">
-            <StackPanel>
-                <TextBlock Text="Extras" Style="{StaticResource TitleTextBlockStyle}" />
-                <TextBlock Text="Power plan, networking, and extra system toggles."
-                           Style="{StaticResource CaptionTextBlockStyle}" />
-            </StackPanel>
-            <Border Padding="16">
-                <StackPanel Spacing="12">
-                    <ToggleSwitch Header="Winchisel Power Plan" />
-                    <ToggleSwitch Header="Disable Modern Standby" />
-                    <ToggleSwitch Header="Disable Cloud Sync Provider" />
-                    <ToggleSwitch Header="Brave Debloat" />
-                    <ToggleSwitch Header="Edge Debloat" />
-                    <ToggleSwitch Header="Disable Widgets" />
-                    <ToggleSwitch Header="Disable CTFMON" />
-                    <ToggleSwitch Header="Timer Resolution" />
-                    <ToggleSwitch Header="Disable IPv6" />
-                    <ToggleSwitch Header="Disable Teredo" />
-                    <ToggleSwitch Header="Disable PowerShell 7 Telemetry" />
-                    <ToggleSwitch Header="Disable HPET" />
-                </StackPanel>
-            </Border>
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="Extras" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Additional system, browser, networking, and power options."
+                       Style="{StaticResource CaptionTextBlockStyle}" />
         </StackPanel>
-    </ScrollViewer>
+
+        <Grid Grid.Row="1">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="Items" Spacing="8">
+                    <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="True" />
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Winchisel Power Plan" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Imports and activates the optimized Winchisel power plan."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <Button x:Name="PowerPlanButton"
+                                    Grid.Column="1"
+                                    Content="Apply"
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Click="PowerPlanClick" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Disable Modern Standby" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Disable S0 Modern Standby to prevent battery drain and heat in sleep."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="ModernStandby"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Disable Sync Provider Notifications" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Disable sync provider notifications in Windows File Explorer."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="SyncProvider"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Brave Browser - Debloat" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Toggle Brave policy debloat on or off."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="Brave"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Microsoft Edge - Debloat" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Toggle Microsoft Edge policy debloat on or off."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="Edge"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Widgets - Remove" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Remove the taskbar widgets package and restore it on demand."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="Widgets"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Expander Header="Stop CTFMON from intercepting"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Stretch"
+                              IsExpanded="True">
+                        <StackPanel Spacing="8" Padding="0,8,0,0">
+                            <TextBlock Text="Disable the input service values that can intercept CTFMON."
+                                       TextWrapping="Wrap"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Margin="0,0,0,4" />
+                            <Border Padding="16,12"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Disable Microsoft input services" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                        <TextBlock Text="Disable the input service values that can intercept CTFMON."
+                                                   TextWrapping="Wrap"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="Ctfmon"
+                                                  Grid.Column="1"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  MinWidth="0"
+                                                  Width="40"
+                                                  HorizontalAlignment="Right"
+                                                  VerticalAlignment="Center"
+                                                  Toggled="ToggleChanged" />
+                                </Grid>
+                            </Border>
+                            <Border Padding="16,12"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="4">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Patch TextInputManagementService" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                        <TextBlock Text="Switch ServiceDll between TabSvc.dll and MSCTF.DLL."
+                                                   TextWrapping="Wrap"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="CtfmonDll"
+                                                  Grid.Column="1"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  MinWidth="0"
+                                                  Width="40"
+                                                  HorizontalAlignment="Right"
+                                                  VerticalAlignment="Center"
+                                                  Toggled="ToggleChanged" />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Expander>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Windows 11 Timer Resolution" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Restore global timer resolution requests for games and apps."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="TimerResolution"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="IPv6 - Set IPv4 as Preferred" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Prefer IPv4 on networks where IPv6 is not configured."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="Ipv6"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Teredo - Disable" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Disable Teredo tunneling for lower latency on some networks."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="Teredo"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="PowerShell 7 Telemetry - Disable" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Disable PowerShell 7 telemetry on this machine."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="Ps7"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Disable HPET" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Disable HPET for better performance in some anti-cheats and games."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="Hpet"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+            <ProgressRing x:Name="Loading"
+                          IsActive="False"
+                          Width="48"
+                          Height="48"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+        </Grid>
+    </Grid>
 </UserControl>
