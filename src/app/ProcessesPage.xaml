@@ -29,7 +29,7 @@
         <Grid Grid.Row="2" RowSpacing="8">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
             <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextBlockStyle}" />
-        <ListView x:Name="ProcessList" Grid.Row="1" SelectionMode="Single">
+        <ListView x:Name="ProcessList" Grid.Row="1" SelectionMode="Single" SelectionChanged="ProcessSelectionChanged">
             <ListView.Header>
                 <Grid Padding="12,8">
                     <Grid.ColumnDefinitions>
@@ -40,12 +40,12 @@
                         <ColumnDefinition Width="120" />
                         <ColumnDefinition Width="100" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="PID" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <TextBlock Grid.Column="1" Text="Name" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <TextBlock Grid.Column="2" Text="CPU" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <TextBlock Grid.Column="3" Text="Priority" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <TextBlock Grid.Column="4" Text="Affinity" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <TextBlock Grid.Column="5" Text="Status" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Button Content="PID" Padding="0" Click="SortPid" />
+                    <Button Grid.Column="1" Content="Name" Padding="0" Click="SortName" />
+                    <Button Grid.Column="2" Content="CPU" Padding="0" Click="SortCpu" />
+                    <Button Grid.Column="3" Content="Priority" Padding="0" Click="SortPriority" />
+                    <Button Grid.Column="4" Content="Affinity" Padding="0" Click="SortAffinity" />
+                    <Button Grid.Column="5" Content="Status" Padding="0" Click="SortStatus" />
                 </Grid>
             </ListView.Header>
         </ListView>
