@@ -122,5 +122,5 @@ inline constexpr std::array<Entry, 118> entries{{
     {"1b6f", "7052", 1, "EJ188/EJ198 USB 3.0", "PCIe Add-in (Etron)", "USB 3.0"},
     {"1912", "0014", 1, "uPD720201 USB 3.0", "PCIe Add-in (Renesas)", "USB 3.0"},
     {"1912", "0015", 1, "uPD720202 USB 3.0", "PCIe Add-in (Renesas)", "USB 3.0"},
-};
+}};
 }  // namespace winchisel::platform::latency_db

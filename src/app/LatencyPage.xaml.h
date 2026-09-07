@@ -15,8 +15,9 @@ struct LatencyPage : LatencyPageT<LatencyPage> {
 
 private:
     void poll_analysis();
-    void render_report(winrt::hstring const& report, bool is_error = false);
-    std::future<winchisel::core::Result<std::string>> analysis_;
+    void render_report(winchisel::platform::LatencyAnalysis const& report);
+    void render_message(winrt::hstring const& message, bool is_error = false);
+    std::future<winchisel::core::Result<winchisel::platform::LatencyAnalysis>> analysis_;
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};
     int progress_{};
 };
