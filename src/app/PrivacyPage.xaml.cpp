@@ -54,6 +54,7 @@ Controls::Border category_card(hstring const& title, hstring const& description)
     card.BorderBrush(resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>());
     card.BorderThickness({1, 1, 1, 1});
     card.Padding({16, 12, 16, 12});
+    card.HorizontalAlignment(HorizontalAlignment::Stretch);
     auto content = Controls::StackPanel();
     auto heading = Controls::TextBlock();
     heading.Text(title);
@@ -71,6 +72,7 @@ Controls::Border category_card(hstring const& title, hstring const& description)
 Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control) {
     auto card = category_card(title, description);
     auto layout = Controls::Grid();
+    layout.HorizontalAlignment(HorizontalAlignment::Stretch);
     layout.ColumnDefinitions().Append(Controls::ColumnDefinition());
     auto trailing = Controls::ColumnDefinition();
     trailing.Width(GridLength{0, GridUnitType::Auto});
@@ -90,6 +92,7 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     layout.Children().Append(text);
     Controls::Grid::SetColumn(control, 1);
     control.VerticalAlignment(VerticalAlignment::Center);
+    control.HorizontalAlignment(HorizontalAlignment::Right);
     layout.Children().Append(control);
     card.Child(layout);
     return card;
@@ -131,12 +134,16 @@ void PrivacyPage::Search_TextChanged(Windows::Foundation::IInspectable const&, C
 
 void PrivacyPage::render_groups() {
     Groups().Children().Clear();
+    privacy_toggles_.clear();
     const auto query = lower(to_string(Search().Text()));
     std::size_t matches{};
+    std::int32_t group_index{};
     for (const auto& group : winchisel::core::k_privacy_security_groups) {
         const auto description = description_for(group.id);
+        bool item_match=false;for(auto const& item:winchisel::core::get_privacy_catalog())if(item.group==group_index&&lower(std::string(item.name)+" "+std::string(item.description)+" "+std::string(item.id)).find(query)!=std::string::npos)item_match=true;
         const auto searchable = lower(std::string(group.title) + " " + description);
-        if (!query.empty() && searchable.find(query) == std::string::npos) {
+        if (!query.empty() && searchable.find(query) == std::string::npos && !item_match) {
+            ++group_index;
             continue;
         }
         ++matches;
@@ -148,10 +155,13 @@ void PrivacyPage::render_groups() {
         if (group.id == "security") {
             expander.Content(security_content());
         } else {
-            expander.Content(category_card(to_hstring(group.title), to_hstring(description)));
+            expander.Content(privacy_content(group_index, query));
         }
         Groups().Children().Append(expander);
+        ++group_index;
     }
+    load_privacy_toggles();
+    load_privacy_selections();
     if (matches == 0) {
         auto empty = Controls::InfoBar();
         empty.Title(L"No matching categories");
@@ -162,12 +172,16 @@ void PrivacyPage::render_groups() {
     }
 }
 
+Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group, std::string const& query){auto content=Controls::StackPanel();content.Spacing(8);content.HorizontalAlignment(HorizontalAlignment::Stretch);if(group==1&&(query.empty()||lower("Ads, Suggestions and Promotional Content").find(query)!=std::string::npos)){ads_mode_=Controls::ComboBox();for(auto option:{L"Allow",L"Deny",L"Custom"}){auto row=Controls::ComboBoxItem();row.Content(box_value(option));ads_mode_.Items().Append(row);}ads_mode_.SelectionChanged([this](auto&&,auto&&){save_privacy_selections();});content.Children().Append(setting_card(L"Ads, Suggestions and Promotional Content",L"Controls all advertising, suggestions, and promotional content throughout Windows",ads_mode_));}for(auto const& item:winchisel::core::get_privacy_catalog()){if(item.group!=group)continue;auto searchable=lower(std::string(item.name)+" "+std::string(item.description)+" "+std::string(item.id));if(!query.empty()&&searchable.find(query)==std::string::npos)continue;auto toggle=Controls::ToggleSwitch();toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto index=privacy_toggles_.size();privacy_toggles_.push_back({std::string(item.id),toggle});toggle.Toggled([this,index](auto&&,auto&&){save_privacy_toggle(index);});content.Children().Append(setting_card(to_hstring(item.name),to_hstring(item.description),toggle));}return content;}
+
+void PrivacyPage::load_privacy_toggles(){loading_security_=true;for(auto& item:privacy_toggles_){bool found{},enabled=true;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;found=true;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto actual=winchisel::platform::read_registry_value(destination);bool match=false;if(actual){if(rule.enabled_value=="__MISSING__")match=std::holds_alternative<std::monostate>(*actual);else if(auto dword=std::get_if<std::uint32_t>(&*actual);dword)match=rule.enabled_value==std::to_string(*dword);else if(auto text=std::get_if<std::string>(&*actual);text)match=rule.enabled_value==*text;}enabled=enabled&&match;}if(found)item.control.IsOn(enabled);}loading_security_=false;}
+
+void PrivacyPage::save_privacy_toggle(std::size_t index){if(loading_security_||index>=privacy_toggles_.size())return;auto const& item=privacy_toggles_[index];bool ok=true;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto token=item.control.IsOn()?rule.enabled_value:rule.disabled_value;Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else value=static_cast<std::uint32_t>(std::stoul(std::string(token)));if(!winchisel::platform::write_registry_value(destination,value))ok=false;}if(!ok)load_privacy_toggles();}
+
 Controls::StackPanel PrivacyPage::security_content() {
     auto content = Controls::StackPanel();
     content.Spacing(8);
     content.HorizontalAlignment(HorizontalAlignment::Stretch);
-    content.Children().Append(category_card(L"Security controls", L"These settings use Windows policy and system security values. Changes apply immediately and are reloaded if Windows rejects a write."));
-
     uac_level_ = Controls::ComboBox();
     for (auto const& option : {L"Always notify", L"Notify for app changes", L"Default: notify without dimming", L"Notify without secure desktop", L"Never notify"}) {
         auto item = Controls::ComboBoxItem();
@@ -177,14 +191,22 @@ Controls::StackPanel PrivacyPage::security_content() {
     uac_level_.SelectionChanged([this](auto&&, auto&&) { save_uac_level(); });
     content.Children().Append(setting_card(L"User Account Control", L"Choose how Windows asks before apps make system-wide changes.", uac_level_));
 
+    smart_app_control_=Controls::ComboBox();for(auto option:{L"Off",L"On (Enforced)",L"Evaluation Mode"}){auto item=Controls::ComboBoxItem();item.Content(box_value(option));smart_app_control_.Items().Append(item);}smart_app_control_.SelectionChanged([this](auto&&,auto&&){save_privacy_selections();});content.Children().Append(setting_card(L"Smart App Control",L"Controls the Smart App Control feature which blocks untrusted applications",smart_app_control_));
+    powershell_policy_=Controls::ComboBox();for(auto option:{L"Restricted",L"AllSigned",L"RemoteSigned",L"Unrestricted",L"Bypass"}){auto item=Controls::ComboBoxItem();item.Content(box_value(option));powershell_policy_.Items().Append(item);}powershell_policy_.SelectionChanged([this](auto&&,auto&&){save_privacy_selections();});content.Children().Append(setting_card(L"PowerShell Execution Policy",L"Controls whether PowerShell scripts are allowed to run and under what conditions",powershell_policy_));
+
     for (std::size_t index = 0; index < security_toggles_.size(); ++index) {
         auto& tweak = security_toggles_[index];
         tweak.control = Controls::ToggleSwitch();
+        tweak.control.OnContent(box_value(L""));
+        tweak.control.OffContent(box_value(L""));
+        tweak.control.MinWidth(0);
+        tweak.control.Width(40);
         tweak.control.Toggled([this, index](auto&&, auto&&) { save_security_toggle(index); });
         content.Children().Append(setting_card(tweak.title, tweak.description, tweak.control));
     }
     load_security();
     load_uac_level();
+    load_privacy_selections();
     return content;
 }
 
@@ -248,5 +270,13 @@ void PrivacyPage::save_uac_level() {
         load_uac_level();
     }
 }
+
+void PrivacyPage::load_privacy_selections(){loading_uac_=true;if(smart_app_control_){auto value=winchisel::platform::read_registry_value(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword));if(value)if(auto current=std::get_if<std::uint32_t>(&*value))smart_app_control_.SelectedIndex(static_cast<int>(std::min(*current,2u)));}if(powershell_policy_){auto destination=target(Hive::current_user,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string);auto value=winchisel::platform::read_registry_value(destination);std::array<std::string_view,5> options{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};int selected=0;if(value)if(auto current=std::get_if<std::string>(&*value))for(std::size_t i{};i<options.size();++i)if(*current==options[i])selected=static_cast<int>(i);powershell_policy_.SelectedIndex(selected);}if(ads_mode_){auto value=winchisel::platform::read_registry_value(target(Hive::current_user,"Software\\Winhance\\Settings","AdsPromotionalContentMode",Type::dword));if(value)if(auto current=std::get_if<std::uint32_t>(&*value))ads_mode_.SelectedIndex(static_cast<int>(std::min(*current,2u)));}loading_uac_=false;}
+
+void PrivacyPage::save_privacy_selections(){if(loading_uac_)return;bool ok=true;if(smart_app_control_&&smart_app_control_.SelectedIndex()>=0)ok=ok&&static_cast<bool>(winchisel::platform::write_registry_value(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword),static_cast<std::uint32_t>(smart_app_control_.SelectedIndex())));if(powershell_policy_&&powershell_policy_.SelectedIndex()>=0){constexpr std::array values{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};auto selected=powershell_policy_.SelectedIndex();for(auto hive:{Hive::current_user,Hive::local_machine})ok=ok&&static_cast<bool>(winchisel::platform::write_registry_value(target(hive,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string),std::string(values[selected])));}if(ads_mode_&&ads_mode_.SelectedIndex()>=0)ok=ok&&static_cast<bool>(winchisel::platform::write_registry_value(target(Hive::current_user,"Software\\Winhance\\Settings","AdsPromotionalContentMode",Type::dword),static_cast<std::uint32_t>(ads_mode_.SelectedIndex())));if(!ok)load_privacy_selections();}
+
+void PrivacyPage::apply_profile(bool recommended){for(auto& toggle:security_toggles_)toggle.control.IsOn(recommended);for(auto& toggle:privacy_toggles_)toggle.control.IsOn(recommended);uac_level_.SelectedIndex(recommended?4:2);if(smart_app_control_)smart_app_control_.SelectedIndex(recommended?0:2);if(powershell_policy_)powershell_policy_.SelectedIndex(recommended?2:0);if(ads_mode_)ads_mode_.SelectedIndex(recommended?1:2);}
+void PrivacyPage::Recommended_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(true);}
+void PrivacyPage::Defaults_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(false);}
 
 }  // namespace winrt::Winchisel::implementation

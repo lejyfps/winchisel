@@ -66,9 +66,13 @@ struct PerformanceRegistryRule {
     std::int32_t root{}, kind{}, byte_index{};
     std::uint8_t bit_mask{};
 };
+struct PrivacyCatalogEntry { std::string_view id,name,description; std::int32_t group{}; };
+struct PrivacyRegistryRule { std::string_view id,path,name,enabled_value,disabled_value; std::int32_t root{},kind{}; };
 
 std::span<PerformanceCatalogEntry const> get_performance_catalog() noexcept;
 std::span<PerformanceRegistryRule const> get_performance_registry_rules() noexcept;
+std::span<PrivacyCatalogEntry const> get_privacy_catalog() noexcept;
+std::span<PrivacyRegistryRule const> get_privacy_registry_rules() noexcept;
 
 inline constexpr std::array k_performance_groups{
     TweakGroupDefinition{"gaming", "Gaming"},

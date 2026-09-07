@@ -18,19 +18,18 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <ComboBox SelectedIndex="0" MinWidth="140">
+            <ComboBox x:Name="FilterBox" SelectedIndex="0" MinWidth="180" SelectionChanged="FilterChanged">
                 <ComboBoxItem Content="All" />
-                <ComboBoxItem Content="Active" />
-                <ComboBoxItem Content="User" />
+                <ComboBoxItem Content="Active only" />
+                <ComboBoxItem Content="User processes" />
             </ComboBox>
-            <Button Grid.Column="1" Content="Refresh" />
-            <Button Grid.Column="2" Content="Expand" />
-            <Button Grid.Column="3" Content="Collapse" />
+            <Button Grid.Column="1" Content="Refresh" Click="RefreshClick" />
         </Grid>
-        <ListView Grid.Row="2">
+        <Grid Grid.Row="2" RowSpacing="8">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextBlockStyle}" />
+        <ListView x:Name="ProcessList" Grid.Row="1" SelectionMode="Single">
             <ListView.Header>
                 <Grid Padding="12,8">
                     <Grid.ColumnDefinitions>
@@ -50,5 +49,6 @@
                 </Grid>
             </ListView.Header>
         </ListView>
+        </Grid>
     </Grid>
 </UserControl>

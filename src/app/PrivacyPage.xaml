@@ -21,10 +21,8 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <AutoSuggestBox x:Name="Search" PlaceholderText="Search tweaks" QueryIcon="Find" TextChanged="Search_TextChanged" />
-            <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" IsEnabled="False"
-                    ToolTipService.ToolTip="Profiles are enabled when all privacy categories are migrated." />
-            <Button Grid.Column="2" Content="Defaults" IsEnabled="False"
-                    ToolTipService.ToolTip="Profiles are enabled when all privacy categories are migrated." />
+            <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" Click="Recommended_Click" />
+            <Button Grid.Column="2" Content="Defaults" Click="Defaults_Click" />
         </Grid>
         <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
             <Grid>
