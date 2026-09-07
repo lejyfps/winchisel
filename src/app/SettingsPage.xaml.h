@@ -7,6 +7,7 @@ namespace winrt::Winchisel::implementation {
 
 struct SettingsPage : SettingsPageT<SettingsPage> {
     SettingsPage();
+    ~SettingsPage();
     void Language_SelectionChanged(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
@@ -20,6 +21,7 @@ private:
 
     bool loading_{true};
     winrt::Microsoft::UI::Xaml::DispatcherTimer save_timer_{nullptr};
+    winrt::event_token save_timer_token_{};
 };
 
 }  // namespace winrt::Winchisel::implementation

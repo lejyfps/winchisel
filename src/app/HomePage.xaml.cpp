@@ -17,8 +17,15 @@ HomePage::HomePage() {
     Refresh();
     timer_ = DispatcherTimer();
     timer_.Interval(std::chrono::seconds(5));
-    timer_.Tick([this](auto&&, auto&&) { Refresh(); });
+    timer_token_ = timer_.Tick([this](auto&&, auto&&) { Refresh(); });
     timer_.Start();
+}
+
+HomePage::~HomePage() {
+    if (timer_) {
+        timer_.Tick(timer_token_);
+        timer_.Stop();
+    }
 }
 
 void HomePage::Refresh() {

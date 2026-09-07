@@ -59,7 +59,9 @@ MainWindow::MainWindow() {
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
     }
-    ContentFrame().Content(make<HomePage>());
+    if (ContentFrame().Content() == nullptr) {
+        ContentFrame().Content(make<HomePage>());
+    }
 }
 
 void MainWindow::Nav_SelectionChanged(

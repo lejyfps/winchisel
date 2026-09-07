@@ -17,7 +17,9 @@ bool Session::bootstrap() {
         return false;
     }
     if (!winchisel::platform::is_user_an_admin()) {
-        winchisel::platform::boot_log("not admin — continuing (elevation after first window is stable)");
+        winchisel::platform::boot_log("not admin — requesting elevation");
+        (void)winchisel::platform::restart_elevated();
+        return false;
     } else {
         winchisel::platform::boot_log("admin ok");
     }

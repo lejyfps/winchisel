@@ -22,7 +22,14 @@ SettingsPage::SettingsPage() {
 
     save_timer_ = winrt::Microsoft::UI::Xaml::DispatcherTimer();
     save_timer_.Interval(std::chrono::milliseconds(600));
-    save_timer_.Tick([this](auto&&, auto&&) { save_settings(); });
+    save_timer_token_ = save_timer_.Tick([this](auto&&, auto&&) { save_settings(); });
+}
+
+SettingsPage::~SettingsPage() {
+    if (save_timer_) {
+        save_timer_.Tick(save_timer_token_);
+        save_timer_.Stop();
+    }
 }
 
 void SettingsPage::Language_SelectionChanged(
