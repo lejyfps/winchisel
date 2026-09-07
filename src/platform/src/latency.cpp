@@ -153,8 +153,34 @@ std::optional<std::pair<std::size_t, int>> trace_chain(std::string current,
 }
 
 std::string run_command(char const* command) {
-    std::array<char, 4096> buffer{}; std::string output; std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command, "r"), _pclose); if (!pipe) return {};
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get())) output += buffer.data(); return output;
+    SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+    HANDLE read_handle{}, write_handle{};
+    if (!CreatePipe(&read_handle, &write_handle, &security, 0)) return {};
+    SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdOutput = write_handle;
+    startup.hStdError = write_handle;
+    PROCESS_INFORMATION process{};
+    std::string mutable_command(command);
+    const BOOL started = CreateProcessA(nullptr, mutable_command.data(), nullptr, nullptr, TRUE,
+        CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+    CloseHandle(write_handle);
+    if (!started) { CloseHandle(read_handle); return {}; }
+
+    std::string output;
+    std::array<char, 4096> buffer{};
+    DWORD read{};
+    while (ReadFile(read_handle, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr) && read != 0)
+        output.append(buffer.data(), read);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    CloseHandle(read_handle);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return output;
 }
 
 std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {

@@ -29,6 +29,7 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
     if (analysis_.valid()) return;
     progress_ = 4;
     Progress().Value(progress_);
+    ProgressPercent().Text(L"4%");
     Status().Text(L"Starting USB topology analysis...");
     render_message(L"Scanning input devices, USB controllers, and hubs. This does not change any system setting.");
     AnalyzeButton().IsEnabled(false);
@@ -42,6 +43,7 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
                 if (auto page = weak.get()) {
                     page->progress_ = value;
                     page->Progress().Value(value);
+                    page->ProgressPercent().Text(to_hstring(std::to_string(value) + "%"));
                     page->Status().Text(status_text);
                 }
             });
