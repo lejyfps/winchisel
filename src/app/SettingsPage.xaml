@@ -10,19 +10,19 @@
                 <TextBlock Text="Language, updates, and system protection."
                            Style="{StaticResource CaptionTextBlockStyle}" />
             </StackPanel>
-            <Border Style="{StaticResource HomeCard}">
+            <Border Padding="16">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Application" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <ComboBox Header="Language" SelectedIndex="0" MinWidth="200">
+                    <ComboBox x:Name="Language" Header="Language" MinWidth="200" SelectionChanged="Language_SelectionChanged">
                         <ComboBoxItem Content="English" />
                         <ComboBoxItem Content="Deutsch" />
                     </ComboBox>
-                    <ToggleSwitch Header="Check for updates on startup" />
-                    <ToggleSwitch Header="Show console" />
-                    <ToggleSwitch Header="Start with Windows" />
+                    <ToggleSwitch x:Name="CheckUpdates" Header="Check for updates on startup" Toggled="Settings_Toggled" />
+                    <ToggleSwitch x:Name="ShowConsole" Header="Show console" Toggled="Settings_Toggled" />
+                    <ToggleSwitch x:Name="Autostart" Header="Start with Windows" Toggled="Settings_Toggled" />
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource HomeCard}">
+            <Border Padding="16">
                 <StackPanel Spacing="12">
                     <TextBlock Text="System Protection" Style="{StaticResource SubtitleTextBlockStyle}" />
                     <StackPanel Orientation="Horizontal" Spacing="8">

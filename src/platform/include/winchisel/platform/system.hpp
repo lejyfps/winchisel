@@ -16,6 +16,8 @@ bool is_user_an_admin();
 
 // Restart current process elevated (ShellExecuteW runas). Returns false if the user cancelled UAC.
 bool restart_elevated();
+bool is_autostart_enabled();
+winchisel::core::Result<void> set_autostart_enabled(bool enabled);
 
 std::filesystem::path appdata_dir();
 std::filesystem::path settings_path();

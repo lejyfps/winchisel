@@ -26,11 +26,21 @@ bool Session::bootstrap() {
     } else {
         settings_ = winchisel::core::settings_defaults();
     }
+    settings_.autostart_enabled = winchisel::platform::is_autostart_enabled();
+    (void)winchisel::platform::save_settings(settings_);
     winchisel::platform::set_console_visible(settings_.show_console);
     return true;
 }
 
 void Session::set_settings(winchisel::core::Settings settings) {
+    if (settings.autostart_enabled != settings_.autostart_enabled) {
+        if (auto result = winchisel::platform::set_autostart_enabled(settings.autostart_enabled); !result) {
+            settings.autostart_enabled = settings_.autostart_enabled;
+        }
+    }
+    if (settings.show_console != settings_.show_console) {
+        winchisel::platform::set_console_visible(settings.show_console);
+    }
     settings_ = std::move(settings);
     (void)winchisel::platform::save_settings(settings_);
 }

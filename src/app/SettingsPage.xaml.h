@@ -7,6 +7,19 @@ namespace winrt::Winchisel::implementation {
 
 struct SettingsPage : SettingsPageT<SettingsPage> {
     SettingsPage();
+    void Language_SelectionChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+    void Settings_Toggled(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+
+private:
+    void queue_save();
+    void save_settings();
+
+    bool loading_{true};
+    winrt::Microsoft::UI::Xaml::DispatcherTimer save_timer_{nullptr};
 };
 
 }  // namespace winrt::Winchisel::implementation

@@ -75,6 +75,64 @@ bool restart_elevated() {
     return rc > 32;
 }
 
+bool is_autostart_enabled() {
+    HKEY key{};
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &key) != ERROR_SUCCESS) {
+        return false;
+    }
+    DWORD type{};
+    DWORD bytes{};
+    auto status = RegQueryValueExW(key, L"Winchisel", nullptr, &type, nullptr, &bytes);
+    if (status != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ) || bytes < sizeof(wchar_t)) {
+        RegCloseKey(key);
+        return false;
+    }
+    std::vector<wchar_t> value(bytes / sizeof(wchar_t), L'\0');
+    status = RegQueryValueExW(key, L"Winchisel", nullptr, &type, reinterpret_cast<LPBYTE>(value.data()), &bytes);
+    RegCloseKey(key);
+    if (status != ERROR_SUCCESS) {
+        return false;
+    }
+    return std::filesystem::path(value.data()).lexically_normal() == exe_path().lexically_normal();
+}
+
+winchisel::core::Result<void> set_autostart_enabled(bool enabled) {
+    HKEY key{};
+    const auto open_status = RegCreateKeyExW(
+        HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0,
+        KEY_READ | KEY_WRITE, nullptr, &key, nullptr);
+    if (open_status != ERROR_SUCCESS) {
+        return std::unexpected(winchisel::core::Error{
+            .code = winchisel::core::ErrorCode::io,
+            .message_key = "autostart_update_failed",
+            .detail = std::to_string(open_status),
+        });
+    }
+
+    LONG status{};
+    if (enabled) {
+        const auto path = exe_path().wstring();
+        status = path.empty()
+            ? ERROR_FILE_NOT_FOUND
+            : RegSetValueExW(key, L"Winchisel", 0, REG_SZ, reinterpret_cast<const BYTE*>(path.c_str()),
+                              static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t)));
+    } else {
+        status = RegDeleteValueW(key, L"Winchisel");
+        if (status == ERROR_FILE_NOT_FOUND) {
+            status = ERROR_SUCCESS;
+        }
+    }
+    RegCloseKey(key);
+    if (status != ERROR_SUCCESS) {
+        return std::unexpected(winchisel::core::Error{
+            .code = winchisel::core::ErrorCode::io,
+            .message_key = "autostart_update_failed",
+            .detail = std::to_string(status),
+        });
+    }
+    return {};
+}
+
 std::filesystem::path appdata_dir() {
     PWSTR raw{};
     if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &raw)) || raw == nullptr) {

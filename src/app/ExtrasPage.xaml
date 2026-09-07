@@ -10,7 +10,7 @@
                 <TextBlock Text="Power plan, networking, and extra system toggles."
                            Style="{StaticResource CaptionTextBlockStyle}" />
             </StackPanel>
-            <Border Style="{StaticResource HomeCard}">
+            <Border Padding="16">
                 <StackPanel Spacing="12">
                     <ToggleSwitch Header="Winchisel Power Plan" />
                     <ToggleSwitch Header="Disable Modern Standby" />
