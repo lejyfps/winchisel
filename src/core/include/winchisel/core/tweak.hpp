@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <array>
 #include <optional>
+#include <span>
 #include <string_view>
 
 namespace winchisel::core {
@@ -50,6 +51,24 @@ struct TweakGroupDefinition {
     std::string_view id;
     std::string_view title;
 };
+
+struct PerformanceCatalogEntry {
+    std::string_view id;
+    std::string_view name;
+    std::string_view description;
+    std::int32_t group{};
+    std::int32_t input{};
+    std::string_view options;
+};
+
+struct PerformanceRegistryRule {
+    std::string_view id, path, name, enabled_values, disabled_values;
+    std::int32_t root{}, kind{}, byte_index{};
+    std::uint8_t bit_mask{};
+};
+
+std::span<PerformanceCatalogEntry const> get_performance_catalog() noexcept;
+std::span<PerformanceRegistryRule const> get_performance_registry_rules() noexcept;
 
 inline constexpr std::array k_performance_groups{
     TweakGroupDefinition{"gaming", "Gaming"},

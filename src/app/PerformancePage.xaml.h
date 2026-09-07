@@ -17,6 +17,9 @@ struct PerformancePage : PerformancePageT<PerformancePage> {
     void Defaults_Click(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void Search_TextChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::AutoSuggestBoxTextChangedEventArgs const&);
 
 private:
     struct GamingToggle {
@@ -31,6 +34,15 @@ private:
         std::vector<winchisel::core::RegistryValue> disabled_values;
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr};
     };
+    struct CatalogToggle {
+        std::string id;
+        winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr};
+    };
+    struct CatalogSelection {
+        std::string id;
+        std::vector<std::string> options;
+        winrt::Microsoft::UI::Xaml::Controls::ComboBox control{nullptr};
+    };
 
     void load_gaming_toggles();
     void save_gaming_toggle(std::size_t index);
@@ -38,10 +50,16 @@ private:
     void load_gaming_selections();
     void save_mouse_hover_time();
     void save_background_apps();
+    void load_catalog_toggles();
+    void save_catalog_toggle(std::size_t index);
+    void load_catalog_selections();
+    void save_catalog_selection(std::size_t index);
 
     bool loading_gaming_toggles_{true};
     bool loading_gaming_selections_{true};
     std::vector<GamingToggle> gaming_toggles_;
+    std::vector<CatalogToggle> catalog_toggles_;
+    std::vector<CatalogSelection> catalog_selections_;
     winrt::Microsoft::UI::Xaml::Controls::ComboBox mouse_hover_time_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox background_apps_{nullptr};
 };

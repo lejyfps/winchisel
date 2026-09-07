@@ -20,7 +20,7 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <AutoSuggestBox PlaceholderText="Search tweaks" QueryIcon="Find" />
+            <AutoSuggestBox x:Name="Search" PlaceholderText="Search tweaks" QueryIcon="Find" TextChanged="Search_TextChanged" />
             <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" Click="Recommended_Click" />
             <Button Grid.Column="2" Content="Defaults" Click="Defaults_Click" />
         </Grid>

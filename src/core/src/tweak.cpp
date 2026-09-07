@@ -1,7 +1,10 @@
 #include "winchisel/core/tweak.hpp"
 #include "winchisel/core/registry.hpp"
+#include "performance_catalog.generated.hpp"
 
 namespace winchisel::core {
+std::span<PerformanceCatalogEntry const> get_performance_catalog() noexcept { return generated_performance_catalog; }
+std::span<PerformanceRegistryRule const> get_performance_registry_rules() noexcept { return generated_performance_registry_rules; }
 namespace {
 
 constexpr TweakProfile k_toggle_profile{
