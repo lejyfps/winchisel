@@ -16,14 +16,14 @@
                 <TextBlock Text="Analyze USB topology for latency issues."
                            Style="{StaticResource CaptionTextBlockStyle}" />
             </StackPanel>
-            <Button Content="Analyze" Style="{StaticResource AccentButtonStyle}"
-                    HorizontalAlignment="Right" VerticalAlignment="Center" />
+            <Button x:Name="AnalyzeButton" Content="Analyze" Style="{StaticResource AccentButtonStyle}"
+                    Click="Analyze_Click" HorizontalAlignment="Right" VerticalAlignment="Center" />
         </Grid>
-        <ProgressBar Grid.Row="1" Value="0" />
-        <TextBlock Grid.Row="2" Text="Ready" Style="{StaticResource CaptionTextBlockStyle}" />
-        <Border Grid.Row="3" Padding="16">
+        <ProgressBar x:Name="Progress" Grid.Row="1" Value="0" Maximum="100" />
+        <TextBlock x:Name="Status" Grid.Row="2" Text="Ready" Style="{StaticResource CaptionTextBlockStyle}" />
+        <Border Grid.Row="3" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
             <ScrollViewer>
-                <TextBlock TextWrapping="Wrap" />
+                <RichTextBlock x:Name="Report" TextWrapping="Wrap" />
             </ScrollViewer>
         </Border>
     </Grid>

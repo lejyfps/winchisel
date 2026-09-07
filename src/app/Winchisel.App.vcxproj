@@ -292,5 +292,7 @@
     <Copy SourceFiles="$(OutDir)LatencyPage.xbf" DestinationFiles="$(OutDir)LatencyPage.xaml" />
     <Copy SourceFiles="$(OutDir)ExtrasPage.xbf" DestinationFiles="$(OutDir)ExtrasPage.xaml" />
     <Copy SourceFiles="$(OutDir)SettingsPage.xbf" DestinationFiles="$(OutDir)SettingsPage.xaml" />
+    <Copy SourceFiles="$(SolutionDir)third_party\cpu-direct-usb\cpudirect.ps1" DestinationFiles="$(OutDir)cpu-direct-usb.ps1" />
+    <Copy SourceFiles="$(SolutionDir)third_party\cpu-direct-usb\LICENSE" DestinationFiles="$(OutDir)cpu-direct-usb.LICENSE.txt" />
   </Target>
 </Project>

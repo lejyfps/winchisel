@@ -2,11 +2,23 @@
 
 #include "LatencyPage.g.h"
 #include "LatencyPage.xaml.g.h"
+#include "winchisel/platform/latency.hpp"
+
+#include <future>
 
 namespace winrt::Winchisel::implementation {
 
 struct LatencyPage : LatencyPageT<LatencyPage> {
     LatencyPage();
+    ~LatencyPage();
+    void Analyze_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+
+private:
+    void poll_analysis();
+    void render_report(winrt::hstring const& report, bool is_error = false);
+    std::future<winchisel::core::Result<std::string>> analysis_;
+    winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};
+    int progress_{};
 };
 
 }  // namespace winrt::Winchisel::implementation
