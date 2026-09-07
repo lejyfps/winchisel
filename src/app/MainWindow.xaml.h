@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MainWindow.g.h"
+#include "MainWindow.xaml.g.h"
 
 namespace winrt::Winchisel::implementation {
 

@@ -1,4 +1,5 @@
 /nuget.exe
+src/app/Generated Files/
 /.vs/
 /out/
 /build/

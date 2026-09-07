@@ -1,6 +1,6 @@
 #pragma once
 
-#include "App.g.h"
+#include "App.xaml.g.h"
 
 namespace winrt::Winchisel::implementation {
 
@@ -13,9 +13,3 @@ private:
 };
 
 }  // namespace winrt::Winchisel::implementation
-
-namespace winrt::Winchisel::factory_implementation {
-
-struct App : AppT<App, implementation::App> {};
-
-}  // namespace winrt::Winchisel::factory_implementation

@@ -2,9 +2,7 @@
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
 
-#if __has_include("App.g.cpp")
-#include "App.g.cpp"
-#endif
+
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;

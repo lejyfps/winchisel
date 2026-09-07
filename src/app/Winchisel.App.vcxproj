@@ -21,10 +21,17 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{A1C0E001-0004-4000-8000-000000000004}</ProjectGuid>
     <RootNamespace>Winchisel</RootNamespace>
+    <ApplicationType>Windows Store</ApplicationType>
+    <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
+    <AppContainerApplication>false</AppContainerApplication>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformMinVersion>10.0.26100.0</WindowsTargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
+    <DesktopCompatible>true</DesktopCompatible>
     <WindowsPackageType>None</WindowsPackageType>
+    <XamlLanguage>CppWinRT</XamlLanguage>
+    <ManagedAssembly>false</ManagedAssembly>
+    <DefaultLanguage>en-US</DefaultLanguage>
     <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
     <WindowsAppSdkAutoInitialize>false</WindowsAppSdkAutoInitialize>
     <WindowsAppSdkUndockedRegFreeWinRTInitialize>false</WindowsAppSdkUndockedRegFreeWinRTInitialize>
@@ -62,13 +69,13 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <ConformanceMode>true</ConformanceMode>
       <WarningLevel>Level4</WarningLevel>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(GeneratedFilesDir);$(SolutionDir)src\core\include;$(SolutionDir)src\platform\include;$(SolutionDir)src\application\include;$(SolutionDir)packages\Microsoft.WindowsAppSDK.Runtime.1.8.260209005\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_UNICODE;UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Generated Files;$(GeneratedFilesDir);$(SolutionDir)src\core\include;$(SolutionDir)src\platform\include;$(SolutionDir)src\application\include;$(SolutionDir)packages\Microsoft.WindowsAppSDK.Runtime.1.8.260209005\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_UNICODE;UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;DISABLE_XAML_GENERATED_MAIN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>windowsapp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>windowsapp.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <AdditionalManifestFiles>$(ProjectDir)App.manifest;%(AdditionalManifestFiles)</AdditionalManifestFiles>
@@ -86,9 +93,11 @@
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml">
       <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
     </ApplicationDefinition>
     <Page Include="MainWindow.xaml">
       <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
   <ItemGroup>
@@ -102,6 +111,9 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Generated Files\module.g.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Midl Include="App.idl">
@@ -139,4 +151,5 @@
   <Import Project="..\..\packages\Microsoft.WindowsAppSDK.1.8.260209005\build\native\Microsoft.WindowsAppSDK.targets" Condition="Exists('..\..\packages\Microsoft.WindowsAppSDK.1.8.260209005\build\native\Microsoft.WindowsAppSDK.targets')" />
   <Import Project="..\..\packages\Microsoft.Windows.SDK.BuildTools.10.0.26100.4188\build\Microsoft.Windows.SDK.BuildTools.targets" Condition="Exists('..\..\packages\Microsoft.Windows.SDK.BuildTools.10.0.26100.4188\build\Microsoft.Windows.SDK.BuildTools.targets')" />
   <Import Project="..\..\packages\Microsoft.Windows.ImplementationLibrary.1.0.250325.1\build\native\Microsoft.Windows.ImplementationLibrary.targets" Condition="Exists('..\..\packages\Microsoft.Windows.ImplementationLibrary.1.0.250325.1\build\native\Microsoft.Windows.ImplementationLibrary.targets')" />
+  <Target Name="XamlCompileForNative" BeforeTargets="ClCompile" DependsOnTargets="MarkupCompilePass1" />
 </Project>
