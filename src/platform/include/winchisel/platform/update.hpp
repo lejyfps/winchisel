@@ -3,6 +3,7 @@
 #include "winchisel/core/error.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,6 +30,11 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(
 // Performs discovery through GitHub's public latest-release API, then verifies
 // the separately downloaded manifest before returning any update metadata.
 winchisel::core::Result<ReleaseManifest> check_github_latest_release();
+
+// Downloads exactly one signed-manifest artifact into a private staging folder.
+// The returned file has passed size and SHA-256 validation.
+winchisel::core::Result<std::filesystem::path> stage_release_artifact(
+    ReleaseManifest const& manifest, std::string_view artifact_id);
 
 inline constexpr std::string_view k_github_latest_release_api =
     "https://api.github.com/repos/lejyfps/winchisel/releases/latest";

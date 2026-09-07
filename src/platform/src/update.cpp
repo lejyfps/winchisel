@@ -4,13 +4,19 @@
 #include <bcrypt.h>
 #include <wincrypt.h>
 #include <winhttp.h>
+#include <shlobj.h>
 
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <ranges>
 #include <regex>
+#include <span>
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "ole32.lib")
 
 namespace winchisel::platform {
 namespace {
@@ -26,7 +32,9 @@ winchisel::core::Result<std::string> get_https(std::string_view url) {
     parts.lpszHostName = host.data(); parts.dwHostNameLength = static_cast<DWORD>(host.size()); parts.lpszUrlPath = path.data(); parts.dwUrlPathLength = static_cast<DWORD>(path.size());
     if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS) return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_check_failed",.detail="Invalid HTTPS URL"});
     HINTERNET session=WinHttpOpen(L"Winchisel/1.0",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0); if(!session) return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_check_failed",.detail="WinHttpOpen failed"});
-    HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",path.data(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
+    std::wstring target(path.data(), parts.dwUrlPathLength);
+    if (parts.lpszExtraInfo && parts.dwExtraInfoLength) target.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
+    HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",target.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
     const bool sent=request&&WinHttpSendRequest(request,L"Accept: application/vnd.github+json\r\n",-1,WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
     std::string output; for(DWORD available{}; sent&&status==200&&WinHttpQueryDataAvailable(request,&available)&&available;){const auto at=output.size();output.resize(at+available);DWORD read{};if(!WinHttpReadData(request,output.data()+at,available,&read)){output.clear();break;}output.resize(at+read);} if(request)WinHttpCloseHandle(request);if(connection)WinHttpCloseHandle(connection);WinHttpCloseHandle(session);
     if(!sent||status!=200) return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_check_failed",.detail="GitHub returned HTTP "+std::to_string(status)}); return output;
@@ -65,6 +73,13 @@ bool verify_signature(std::string_view json, std::string_view signature_text) {
     if (hash) BCryptDestroyHash(hash); if (key) BCryptDestroyKey(key); if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0); return ok;
 }
 
+std::string sha256_hex(std::span<std::byte const> value) {
+    BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_HASH_HANDLE hash{}; if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return {};
+    DWORD object_size{}, result{}; BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size), sizeof(object_size), &result, 0); std::vector<std::byte> object(object_size), digest(32);
+    const bool ok=BCryptCreateHash(algorithm,&hash,reinterpret_cast<BYTE*>(object.data()),object_size,nullptr,0,0)>=0&&BCryptHashData(hash,reinterpret_cast<BYTE*>(const_cast<std::byte*>(value.data())),static_cast<ULONG>(value.size()),0)>=0&&BCryptFinishHash(hash,reinterpret_cast<BYTE*>(digest.data()),static_cast<ULONG>(digest.size()),0)>=0; if(hash)BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm,0); if(!ok)return {};
+    static constexpr char hex[]="0123456789abcdef"; std::string result_hex; result_hex.reserve(64); for(auto byte:digest){const auto v=static_cast<unsigned>(byte);result_hex.push_back(hex[v>>4]);result_hex.push_back(hex[v&15]);} return result_hex;
+}
+
 } // namespace
 
 winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_view json, std::string_view signature) {
@@ -80,6 +95,14 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_vie
 
 winchisel::core::Result<ReleaseManifest> check_github_latest_release() {
     auto release=get_https(k_github_latest_release_api); if(!release)return std::unexpected(release.error()); auto manifest_url=asset_url(*release,"release.json"), signature_url=asset_url(*release,"release.json.sig"); if(!manifest_url||!signature_url)return fail("Release is missing manifest assets"); auto manifest=get_https(*manifest_url), signature=get_https(*signature_url); if(!manifest)return std::unexpected(manifest.error()); if(!signature)return std::unexpected(signature.error()); return verify_release_manifest(*manifest,*signature);
+}
+
+winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseManifest const& manifest, std::string_view artifact_id) {
+    const auto artifact=std::ranges::find_if(manifest.artifacts,[artifact_id](auto const& value){return value.id==artifact_id;}); if(artifact==manifest.artifacts.end()) return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::not_found,.message_key="update_artifact_missing",.detail=std::string(artifact_id)});
+    const auto url=std::string("https://github.com/lejyfps/winchisel/releases/download/v")+manifest.version+"/"+artifact->file_name; auto downloaded=get_https(url); if(!downloaded)return std::unexpected(downloaded.error()); if(downloaded->size()!=artifact->size)return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_hash_mismatch",.detail="Unexpected download size"});
+    const auto digest=sha256_hex(std::as_bytes(std::span{downloaded->data(),downloaded->size()})); if(digest!=artifact->sha256)return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_hash_mismatch",.detail="SHA-256 mismatch"});
+    PWSTR raw{}; if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&raw)))return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_stage_failed",.detail="LocalAppData unavailable"}); std::filesystem::path dir=raw;CoTaskMemFree(raw);dir/=L"Winchisel";dir/=L"updates";dir/=std::wstring(manifest.version.begin(),manifest.version.end());std::error_code error;std::filesystem::create_directories(dir,error);if(error)return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_stage_failed",.detail=error.message()});
+    const auto final=dir/std::filesystem::path(artifact->file_name);const auto partial=final.wstring()+L".partial";std::ofstream output(std::filesystem::path(partial),std::ios::binary|std::ios::trunc);output.write(downloaded->data(),static_cast<std::streamsize>(downloaded->size()));output.close();if(!output)return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_stage_failed",.detail="Write failed"}); if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_stage_failed",.detail=std::to_string(GetLastError())});return final;
 }
 
 } // namespace winchisel::platform
