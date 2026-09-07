@@ -50,12 +50,14 @@
     <ClInclude Include="include\winchisel\platform\home.hpp" />
     <ClInclude Include="include\winchisel\platform\registry.hpp" />
     <ClInclude Include="include\winchisel\platform\latency.hpp" />
+    <ClInclude Include="include\winchisel\platform\debloater.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\system.cpp" />
     <ClCompile Include="src\home.cpp" />
     <ClCompile Include="src\registry.cpp" />
     <ClCompile Include="src\latency.cpp" />
+    <ClCompile Include="src\debloater.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">

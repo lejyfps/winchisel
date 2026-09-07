@@ -31,28 +31,21 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <AutoSuggestBox x:Name="Search" PlaceholderText="Search" QueryIcon="Find" />
-            <ComboBox x:Name="Filter" Grid.Column="1" SelectedIndex="0" MinWidth="160">
+            <AutoSuggestBox x:Name="Search" PlaceholderText="Search" QueryIcon="Find" TextChanged="Search_TextChanged" />
+            <ComboBox x:Name="Filter" Grid.Column="1" SelectedIndex="0" MinWidth="160" SelectionChanged="Filter_SelectionChanged">
                 <ComboBoxItem Content="All" />
                 <ComboBoxItem Content="Installed" />
                 <ComboBoxItem Content="Not installed" />
             </ComboBox>
             <Button Grid.Column="2" Content="Refresh" Click="Refresh_Click" />
-            <Button Grid.Column="3" Content="Install" Style="{StaticResource AccentButtonStyle}" Click="Install_Click" />
-            <Button Grid.Column="4" Content="Remove" Click="Remove_Click" />
+            <Button x:Name="InstallButton" Grid.Column="3" Content="Install" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" Click="Install_Click" />
+            <Button x:Name="RemoveButton" Grid.Column="4" Content="Remove" IsEnabled="False" Click="Remove_Click" />
         </Grid>
 
         <Grid Grid.Row="3">
-            <ListView x:Name="Items" SelectionMode="Multiple">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Padding="0,8">
-                            <TextBlock Text="{Binding}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+            <ListView x:Name="Items" SelectionMode="Multiple" SelectionChanged="Items_SelectionChanged" />
             <ProgressRing x:Name="Loading" IsActive="False" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <InfoBar x:Name="Notice" IsOpen="False" VerticalAlignment="Bottom" Margin="0,0,0,8" />
         </Grid>
     </Grid>
 </UserControl>

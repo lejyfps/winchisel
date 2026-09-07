@@ -184,7 +184,7 @@ std::string run_command(char const* command) {
 }
 
 std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
-    constexpr auto command = R"CMD(powershell.exe -NoProfile -NonInteractive -Command "$inputDevices=@();$usbDevices=Get-PnpDevice -Status OK -ErrorAction SilentlyContinue|Where-Object{$_.InstanceId-match'^USB\\'};foreach($dev in $usbDevices){$compatIds=(Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName 'DEVPKEY_Device_CompatibleIds' -ErrorAction SilentlyContinue).Data;if($compatIds-match'Class_03'){$inputDevices+=$dev}};$inputDevices=$inputDevices|Sort-Object InstanceId -Unique;foreach($device in $inputDevices){$usbParent=$device.InstanceId;$currentId=$usbParent;$hubCount=0;$controllerId='';for($count=0;$currentId-and$count-lt 15;$count++){$d=Get-PnpDevice -InstanceId $currentId -ErrorAction SilentlyContinue;if($currentId-match'ROOT_HUB'){$controllerId=(Get-PnpDeviceProperty -InstanceId $currentId -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data;break};if($d-and$d.FriendlyName-match'Hub'-and$d.FriendlyName-notmatch'Root'){$hubCount++};$currentId=(Get-PnpDeviceProperty -InstanceId $currentId -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data};if(!$controllerId){continue};$v='????';$p='????';if($usbParent-match'VID_([0-9A-Fa-f]{4})'){$v=$Matches[1]};if($usbParent-match'PID_([0-9A-Fa-f]{4})'){$p=$Matches[1]};$name=(Get-PnpDeviceProperty -InstanceId $usbParent -KeyName 'DEVPKEY_Device_BusReportedDeviceDesc' -ErrorAction SilentlyContinue).Data;if(!$name){$name=$device.FriendlyName};Write-Output($name+'|'+$v+'|'+$p+'|'+$controllerId+'|'+$hubCount)}")CMD";
+    constexpr auto command = R"CMD(powershell.exe -NoProfile -NonInteractive -Command "$inputDevices=@();$usbDevices=Get-PnpDevice -Status OK -ErrorAction SilentlyContinue|Where-Object{$_.InstanceId-match'^USB\\'};foreach($dev in $usbDevices){$compatIds=(Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName 'DEVPKEY_Device_CompatibleIds' -ErrorAction SilentlyContinue).Data;if($compatIds-match'Class_03'){$inputDevices+=$dev}};$xboxDevices=Get-PnpDevice -Class 'XboxComposite','XnaComposite','XUSBClass' -Status OK -ErrorAction SilentlyContinue;if($xboxDevices){$inputDevices+=$xboxDevices};$inputDevices=$inputDevices|Sort-Object InstanceId -Unique;foreach($device in $inputDevices){$usbParent=$device.InstanceId;if($usbParent-match'^HID\\'){$usbParent=(Get-PnpDeviceProperty -InstanceId $usbParent -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data};$currentId=$usbParent;$hubCount=0;$controllerId='';for($count=0;$currentId-and$count-lt 15;$count++){$d=Get-PnpDevice -InstanceId $currentId -ErrorAction SilentlyContinue;if($currentId-match'ROOT_HUB'){$controllerId=(Get-PnpDeviceProperty -InstanceId $currentId -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data;break};if($d-and$d.FriendlyName-match'Hub'-and$d.FriendlyName-notmatch'Root'){$hubCount++};$currentId=(Get-PnpDeviceProperty -InstanceId $currentId -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data};if(!$controllerId){continue};$v='????';$p='????';if($usbParent-match'VID_([0-9A-Fa-f]{4})'){$v=$Matches[1]};if($usbParent-match'PID_([0-9A-Fa-f]{4})'){$p=$Matches[1]};$name=(Get-PnpDeviceProperty -InstanceId $usbParent -KeyName 'DEVPKEY_Device_BusReportedDeviceDesc' -ErrorAction SilentlyContinue).Data;if(!$name){$name=$device.FriendlyName};Write-Output($name+'|'+$v+'|'+$p+'|'+$controllerId+'|'+$hubCount)}")CMD";
     std::vector<Device> result; std::unordered_set<std::string> seen; std::istringstream stream(run_command(command)); std::string line;
     while (std::getline(stream, line)) {
         std::array<std::string, 5> field{}; std::size_t begin{}; bool valid = true;
@@ -224,8 +224,17 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
     for (auto const& node : nodes) {
         const bool hid = std::ranges::any_of(node.compatible_ids, [](auto const& id) { return lower(id).find("class_03") != std::string::npos; }); if (!hid) continue;
         auto base = node.device_key; if (auto mi = base.find("&MI_"); mi != std::string::npos) base.resize(mi); if (!seen.insert(base).second) continue;
-        auto trace = trace_chain(node.instance, prefixes, instances, nodes, buses); if (!trace) continue;
-        const auto [controller, hubs] = *trace; devices.push_back({node.name, "????", "????", controllers[controller].chip_level + hubs, hubs, controller});
+        const bool composite_interface = node.device_key.find("&MI_") != std::string::npos;
+        const auto trace_instance = composite_interface ? strip_last(node.instance).value_or(node.instance) : node.instance;
+        auto trace = trace_chain(trace_instance, prefixes, instances, nodes, buses); if (!trace) continue;
+        auto name = node.name;
+        if (composite_interface) {
+            const auto composite_instance = strip_last(node.instance).value_or("");
+            if (auto parent = std::ranges::find_if(nodes, [&](auto const& candidate) {
+                    return candidate.device_key.find("&MI_") == std::string::npos && candidate.device_key.starts_with(base) && candidate.instance == composite_instance;
+                }); parent != nodes.end()) name = parent->name;
+        }
+        const auto [controller, hubs] = *trace; devices.push_back({std::move(name), "????", "????", controllers[controller].chip_level + hubs, hubs, controller});
     }
 
     notify(95, "Building report..."); LatencyAnalysis result; auto& out = result.lines;
@@ -234,6 +243,11 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
     add(out, "  0 CHIPS  device --- [CPU]", LatencyColor::success, true); add(out, "  1 CHIP   device -[CHIPSET]- [CPU]", LatencyColor::warning, true); add(out, "  2 CHIPS  device -[HUB]-[CHIPSET]- [CPU]", LatencyColor::critical, true); add(out);
     add(out, "  =============================================================", LatencyColor::separator); add(out);
     if (controllers.empty()) add(out, "  No USB controllers detected. Try running as Administrator.", LatencyColor::muted);
+    else if (!std::ranges::any_of(controllers, [](auto const& controller) { return controller.chip_level == 0; })) {
+        add(out, "  ! This system has no direct CPU USB", LatencyColor::warning);
+        add(out, "    1 chip is your best option here", LatencyColor::muted);
+        add(out);
+    }
     for (int level : {0, 1, 2}) {
         std::vector<Device const*> group; for (auto const& device : devices) if ((level < 2 && device.chip_count == level) || (level == 2 && device.chip_count >= 2)) group.push_back(&device);
         if (group.empty()) continue; add(out, level == 0 ? "  0 chips - direct to CPU" : level == 1 ? "  1 chip - through chipset" : "  2+ chips - through hub", chip_color(level));
