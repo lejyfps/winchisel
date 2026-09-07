@@ -53,6 +53,7 @@
     <ClInclude Include="include\winchisel\platform\registry.hpp" />
     <ClInclude Include="include\winchisel\platform\latency.hpp" />
     <ClInclude Include="include\winchisel\platform\debloater.hpp" />
+    <ClInclude Include="include\winchisel\platform\update.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\performance.cpp" />
@@ -62,6 +63,7 @@
     <ClCompile Include="src\registry.cpp" />
     <ClCompile Include="src\latency.cpp" />
     <ClCompile Include="src\debloater.cpp" />
+    <ClCompile Include="src\update.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">
