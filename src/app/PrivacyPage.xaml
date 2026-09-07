@@ -25,21 +25,7 @@
             <Button Grid.Column="2" Content="Defaults" />
         </Grid>
         <ScrollViewer Grid.Row="2">
-            <StackPanel Spacing="8">
-                <Expander Header="Security" IsExpanded="True" HorizontalAlignment="Stretch" />
-                <Expander Header="Ads" HorizontalAlignment="Stretch" />
-                <Expander Header="Lock Screen" HorizontalAlignment="Stretch" />
-                <Expander Header="General" HorizontalAlignment="Stretch" />
-                <Expander Header="Speech" HorizontalAlignment="Stretch" />
-                <Expander Header="Inking" HorizontalAlignment="Stretch" />
-                <Expander Header="Diagnostics" HorizontalAlignment="Stretch" />
-                <Expander Header="Activity History" HorizontalAlignment="Stretch" />
-                <Expander Header="Search" HorizontalAlignment="Stretch" />
-                <Expander Header="App Permissions" HorizontalAlignment="Stretch" />
-                <Expander Header="Windows AI" HorizontalAlignment="Stretch" />
-                <Expander Header="Edge AI" HorizontalAlignment="Stretch" />
-                <Expander Header="Office AI" HorizontalAlignment="Stretch" />
-            </StackPanel>
+            <StackPanel x:Name="Groups" Spacing="8" />
         </ScrollViewer>
     </Grid>
 </UserControl>

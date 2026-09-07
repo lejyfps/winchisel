@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <string_view>
 
@@ -43,6 +44,40 @@ struct TweakProfileMatch {
     constexpr bool custom() const noexcept {
         return !recommended && !windows_default;
     }
+};
+
+struct TweakGroupDefinition {
+    std::string_view id;
+    std::string_view title;
+};
+
+inline constexpr std::array k_performance_groups{
+    TweakGroupDefinition{"gaming", "Gaming"},
+    TweakGroupDefinition{"processor", "Processor"},
+    TweakGroupDefinition{"graphics", "Graphics"},
+    TweakGroupDefinition{"network", "Network"},
+    TweakGroupDefinition{"security", "Security"},
+    TweakGroupDefinition{"xbox", "Xbox"},
+    TweakGroupDefinition{"system_services", "System Services"},
+    TweakGroupDefinition{"scheduled_tasks", "Scheduled Tasks"},
+    TweakGroupDefinition{"visual_effects", "Visual Effects"},
+    TweakGroupDefinition{"accessibility", "Accessibility"},
+};
+
+inline constexpr std::array k_privacy_security_groups{
+    TweakGroupDefinition{"security", "Security"},
+    TweakGroupDefinition{"ads", "Ads"},
+    TweakGroupDefinition{"lock_screen", "Lock Screen"},
+    TweakGroupDefinition{"general", "General"},
+    TweakGroupDefinition{"speech", "Speech"},
+    TweakGroupDefinition{"inking", "Inking"},
+    TweakGroupDefinition{"diagnostics", "Diagnostics"},
+    TweakGroupDefinition{"activity_history", "Activity History"},
+    TweakGroupDefinition{"search", "Search"},
+    TweakGroupDefinition{"app_permissions", "App Permissions"},
+    TweakGroupDefinition{"windows_ai", "Windows AI"},
+    TweakGroupDefinition{"edge_ai", "Edge AI"},
+    TweakGroupDefinition{"office_ai", "Office AI"},
 };
 
 constexpr TweakProfileMatch match_toggle_profile(TweakProfile const& profile, bool current) noexcept {

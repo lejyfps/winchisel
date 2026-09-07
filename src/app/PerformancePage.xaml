@@ -21,22 +21,13 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <AutoSuggestBox PlaceholderText="Search tweaks" QueryIcon="Find" />
-            <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" />
-            <Button Grid.Column="2" Content="Defaults" />
+            <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" Click="Recommended_Click" />
+            <Button Grid.Column="2" Content="Defaults" Click="Defaults_Click" />
         </Grid>
-        <ScrollViewer Grid.Row="2">
-            <StackPanel Spacing="8">
-                <Expander Header="Gaming" IsExpanded="True" HorizontalAlignment="Stretch" />
-                <Expander Header="Processor" HorizontalAlignment="Stretch" />
-                <Expander Header="Graphics" HorizontalAlignment="Stretch" />
-                <Expander Header="Network" HorizontalAlignment="Stretch" />
-                <Expander Header="Security" HorizontalAlignment="Stretch" />
-                <Expander Header="Xbox" HorizontalAlignment="Stretch" />
-                <Expander Header="System Services" HorizontalAlignment="Stretch" />
-                <Expander Header="Scheduled Tasks" HorizontalAlignment="Stretch" />
-                <Expander Header="Visual Effects" HorizontalAlignment="Stretch" />
-                <Expander Header="Accessibility" HorizontalAlignment="Stretch" />
-            </StackPanel>
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+                <StackPanel x:Name="Groups" Spacing="8" />
+            </Grid>
         </ScrollViewer>
     </Grid>
 </UserControl>

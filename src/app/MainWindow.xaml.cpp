@@ -50,6 +50,7 @@ winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
 
 MainWindow::MainWindow() {
     InitializeComponent();
+    SystemBackdrop(Media::MicaBackdrop());
     auto app_window = app_window_from(*this);
     app_window.Resize({1280, 720});
     if (auto presenter = app_window.Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>()) {
