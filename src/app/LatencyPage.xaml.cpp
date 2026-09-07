@@ -29,10 +29,11 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
     if (analysis_.valid()) return;
     progress_ = 4;
     Progress().Value(progress_);
-    Status().Text(L"Starting Windows USB inventory…");
+    Status().Text(L"Starting USB topology analysis...");
     render_report(L"Scanning input devices, USB controllers, and hubs. This does not change any system setting.");
     AnalyzeButton().IsEnabled(false);
-    AnalyzeButton().Content(box_value(L"Analyzing…"));
+    AnalyzeButton().Content(box_value(L"Analyzing..."));
+    Progress().IsIndeterminate(true);
     analysis_ = std::async(std::launch::async, [] { return winchisel::platform::analyze_usb_topology(); });
     timer_.Start();
 }
@@ -40,13 +41,12 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
 void LatencyPage::poll_analysis() {
     if (!analysis_.valid()) { timer_.Stop(); return; }
     if (analysis_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-        progress_ = std::min(progress_ + 4, 92);
-        Progress().Value(progress_);
-        Status().Text(L"Reading USB topology from Windows…");
+        Status().Text(L"Tracing controllers, hubs, and input devices...");
         return;
     }
     const auto result = analysis_.get();
     timer_.Stop();
+    Progress().IsIndeterminate(false);
     Progress().Value(100);
     AnalyzeButton().IsEnabled(true);
     AnalyzeButton().Content(box_value(L"Analyze again"));

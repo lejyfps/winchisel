@@ -23,7 +23,8 @@
         <TextBlock x:Name="Status" Grid.Row="2" Text="Ready" Style="{StaticResource CaptionTextBlockStyle}" />
         <Border Grid.Row="3" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
             <ScrollViewer>
-                <RichTextBlock x:Name="Report" TextWrapping="Wrap" />
+                <RichTextBlock x:Name="Report" TextWrapping="NoWrap" IsTextSelectionEnabled="True"
+                               LineHeight="20" LineStackingStrategy="BlockLineHeight" />
             </ScrollViewer>
         </Border>
     </Grid>

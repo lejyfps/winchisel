@@ -13,7 +13,7 @@ winchisel::core::Result<std::string> analyze_usb_topology() {
     const auto required = WideCharToMultiByte(CP_UTF8, 0, script.data(), static_cast<int>(script.size()), nullptr, 0, nullptr, nullptr);
     std::string utf8(required, '\0');
     WideCharToMultiByte(CP_UTF8, 0, script.data(), static_cast<int>(script.size()), utf8.data(), required, nullptr, nullptr);
-    const auto command = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + utf8 + "\" -NonInteractive";
+    const auto command = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + utf8 + "\" -NonInteractive -Embedded";
     std::array<char, 4096> buffer{}; std::string output;
     std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command.c_str(), "r"), _pclose);
     if (!pipe) return std::unexpected(winchisel::core::Error{.message_key="latency_start_failed", .detail="Unable to start USB analysis."});
