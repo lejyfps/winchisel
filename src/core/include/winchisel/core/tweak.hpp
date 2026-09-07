@@ -66,11 +66,17 @@ struct PerformanceRegistryRule {
     std::int32_t root{}, kind{}, byte_index{};
     std::uint8_t bit_mask{};
 };
+struct PerformanceProfileRule {
+    std::string_view id;
+    std::int8_t recommended_toggle{}, default_toggle{};
+    std::int16_t recommended_selection{}, default_selection{};
+};
 struct PrivacyCatalogEntry { std::string_view id,name,description; std::int32_t group{}; };
 struct PrivacyRegistryRule { std::string_view id,path,name,enabled_value,disabled_value; std::int32_t root{},kind{}; };
 
 std::span<PerformanceCatalogEntry const> get_performance_catalog() noexcept;
 std::span<PerformanceRegistryRule const> get_performance_registry_rules() noexcept;
+std::span<PerformanceProfileRule const> get_performance_profile_rules() noexcept;
 std::span<PrivacyCatalogEntry const> get_privacy_catalog() noexcept;
 std::span<PrivacyRegistryRule const> get_privacy_registry_rules() noexcept;
 

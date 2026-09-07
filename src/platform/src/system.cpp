@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <regex>
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
@@ -345,6 +346,123 @@ winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progre
         L"Remove-Item -Path $Env:Temp\\* -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path $Env:SystemRoot\\Temp\\* -Recurse -Force -ErrorAction SilentlyContinue",
         "settings_temp_files_failed",
         progress);
+}
+
+winchisel::core::Result<void> apply_winchisel_power_plan() {
+    const auto plan = exe_path().parent_path() / L"assets" / L"Winchisel.pow";
+    std::error_code ec;
+    if (!std::filesystem::exists(plan, ec)) {
+        return fail("power_plan_failed", "Embedded power plan is missing: " + plan.string());
+    }
+
+    // The imported scheme is named Winchisel.  powercfg prints its GUID as part
+    // of the import result; activating that exact GUID avoids changing another
+    // existing plan with the same name.
+    const auto temp = std::filesystem::temp_directory_path(ec) / L"Winchisel.pow";
+    if (ec) return fail("power_plan_failed", "Unable to resolve the temp directory");
+    std::filesystem::copy_file(plan, temp, std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) return fail("power_plan_failed", "Unable to write temporary power plan: " + ec.message());
+
+    const auto command = L"powercfg.exe /import \"" + temp.wstring() + L"\"";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
+    HANDLE read{}, write{};
+    if (!CreatePipe(&read, &write, &security, 0)) {
+        std::filesystem::remove(temp, ec);
+        return fail("power_plan_failed", "Unable to create output pipe");
+    }
+    SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
+    startup.hStdOutput = write;
+    startup.hStdError = write;
+    PROCESS_INFORMATION process{};
+    std::wstring mutable_command = command;
+    if (!CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+        CloseHandle(read); CloseHandle(write); std::filesystem::remove(temp, ec);
+        return fail("power_plan_failed", "powercfg /import could not be started");
+    }
+    CloseHandle(write);
+    std::string output;
+    char buffer[256]{};
+    DWORD count{};
+    while (ReadFile(read, buffer, sizeof(buffer), &count, nullptr) && count) output.append(buffer, count);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD code{}; GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess);
+    std::filesystem::remove(temp, ec);
+    if (code != 0) return fail("power_plan_failed", "powercfg /import exited with " + std::to_string(code));
+
+    static const std::regex guid_pattern(R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
+    std::smatch match;
+    if (!std::regex_search(output, match, guid_pattern)) return fail("power_plan_failed", "Unable to read imported power plan GUID");
+    const auto guid = match[1].str();
+    return run_hidden(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()), "power_plan_failed");
+}
+
+winchisel::core::Result<void> set_widgets_removed(bool enabled) {
+    const wchar_t* script = enabled
+        ? LR"($ErrorActionPreference = 'Stop'; Get-Process *Widget* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-AppxPackage Microsoft.WidgetsPlatformRuntime -AllUsers | Remove-AppxPackage -AllUsers; Get-AppxPackage MicrosoftWindows.Client.WebExperience -AllUsers | Remove-AppxPackage -AllUsers; Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe)"
+        : LR"($ErrorActionPreference = 'Stop'; Get-ChildItem 'C:\Program Files\WindowsApps\Microsoft.WidgetsPlatformRuntime*\AppxManifest.xml' | ForEach-Object { Add-AppxPackage -Register $_.FullName -DisableDevelopmentMode }; Get-ChildItem 'C:\Program Files\WindowsApps\MicrosoftWindows.Client.WebExperience*\AppxManifest.xml' | ForEach-Object { Add-AppxPackage -Register $_.FullName -DisableDevelopmentMode }; Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe)";
+    return run_hidden(L"powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command \"" + std::wstring(script) + L"\"", "widgets_failed");
+}
+
+winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
+    HKEY key{};
+    auto status = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters", 0, nullptr, 0, KEY_READ | KEY_WRITE, nullptr, &key, nullptr);
+    if (status != ERROR_SUCCESS) return fail("teredo_failed", "Unable to open Tcpip6 parameters: " + std::to_string(status));
+    DWORD current{}, bytes = sizeof(current), type{};
+    if (RegQueryValueExW(key, L"DisabledComponents", nullptr, &type, reinterpret_cast<BYTE*>(&current), &bytes) != ERROR_SUCCESS || type != REG_DWORD) current = 0;
+    const DWORD next = enabled ? current | 0x01 : current & ~0x01;
+    status = RegSetValueExW(key, L"DisabledComponents", 0, REG_DWORD, reinterpret_cast<BYTE const*>(&next), sizeof(next));
+    RegCloseKey(key);
+    if (status != ERROR_SUCCESS) return fail("teredo_failed", "Unable to update DisabledComponents: " + std::to_string(status));
+    return run_hidden(enabled ? L"netsh.exe interface teredo set state disabled" : L"netsh.exe interface teredo set state default", "teredo_failed");
+}
+
+winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
+    return run_hidden(enabled ? L"bcdedit.exe /set useplatformclock false" : L"bcdedit.exe /set useplatformclock true", "hpet_failed");
+}
+
+ExtrasCommandState read_extras_command_state() {
+    auto capture = [](std::wstring command) -> std::pair<DWORD, std::string> {
+        SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
+        HANDLE read{}, write{};
+        if (!CreatePipe(&read, &write, &security, 0)) return {ERROR_NOT_ENOUGH_MEMORY, {}};
+        SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        startup.wShowWindow = SW_HIDE;
+        startup.hStdOutput = write;
+        startup.hStdError = write;
+        PROCESS_INFORMATION process{};
+        if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+            CloseHandle(read); CloseHandle(write); return {GetLastError(), {}};
+        }
+        CloseHandle(write);
+        std::string output;
+        char buffer[256]{};
+        DWORD count{};
+        while (ReadFile(read, buffer, sizeof(buffer), &count, nullptr) && count) output.append(buffer, count);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        DWORD code{}; GetExitCodeProcess(process.hProcess, &code);
+        CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess);
+        return {code, std::move(output)};
+    };
+
+    ExtrasCommandState state;
+    const auto [power_code, power] = capture(L"powercfg.exe /list");
+    state.power_plan_active = power_code == 0 && power.find("(Winchisel)") != std::string::npos && power.find('*') != std::string::npos;
+    const auto [widgets_code, widgets] = capture(L"powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"$a=Get-AppxPackage Microsoft.WidgetsPlatformRuntime -AllUsers; $b=Get-AppxPackage MicrosoftWindows.Client.WebExperience -AllUsers; if($null -eq $a -and $null -eq $b){exit 0}else{exit 1}\"");
+    state.widgets_removed = widgets_code == 0;
+    const auto [hpet_code, hpet] = capture(L"bcdedit.exe /enum {current}");
+    if (hpet_code == 0) {
+        const std::regex hpet_pattern(R"(useplatformclock\s+(false|no|0))", std::regex::icase);
+        state.hpet_disabled = std::regex_search(hpet, hpet_pattern);
+    }
+    return state;
 }
 
 void set_console_visible(bool visible) {

@@ -39,4 +39,18 @@ winchisel::core::Result<void> run_system_repair(ProtectionProgress const& progre
 winchisel::core::Result<void> run_disk_cleanup();
 winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progress);
 
+// Command-based Extras actions.  These functions never create a visible console
+// window and are intended to be called from a background worker by the UI.
+winchisel::core::Result<void> apply_winchisel_power_plan();
+winchisel::core::Result<void> set_widgets_removed(bool enabled);
+winchisel::core::Result<void> set_teredo_disabled(bool enabled);
+winchisel::core::Result<void> set_hpet_disabled(bool enabled);
+
+struct ExtrasCommandState {
+    bool power_plan_active{};
+    bool widgets_removed{};
+    bool hpet_disabled{};
+};
+ExtrasCommandState read_extras_command_state();
+
 }  // namespace winchisel::platform

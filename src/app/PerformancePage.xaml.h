@@ -47,6 +47,7 @@ private:
     void load_gaming_toggles();
     void save_gaming_toggle(std::size_t index);
     void apply_gaming_profile(bool recommended);
+    void apply_catalog_profile(bool recommended);
     void load_gaming_selections();
     void save_mouse_hover_time();
     void save_background_apps();

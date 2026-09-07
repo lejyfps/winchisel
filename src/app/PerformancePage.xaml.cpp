@@ -341,6 +341,31 @@ void PerformancePage::apply_gaming_profile(bool recommended) {
     loading_gaming_selections_ = false;
     save_mouse_hover_time();
     save_background_apps();
+    apply_catalog_profile(recommended);
+}
+
+void PerformancePage::apply_catalog_profile(bool recommended) {
+    const auto profile_for = [recommended](std::string_view id, bool selection) -> std::optional<std::int32_t> {
+        const auto rule = std::ranges::find_if(winchisel::core::get_performance_profile_rules(), [id](auto const& value) { return value.id == id; });
+        if (rule == winchisel::core::get_performance_profile_rules().end()) return std::nullopt;
+        const auto value = selection ? (recommended ? rule->recommended_selection : rule->default_selection)
+                                     : (recommended ? rule->recommended_toggle : rule->default_toggle);
+        return value < 0 ? std::nullopt : std::optional<std::int32_t>{value};
+    };
+    loading_gaming_toggles_ = true;
+    for (auto& item : catalog_toggles_) if (auto value = profile_for(item.id, false)) item.control.IsOn(*value != 0);
+    loading_gaming_toggles_ = false;
+    for (std::size_t index{}; index < catalog_toggles_.size(); ++index) {
+        if (profile_for(catalog_toggles_[index].id, false)) save_catalog_toggle(index);
+    }
+    loading_gaming_selections_ = true;
+    for (auto& item : catalog_selections_) {
+        if (auto value = profile_for(item.id, true); value && *value >= 0 && *value < static_cast<std::int32_t>(item.options.size())) item.control.SelectedIndex(*value);
+    }
+    loading_gaming_selections_ = false;
+    for (std::size_t index{}; index < catalog_selections_.size(); ++index) {
+        if (profile_for(catalog_selections_[index].id, true)) save_catalog_selection(index);
+    }
 }
 
 void PerformancePage::load_gaming_selections() {
