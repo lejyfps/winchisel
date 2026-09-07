@@ -69,8 +69,9 @@ bool restart_elevated() {
     if (path.empty()) {
         return false;
     }
+    const auto dir = path.parent_path();
     const INT_PTR rc = reinterpret_cast<INT_PTR>(ShellExecuteW(
-        nullptr, L"runas", path.c_str(), GetCommandLineW(), nullptr, SW_SHOWNORMAL));
+        nullptr, L"runas", path.c_str(), nullptr, dir.c_str(), SW_SHOWNORMAL));
     return rc > 32;
 }
 
@@ -126,6 +127,33 @@ void show_unsupported_os_message() {
         L"Winchisel requires Windows 11 24H2 or newer (build 26100+).",
         L"Winchisel",
         MB_OK | MB_ICONERROR);
+}
+
+void show_error_message(const wchar_t* text) {
+    MessageBoxW(nullptr, text, L"Winchisel", MB_OK | MB_ICONERROR);
+}
+
+void boot_log(const char* message) {
+    wchar_t temp[MAX_PATH]{};
+    if (GetTempPathW(MAX_PATH, temp) == 0) {
+        return;
+    }
+    std::filesystem::path log = temp;
+    log /= L"winchisel-boot.log";
+    std::ofstream out(log, std::ios::app);
+    if (!out) {
+        return;
+    }
+    out << message << '\n';
+    out.flush();
+}
+
+void set_current_directory_to_exe() {
+    const auto path = exe_path();
+    if (path.empty()) {
+        return;
+    }
+    SetCurrentDirectoryW(path.parent_path().c_str());
 }
 
 void set_console_visible(bool visible) {

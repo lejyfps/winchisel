@@ -32,10 +32,11 @@
     <XamlLanguage>CppWinRT</XamlLanguage>
     <ManagedAssembly>false</ManagedAssembly>
     <DefaultLanguage>en-US</DefaultLanguage>
-    <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
+    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
     <WindowsAppSdkAutoInitialize>false</WindowsAppSdkAutoInitialize>
     <WindowsAppSdkUndockedRegFreeWinRTInitialize>false</WindowsAppSdkUndockedRegFreeWinRTInitialize>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <EnablePriGenTooling>true</EnablePriGenTooling>
     <AppxPackage>false</AppxPackage>
     <EnablePreviewMsixTooling>false</EnablePreviewMsixTooling>
     <CppWinRTOptimized>true</CppWinRTOptimized>
@@ -114,6 +115,15 @@
     <ClCompile Include="Generated Files\module.g.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="..\..\packages\Microsoft.WindowsAppSDK.Foundation.1.8.260203002\include\UndockedRegFreeWinRT-AutoInitializer.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <ObjectFileName>$(IntDir)UndockedRegFreeWinRT.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\..\packages\Microsoft.WindowsAppSDK.Foundation.1.8.260203002\include\WindowsAppRuntimeAutoInitializer.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <ObjectFileName>$(IntDir)WindowsAppRuntimeAutoInit.obj</ObjectFileName>
+      <PreprocessorDefinitions>MICROSOFT_WINDOWSAPPSDK_AUTOINITIALIZE_UNDOCKEDREGFREEWINRT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Midl Include="App.idl">
@@ -152,4 +162,9 @@
   <Import Project="..\..\packages\Microsoft.Windows.SDK.BuildTools.10.0.26100.4188\build\Microsoft.Windows.SDK.BuildTools.targets" Condition="Exists('..\..\packages\Microsoft.Windows.SDK.BuildTools.10.0.26100.4188\build\Microsoft.Windows.SDK.BuildTools.targets')" />
   <Import Project="..\..\packages\Microsoft.Windows.ImplementationLibrary.1.0.250325.1\build\native\Microsoft.Windows.ImplementationLibrary.targets" Condition="Exists('..\..\packages\Microsoft.Windows.ImplementationLibrary.1.0.250325.1\build\native\Microsoft.Windows.ImplementationLibrary.targets')" />
   <Target Name="XamlCompileForNative" BeforeTargets="ClCompile" DependsOnTargets="MarkupCompilePass1" />
+  <Target Name="MakeWinchiselPri" AfterTargets="Build">
+    <Copy SourceFiles="$(OutDir)Microsoft.UI.Xaml.Controls.pri" DestinationFiles="$(OutDir)resources.pri" />
+    <Copy SourceFiles="$(OutDir)App.xbf" DestinationFiles="$(OutDir)App.xaml" />
+    <Copy SourceFiles="$(OutDir)MainWindow.xbf" DestinationFiles="$(OutDir)MainWindow.xaml" />
+  </Target>
 </Project>

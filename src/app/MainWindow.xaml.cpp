@@ -18,11 +18,10 @@ using namespace Microsoft::UI::Xaml;
 namespace winrt::Winchisel::implementation {
 namespace {
 
-winrt::Microsoft::UI::Windowing::AppWindow app_window_from(Window const& window) {
+Microsoft::UI::Windowing::AppWindow app_window_from(Window const& window) {
     HWND hwnd{};
     window.as<IWindowNative>()->get_WindowHandle(&hwnd);
-    const auto id = Microsoft::UI::GetWindowIdFromWindow(hwnd);
-    return Microsoft::UI::Windowing::AppWindow::GetFromWindowId(id);
+    return Microsoft::UI::Windowing::AppWindow::GetFromWindowId(Microsoft::UI::GetWindowIdFromWindow(hwnd));
 }
 
 winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
@@ -41,29 +40,26 @@ winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
 
 MainWindow::MainWindow() {
     InitializeComponent();
-
     auto app_window = app_window_from(*this);
     app_window.Resize({1280, 720});
     if (auto presenter = app_window.Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>()) {
         presenter.PreferredMinimumWidth(1100);
         presenter.PreferredMinimumHeight(650);
     }
-
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
     }
 }
 
 void MainWindow::Nav_SelectionChanged(
-    Microsoft::UI::Xaml::Controls::NavigationView const&,
-    Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& args) {
-    auto item = args.SelectedItem().try_as<Microsoft::UI::Xaml::Controls::NavigationViewItem>();
+    Controls::NavigationView const&,
+    Controls::NavigationViewSelectionChangedEventArgs const& args) {
+    auto item = args.SelectedItem().try_as<Controls::NavigationViewItem>();
     if (!item) {
         return;
     }
     const auto tag = winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home");
-    const auto screen = screen_from_tag(tag);
-    winchisel::application::Session::instance().set_screen(screen);
+    winchisel::application::Session::instance().set_screen(screen_from_tag(tag));
     ContentText().Text(item.Content().as<winrt::hstring>());
 }
 

@@ -10,13 +10,16 @@ Session& Session::instance() {
 }
 
 bool Session::bootstrap() {
+    winchisel::platform::boot_log("bootstrap begin");
     if (!winchisel::platform::is_supported_windows()) {
+        winchisel::platform::boot_log("unsupported os");
         winchisel::platform::show_unsupported_os_message();
         return false;
     }
     if (!winchisel::platform::is_user_an_admin()) {
-        winchisel::platform::restart_elevated();
-        return false;
+        winchisel::platform::boot_log("not admin — continuing (elevation after first window is stable)");
+    } else {
+        winchisel::platform::boot_log("admin ok");
     }
     if (auto loaded = winchisel::platform::load_settings()) {
         settings_ = *loaded;

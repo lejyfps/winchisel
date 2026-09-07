@@ -24,6 +24,9 @@ winchisel::core::Result<winchisel::core::Settings> load_settings();
 winchisel::core::Result<void> save_settings(const winchisel::core::Settings& settings);
 
 void show_unsupported_os_message();
+void show_error_message(const wchar_t* text);
 void set_console_visible(bool visible);
+void boot_log(const char* message);
+void set_current_directory_to_exe();
 
 }  // namespace winchisel::platform

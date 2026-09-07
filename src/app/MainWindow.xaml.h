@@ -8,8 +8,8 @@ namespace winrt::Winchisel::implementation {
 struct MainWindow : MainWindowT<MainWindow> {
     MainWindow();
     void Nav_SelectionChanged(
-        winrt::Microsoft::UI::Xaml::Controls::NavigationView const& sender,
-        winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const& args);
+        winrt::Microsoft::UI::Xaml::Controls::NavigationView const&,
+        winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const&);
 };
 
 }  // namespace winrt::Winchisel::implementation
