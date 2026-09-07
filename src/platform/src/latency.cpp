@@ -184,17 +184,11 @@ std::string run_command(char const* command) {
 }
 
 std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
-    constexpr auto command = R"CMD(powershell.exe -NoProfile -NonInteractive -Command "$inputDevices=@();$usbDevices=Get-PnpDevice -Status OK -ErrorAction SilentlyContinue|Where-Object{$_.InstanceId-match'^USB\\'};foreach($dev in $usbDevices){$compatIds=(Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName 'DEVPKEY_Device_CompatibleIds' -ErrorAction SilentlyContinue).Data;if($compatIds-match'Class_03'){$inputDevices+=$dev}};$xboxDevices=Get-PnpDevice -Class 'XboxComposite','XnaComposite','XUSBClass' -Status OK -ErrorAction SilentlyContinue;if($xboxDevices){$inputDevices+=$xboxDevices};$inputDevices=$inputDevices|Sort-Object InstanceId -Unique;foreach($device in $inputDevices){$usbParent=$device.InstanceId;if($usbParent-match'^HID\\'){$usbParent=(Get-PnpDeviceProperty -InstanceId $usbParent -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data};$currentId=$usbParent;$hubCount=0;$controllerId='';for($count=0;$currentId-and$count-lt 15;$count++){$d=Get-PnpDevice -InstanceId $currentId -ErrorAction SilentlyContinue;if($currentId-match'ROOT_HUB'){$controllerId=(Get-PnpDeviceProperty -InstanceId $currentId -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data;break};if($d-and$d.FriendlyName-match'Hub'-and$d.FriendlyName-notmatch'Root'){$hubCount++};$currentId=(Get-PnpDeviceProperty -InstanceId $currentId -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data};if(!$controllerId){continue};$v='????';$p='????';if($usbParent-match'VID_([0-9A-Fa-f]{4})'){$v=$Matches[1]};if($usbParent-match'PID_([0-9A-Fa-f]{4})'){$p=$Matches[1]};$name=(Get-PnpDeviceProperty -InstanceId $usbParent -KeyName 'DEVPKEY_Device_BusReportedDeviceDesc' -ErrorAction SilentlyContinue).Data;if(!$name){$name=$device.FriendlyName};Write-Output($name+'|'+$v+'|'+$p+'|'+$controllerId+'|'+$hubCount)}")CMD";
-    std::vector<Device> result; std::unordered_set<std::string> seen; std::istringstream stream(run_command(command)); std::string line;
-    while (std::getline(stream, line)) {
-        std::array<std::string, 5> field{}; std::size_t begin{}; bool valid = true;
-        for (std::size_t i{}; i < field.size(); ++i) { auto end = i == field.size() - 1 ? line.size() : line.find('|', begin); if (end == std::string::npos) { valid = false; break; } field[i] = line.substr(begin, end - begin); begin = end + 1; }
-        if (!valid || !seen.insert(field[1] + ':' + field[2]).second) continue;
-        auto controller = std::ranges::find_if(controllers, [&](auto const& item) { return _stricmp(item.instance_id.c_str(), field[3].c_str()) == 0; }); if (controller == controllers.end()) continue;
-        int hubs{}; try { hubs = std::stoi(field[4]); } catch (...) {}
-        const auto index = static_cast<std::size_t>(controller - controllers.begin()); result.push_back({field[0], field[1], field[2], controller->chip_level + hubs, hubs, index});
-    }
-    return result;
+    // The registry tree below is the authoritative native fallback and covers
+    // HID/composite USB devices without invoking the PowerShell PnP provider.
+    // Device association is completed by trace_chain in analyze_usb_topology.
+    (void)controllers;
+    return {};
 }
 
 std::optional<bool> system_suspend() {

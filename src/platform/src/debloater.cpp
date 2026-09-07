@@ -45,8 +45,6 @@ bool contains_match(std::unordered_set<std::string> const& installed, std::strin
     return std::ranges::any_of(installed, [&](auto const& value) { return value.find(needle) != std::string::npos || needle.find(value) != std::string::npos; });
 }
 
-std::string ps_escape(std::string_view value);
-
 bool is_installed(std::unordered_set<std::string> const& installed, winchisel::core::DebloatCatalogEntry const& item) {
     if (contains_match(installed, item.package_name)) return true;
     std::size_t start{};
@@ -59,27 +57,19 @@ bool is_installed(std::unordered_set<std::string> const& installed, winchisel::c
     return false;
 }
 
-std::string powershell_package_array(winchisel::core::DebloatCatalogEntry const& item) {
-    std::string result = "'" + ps_escape(item.package_name) + "'";
-    std::size_t start{};
-    while (start < item.package_aliases.size()) {
-        auto end = item.package_aliases.find('|', start);
-        if (end == std::string_view::npos) end = item.package_aliases.size();
-        auto alias = item.package_aliases.substr(start, end - start);
-        if (!alias.empty() && alias != item.package_name) result += ",'" + ps_escape(alias) + "'";
-        start = end + 1;
-    }
+std::unordered_set<std::string> appx_packages() {
+    std::unordered_set<std::string> result;
+    HKEY key{}; if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Data", 0, KEY_READ, &key) != ERROR_SUCCESS) return result;
+    for (DWORD i{};; ++i) { std::array<wchar_t, 512> name{}; DWORD length=static_cast<DWORD>(name.size()); auto status=RegEnumKeyExW(key,i,name.data(),&length,nullptr,nullptr,nullptr,nullptr); if(status==ERROR_NO_MORE_ITEMS)break; if(status!=ERROR_SUCCESS)continue; std::string value; const int count=WideCharToMultiByte(CP_UTF8,0,name.data(),static_cast<int>(length),nullptr,0,nullptr,nullptr); value.resize(count); WideCharToMultiByte(CP_UTF8,0,name.data(),static_cast<int>(length),value.data(),count,nullptr,nullptr); std::ranges::transform(value,value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));}); result.insert(std::move(value)); } RegCloseKey(key);
     return result;
 }
-
-std::string ps_escape(std::string_view value) { std::string result; for (char c : value) { result.push_back(c); if (c == '\'') result.push_back('\''); } return result; }
 
 }  // namespace
 
 winchisel::core::Result<std::vector<bool>> scan_debloater_installed(std::span<winchisel::core::DebloatCatalogEntry const> catalog) {
-    auto apps = std::async(std::launch::async, [] { return lines("powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command \"Get-AppxPackage | Select-Object -ExpandProperty Name\""); });
-    auto capabilities = std::async(std::launch::async, [] { return lines("powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command \"Get-WindowsCapability -Online | Where-Object State -eq Installed | Select-Object -ExpandProperty Name\"", true); });
-    auto features = std::async(std::launch::async, [] { return lines("powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command \"Get-WindowsOptionalFeature -Online | Where-Object State -eq Enabled | Select-Object -ExpandProperty FeatureName\""); });
+    auto apps = std::async(std::launch::async, [] { return appx_packages(); });
+    auto capabilities = std::async(std::launch::async, [] { return lines("dism.exe /Online /Get-Capabilities /Format:Table", true); });
+    auto features = std::async(std::launch::async, [] { return lines("dism.exe /Online /Get-Features /Format:Table"); });
     const auto app_set = apps.get(); const auto capability_set = capabilities.get(); const auto feature_set = features.get();
     std::vector<bool> result; result.reserve(catalog.size());
     for (auto const& item : catalog) {
@@ -92,16 +82,18 @@ winchisel::core::Result<std::vector<bool>> scan_debloater_installed(std::span<wi
 winchisel::core::Result<DebloatActionResult> apply_debloater_action(std::span<winchisel::core::DebloatCatalogEntry const* const> items, bool install) {
     DebloatActionResult result;
     for (auto const* item : items) {
-        const auto package = ps_escape(item->package_name); std::string script;
-        if (item->category == winchisel::core::DebloatCategory::windows_apps)
-            script = install
-                ? "$pkgs=@(" + powershell_package_array(*item) + ");foreach($pkg in $pkgs){Get-AppxPackage -AllUsers \"*$pkg*\" -ErrorAction SilentlyContinue|%{Add-AppxPackage -DisableDevelopmentMode -Register ($_.InstallLocation+'\\AppxManifest.xml') -ErrorAction SilentlyContinue}}"
-                : "$pkgs=@(" + powershell_package_array(*item) + ");foreach($pkg in $pkgs){Get-AppxPackage -Name $pkg -AllUsers|Remove-AppxPackage}";
-        else if (item->category == winchisel::core::DebloatCategory::capabilities)
-            script = (install ? "Add-WindowsCapability" : "Remove-WindowsCapability") + std::string(" -Online -Name '") + package + "'";
-        else script = (install ? "Enable-WindowsOptionalFeature" : "Disable-WindowsOptionalFeature") + std::string(" -Online -FeatureName '") + package + "' -NoRestart";
-        auto [exit_code, output] = run_hidden("powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command \"$ErrorActionPreference='Stop';" + script + "\"");
-        exit_code == 0 ? ++result.succeeded : ++result.failed;
+        bool ok{};
+        if (item->category == winchisel::core::DebloatCategory::windows_apps) {
+            const auto command = std::string("winget.exe ") + (install ? "install --name \"" : "uninstall --name \"") + std::string(item->package_name) + "\" --exact --disable-interactivity";
+            ok = run_hidden(command).first == 0;
+        } else {
+            const auto quoted = "\"" + std::string(item->package_name) + "\"";
+            const auto command = item->category == winchisel::core::DebloatCategory::capabilities
+                ? std::string("dism.exe /Online ") + (install ? "/Add-Capability /CapabilityName:" : "/Remove-Capability /CapabilityName:") + quoted
+                : std::string("dism.exe /Online ") + (install ? "/Enable-Feature /FeatureName:" : "/Disable-Feature /FeatureName:") + quoted + " /NoRestart";
+            ok = run_hidden(command).first == 0;
+        }
+        ok ? ++result.succeeded : ++result.failed;
     }
     return result;
 }

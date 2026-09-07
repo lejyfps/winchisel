@@ -6,7 +6,9 @@
 #include <chrono>
 #include <cctype>
 #include <future>
+#include <fstream>
 #include <mutex>
+#include <regex>
 #include <string>
 #include <unordered_set>
 
@@ -34,9 +36,8 @@ std::pair<DWORD, std::string> run_hidden(std::string command) {
     CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess); return {code, std::move(output)};
 }
 
-std::unordered_set<std::string> query(std::string script) {
-    auto [code, output] = run_hidden("powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command \"" + script + "\"");
-    std::unordered_set<std::string> result; if (code != 0) return result;
+std::unordered_set<std::string> lines(std::string output) {
+    std::unordered_set<std::string> result;
     std::size_t start{}; while (start < output.size()) {
         auto end = output.find_first_of("\r\n", start); if (end == std::string::npos) end = output.size();
         auto value = output.substr(start, end - start); std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -44,10 +45,45 @@ std::unordered_set<std::string> query(std::string script) {
     } return result;
 }
 
+std::unordered_set<std::string> registry_display_names(HKEY root, std::wstring const& path) {
+    std::unordered_set<std::string> result;
+    HKEY key{};
+    if (RegOpenKeyExW(root, path.c_str(), 0, KEY_READ, &key) != ERROR_SUCCESS) return result;
+    for (DWORD index{};; ++index) {
+        std::array<wchar_t, 256> name{}; DWORD length = static_cast<DWORD>(name.size());
+        const auto status = RegEnumKeyExW(key, index, name.data(), &length, nullptr, nullptr, nullptr, nullptr);
+        if (status == ERROR_NO_MORE_ITEMS) break;
+        if (status != ERROR_SUCCESS) continue;
+        HKEY entry{};
+        if (RegOpenKeyExW(key, name.data(), 0, KEY_READ, &entry) != ERROR_SUCCESS) continue;
+        DWORD type{}, bytes{};
+        if (RegQueryValueExW(entry, L"DisplayName", nullptr, &type, nullptr, &bytes) == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ) && bytes >= sizeof(wchar_t)) {
+            std::wstring value(bytes / sizeof(wchar_t), L'\0');
+            if (RegQueryValueExW(entry, L"DisplayName", nullptr, nullptr, reinterpret_cast<BYTE*>(value.data()), &bytes) == ERROR_SUCCESS) {
+                while (!value.empty() && value.back() == L'\0') value.pop_back();
+                const int chars = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+                std::string utf8(chars, '\0'); WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), utf8.data(), chars, nullptr, nullptr);
+                std::ranges::transform(utf8, utf8.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); }); result.insert(std::move(utf8));
+            }
+        }
+        RegCloseKey(entry);
+    }
+    RegCloseKey(key); return result;
+}
+
 ScanData perform_scan() {
-    auto ids = std::async(std::launch::async, [] { return query("$t=[IO.Path]::GetTempFileName()+'.json';winget export -o $t --accept-source-agreements --nowarn --disable-interactivity 2>$null|Out-Null;if(Test-Path $t){try{(Get-Content $t -Raw|ConvertFrom-Json).Sources.Packages.PackageIdentifier}catch{};Remove-Item $t -Force -ErrorAction SilentlyContinue}"); });
-    auto names = std::async(std::launch::async, [] { return query("winget list --accept-source-agreements --disable-interactivity|Select-Object -Skip 2|%{$l=$_.ToString().Trim();if($l){($l -split '\\s{2,}')[0]}}"); });
-    auto registry = std::async(std::launch::async, [] { return query("$p=[Collections.Generic.List[string]]@('HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall');if(!(Get-PSDrive HKU -ErrorAction SilentlyContinue)){New-PSDrive HKU Registry HKEY_USERS|Out-Null};Get-ChildItem HKU:\\|?{$_.PSChildName -notmatch '_Classes$'}|%{$p.Add('HKU:\\'+$_.PSChildName+'\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall');$p.Add('HKU:\\'+$_.PSChildName+'\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall')};$p|%{if(Test-Path $_){Get-ChildItem $_ -ErrorAction SilentlyContinue|%{(Get-ItemProperty $_.PSPath -Name DisplayName -ErrorAction SilentlyContinue).DisplayName}}}"); });
+    auto ids = std::async(std::launch::async, [] {
+        char path[MAX_PATH]{}; if (!GetTempFileNameA(nullptr, "wci", 0, path)) return std::unordered_set<std::string>{};
+        const auto [code, ignored] = run_hidden("winget.exe export --output \"" + std::string(path) + "\" --accept-source-agreements --nowarn --disable-interactivity");
+        std::ifstream input(path, std::ios::binary); std::string json((std::istreambuf_iterator<char>(input)), {}); DeleteFileA(path); if (code != 0) return std::unordered_set<std::string>{};
+        std::unordered_set<std::string> result; static const std::regex id(R"json("PackageIdentifier"\s*:\s*"([^"]+)")json"); for (std::sregex_iterator it(json.begin(), json.end(), id), end; it != end; ++it) { auto value = (*it)[1].str(); std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); }); result.insert(std::move(value)); } return result;
+    });
+    auto names = std::async(std::launch::async, [] { auto [code, output] = run_hidden("winget.exe list --accept-source-agreements --disable-interactivity"); return code == 0 ? lines(std::move(output)) : std::unordered_set<std::string>{}; });
+    auto registry = std::async(std::launch::async, [] {
+        std::unordered_set<std::string> result; auto append = [&](auto values) { result.insert(values.begin(), values.end()); };
+        append(registry_display_names(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall")); append(registry_display_names(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"));
+        HKEY users{}; if (RegOpenKeyExW(HKEY_USERS, nullptr, 0, KEY_READ, &users) == ERROR_SUCCESS) { for (DWORD i{};; ++i) { std::array<wchar_t, 256> sid{}; DWORD length = static_cast<DWORD>(sid.size()); if (RegEnumKeyExW(users, i, sid.data(), &length, nullptr, nullptr, nullptr, nullptr) == ERROR_NO_MORE_ITEMS) break; if (wcsstr(sid.data(), L"_Classes")) continue; const std::wstring base = std::wstring(sid.data(), length) + L"\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"; append(registry_display_names(HKEY_USERS, base)); } RegCloseKey(users); } return result;
+    });
     return {ids.get(), names.get(), registry.get(), Clock::now()};
 }
 

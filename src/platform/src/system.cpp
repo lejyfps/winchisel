@@ -3,8 +3,10 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <SrRestorePtApi.h>
 
 #include <fstream>
+#include <array>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -13,6 +15,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "srclient.lib")
 
 namespace winchisel::platform {
 namespace {
@@ -265,10 +268,7 @@ winchisel::core::Result<void> run_hidden(std::wstring command, char const* messa
     return {};
 }
 
-winchisel::core::Result<void> run_logged(std::wstring inner, char const* message_key, ProtectionProgress const& progress) {
-    std::wstring command =
-        L"powershell.exe -NoProfile -NonInteractive -Command \"$ErrorActionPreference='Continue'; & { " + inner +
-        L" } 2>&1 | ForEach-Object { $_.ToString() }\"";
+winchisel::core::Result<void> run_logged(std::wstring command, char const* message_key, ProtectionProgress const& progress) {
     SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
     HANDLE read{};
     HANDLE write{};
@@ -313,22 +313,33 @@ winchisel::core::Result<void> run_logged(std::wstring inner, char const* message
 }
 
 winchisel::core::Result<void> create_restore_point() {
-    return run_hidden(
-        L"powershell.exe -NoProfile -NonInteractive -Command \"$ErrorActionPreference='Stop'; Enable-ComputerRestore -Drive 'C:\\' | Out-Null; Checkpoint-Computer -Description 'Winchisel Restore Point' -RestorePointType 'MODIFY_SETTINGS' | Out-Null\"",
-        "restore_point_failed");
+    RESTOREPOINTINFOW point{};
+    point.dwEventType = BEGIN_SYSTEM_CHANGE;
+    point.dwRestorePtType = MODIFY_SETTINGS;
+    wcsncpy_s(point.szDescription, L"Winchisel Restore Point", _TRUNCATE);
+    STATEMGRSTATUS status{};
+    if (!SRSetRestorePointW(&point, &status) || status.nStatus != ERROR_SUCCESS) {
+        return fail("restore_point_failed", std::to_string(status.nStatus ? status.nStatus : GetLastError()));
+    }
+    point.dwEventType = END_SYSTEM_CHANGE;
+    point.llSequenceNumber = status.llSequenceNumber;
+    if (!SRSetRestorePointW(&point, &status) || status.nStatus != ERROR_SUCCESS) {
+        return fail("restore_point_failed", std::to_string(status.nStatus ? status.nStatus : GetLastError()));
+    }
+    return {};
 }
 
 winchisel::core::Result<void> run_system_repair(ProtectionProgress const& progress) {
     if (progress) {
         progress(true, "Running DISM /Online /Cleanup-Image /RestoreHealth");
     }
-    if (auto result = run_logged(L"DISM /Online /Cleanup-Image /RestoreHealth", "repair_failed", progress); !result) {
+    if (auto result = run_logged(L"dism.exe /Online /Cleanup-Image /RestoreHealth", "repair_failed", progress); !result) {
         return result;
     }
     if (progress) {
         progress(true, "Running sfc /scannow");
     }
-    return run_logged(L"sfc /scannow", "repair_failed", progress);
+    return run_logged(L"sfc.exe /scannow", "repair_failed", progress);
 }
 
 winchisel::core::Result<void> run_disk_cleanup() {
@@ -342,10 +353,24 @@ winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progre
     if (progress) {
         progress(true, "Temporary Files - Remove");
     }
-    return run_logged(
-        L"Remove-Item -Path $Env:Temp\\* -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path $Env:SystemRoot\\Temp\\* -Recurse -Force -ErrorAction SilentlyContinue",
-        "settings_temp_files_failed",
-        progress);
+    std::array<wchar_t, MAX_PATH> temp{};
+    const auto length = GetTempPathW(static_cast<DWORD>(temp.size()), temp.data());
+    if (length == 0 || length >= temp.size()) return fail("settings_temp_files_failed", "Unable to resolve user temp directory");
+    std::array<std::filesystem::path, 2> roots{std::filesystem::path(temp.data()), {}};
+    std::array<wchar_t, MAX_PATH> windows{};
+    const auto windows_length = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
+    if (windows_length && windows_length < windows.size()) roots[1] = std::filesystem::path(windows.data()) / L"Temp";
+    std::error_code ec;
+    for (auto const& root : roots) {
+        if (root.empty() || !std::filesystem::exists(root, ec)) continue;
+        for (std::filesystem::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+            const auto path = it->path();
+            std::filesystem::remove_all(path, ec);
+            if (progress && !ec) progress(false, path.filename().string());
+            ec.clear();
+        }
+    }
+    return {};
 }
 
 winchisel::core::Result<void> apply_winchisel_power_plan() {
@@ -402,10 +427,10 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
 }
 
 winchisel::core::Result<void> set_widgets_removed(bool enabled) {
-    const wchar_t* script = enabled
-        ? LR"($ErrorActionPreference = 'Stop'; Get-Process *Widget* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Get-AppxPackage Microsoft.WidgetsPlatformRuntime -AllUsers | Remove-AppxPackage -AllUsers; Get-AppxPackage MicrosoftWindows.Client.WebExperience -AllUsers | Remove-AppxPackage -AllUsers; Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe)"
-        : LR"($ErrorActionPreference = 'Stop'; Get-ChildItem 'C:\Program Files\WindowsApps\Microsoft.WidgetsPlatformRuntime*\AppxManifest.xml' | ForEach-Object { Add-AppxPackage -Register $_.FullName -DisableDevelopmentMode }; Get-ChildItem 'C:\Program Files\WindowsApps\MicrosoftWindows.Client.WebExperience*\AppxManifest.xml' | ForEach-Object { Add-AppxPackage -Register $_.FullName -DisableDevelopmentMode }; Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe)";
-    return run_hidden(L"powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command \"" + std::wstring(script) + L"\"", "widgets_failed");
+    const auto command = enabled
+        ? L"winget.exe uninstall --name \"Windows Web Experience Pack\" --exact --disable-interactivity"
+        : L"winget.exe install --id 9MSSGKG348SP --source msstore --accept-package-agreements --accept-source-agreements --disable-interactivity";
+    return run_hidden(command, "widgets_failed");
 }
 
 winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
@@ -455,8 +480,9 @@ ExtrasCommandState read_extras_command_state() {
     ExtrasCommandState state;
     const auto [power_code, power] = capture(L"powercfg.exe /list");
     state.power_plan_active = power_code == 0 && power.find("(Winchisel)") != std::string::npos && power.find('*') != std::string::npos;
-    const auto [widgets_code, widgets] = capture(L"powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"$a=Get-AppxPackage Microsoft.WidgetsPlatformRuntime -AllUsers; $b=Get-AppxPackage MicrosoftWindows.Client.WebExperience -AllUsers; if($null -eq $a -and $null -eq $b){exit 0}else{exit 1}\"");
-    state.widgets_removed = widgets_code == 0;
+    HKEY widgets{};
+    state.widgets_removed = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Data", 0, KEY_READ, &widgets) != ERROR_SUCCESS;
+    if (widgets) RegCloseKey(widgets);
     const auto [hpet_code, hpet] = capture(L"bcdedit.exe /enum {current}");
     if (hpet_code == 0) {
         const std::regex hpet_pattern(R"(useplatformclock\s+(false|no|0))", std::regex::icase);
