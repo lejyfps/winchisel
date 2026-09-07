@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass ExtrasPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        ExtrasPage();
+    }
+}

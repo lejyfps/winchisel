@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass ProcessesPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        ProcessesPage();
+    }
+}

@@ -25,8 +25,6 @@
             <NavigationViewItem Content="Extras" Tag="extras" />
             <NavigationViewItem Content="Settings" Tag="settings" />
         </NavigationView.MenuItems>
-        <ScrollViewer>
-            <TextBlock x:Name="ContentText" Margin="24" Style="{StaticResource TitleTextBlockStyle}" Text="Home" />
-        </ScrollViewer>
+        <Frame x:Name="ContentFrame" />
     </NavigationView>
 </Window>

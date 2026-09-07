@@ -90,6 +90,33 @@
     <ClInclude Include="MainWindow.xaml.h">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClInclude>
+    <ClInclude Include="HomePage.xaml.h">
+      <DependentUpon>HomePage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="DebloaterPage.xaml.h">
+      <DependentUpon>DebloaterPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="PerformancePage.xaml.h">
+      <DependentUpon>PerformancePage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="PrivacyPage.xaml.h">
+      <DependentUpon>PrivacyPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="DownloadsPage.xaml.h">
+      <DependentUpon>DownloadsPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="ProcessesPage.xaml.h">
+      <DependentUpon>ProcessesPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="LatencyPage.xaml.h">
+      <DependentUpon>LatencyPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="ExtrasPage.xaml.h">
+      <DependentUpon>ExtrasPage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="SettingsPage.xaml.h">
+      <DependentUpon>SettingsPage.xaml</DependentUpon>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml">
@@ -97,6 +124,42 @@
       <Generator>MSBuild:Compile</Generator>
     </ApplicationDefinition>
     <Page Include="MainWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="HomePage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="DebloaterPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PerformancePage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="PrivacyPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="DownloadsPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="ProcessesPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="LatencyPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="ExtrasPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="SettingsPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -110,6 +173,33 @@
     </ClCompile>
     <ClCompile Include="MainWindow.xaml.cpp">
       <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="HomePage.xaml.cpp">
+      <DependentUpon>HomePage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="DebloaterPage.xaml.cpp">
+      <DependentUpon>DebloaterPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="PerformancePage.xaml.cpp">
+      <DependentUpon>PerformancePage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="PrivacyPage.xaml.cpp">
+      <DependentUpon>PrivacyPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="DownloadsPage.xaml.cpp">
+      <DependentUpon>DownloadsPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="ProcessesPage.xaml.cpp">
+      <DependentUpon>ProcessesPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="LatencyPage.xaml.cpp">
+      <DependentUpon>LatencyPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="ExtrasPage.xaml.cpp">
+      <DependentUpon>ExtrasPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="SettingsPage.xaml.cpp">
+      <DependentUpon>SettingsPage.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Generated Files\module.g.cpp">
@@ -131,6 +221,33 @@
     </Midl>
     <Midl Include="MainWindow.idl">
       <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="HomePage.idl">
+      <DependentUpon>HomePage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="DebloaterPage.idl">
+      <DependentUpon>DebloaterPage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="PerformancePage.idl">
+      <DependentUpon>PerformancePage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="PrivacyPage.idl">
+      <DependentUpon>PrivacyPage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="DownloadsPage.idl">
+      <DependentUpon>DownloadsPage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="ProcessesPage.idl">
+      <DependentUpon>ProcessesPage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="LatencyPage.idl">
+      <DependentUpon>LatencyPage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="ExtrasPage.idl">
+      <DependentUpon>ExtrasPage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="SettingsPage.idl">
+      <DependentUpon>SettingsPage.xaml</DependentUpon>
     </Midl>
   </ItemGroup>
   <ItemGroup>
@@ -166,5 +283,14 @@
     <Copy SourceFiles="$(OutDir)Microsoft.UI.Xaml.Controls.pri" DestinationFiles="$(OutDir)resources.pri" />
     <Copy SourceFiles="$(OutDir)App.xbf" DestinationFiles="$(OutDir)App.xaml" />
     <Copy SourceFiles="$(OutDir)MainWindow.xbf" DestinationFiles="$(OutDir)MainWindow.xaml" />
+    <Copy SourceFiles="$(OutDir)HomePage.xbf" DestinationFiles="$(OutDir)HomePage.xaml" />
+    <Copy SourceFiles="$(OutDir)DebloaterPage.xbf" DestinationFiles="$(OutDir)DebloaterPage.xaml" />
+    <Copy SourceFiles="$(OutDir)PerformancePage.xbf" DestinationFiles="$(OutDir)PerformancePage.xaml" />
+    <Copy SourceFiles="$(OutDir)PrivacyPage.xbf" DestinationFiles="$(OutDir)PrivacyPage.xaml" />
+    <Copy SourceFiles="$(OutDir)DownloadsPage.xbf" DestinationFiles="$(OutDir)DownloadsPage.xaml" />
+    <Copy SourceFiles="$(OutDir)ProcessesPage.xbf" DestinationFiles="$(OutDir)ProcessesPage.xaml" />
+    <Copy SourceFiles="$(OutDir)LatencyPage.xbf" DestinationFiles="$(OutDir)LatencyPage.xaml" />
+    <Copy SourceFiles="$(OutDir)ExtrasPage.xbf" DestinationFiles="$(OutDir)ExtrasPage.xaml" />
+    <Copy SourceFiles="$(OutDir)SettingsPage.xbf" DestinationFiles="$(OutDir)SettingsPage.xaml" />
   </Target>
 </Project>

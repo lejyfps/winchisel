@@ -1,0 +1,45 @@
+<UserControl
+    x:Class="Winchisel.PrivacyPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="Privacy &amp; Security" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Harden privacy, ads, diagnostics, and app permissions."
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <AutoSuggestBox PlaceholderText="Search tweaks" QueryIcon="Find" />
+            <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" />
+            <Button Grid.Column="2" Content="Defaults" />
+        </Grid>
+        <ScrollViewer Grid.Row="2">
+            <StackPanel Spacing="8">
+                <Expander Header="Security" IsExpanded="True" HorizontalAlignment="Stretch" />
+                <Expander Header="Ads" HorizontalAlignment="Stretch" />
+                <Expander Header="Lock Screen" HorizontalAlignment="Stretch" />
+                <Expander Header="General" HorizontalAlignment="Stretch" />
+                <Expander Header="Speech" HorizontalAlignment="Stretch" />
+                <Expander Header="Inking" HorizontalAlignment="Stretch" />
+                <Expander Header="Diagnostics" HorizontalAlignment="Stretch" />
+                <Expander Header="Activity History" HorizontalAlignment="Stretch" />
+                <Expander Header="Search" HorizontalAlignment="Stretch" />
+                <Expander Header="App Permissions" HorizontalAlignment="Stretch" />
+                <Expander Header="Windows AI" HorizontalAlignment="Stretch" />
+                <Expander Header="Edge AI" HorizontalAlignment="Stretch" />
+                <Expander Header="Office AI" HorizontalAlignment="Stretch" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

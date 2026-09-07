@@ -1,0 +1,28 @@
+<UserControl
+    x:Class="Winchisel.DownloadsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="Downloads" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Install apps via winget." Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <AutoSuggestBox PlaceholderText="Search" QueryIcon="Find" />
+            <Button Grid.Column="1" Content="Refresh" />
+            <Button Grid.Column="2" Content="Install" Style="{StaticResource AccentButtonStyle}" />
+        </Grid>
+        <ListView Grid.Row="2" SelectionMode="Multiple" />
+    </Grid>
+</UserControl>

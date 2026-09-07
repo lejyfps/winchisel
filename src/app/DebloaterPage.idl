@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass DebloaterPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        DebloaterPage();
+    }
+}

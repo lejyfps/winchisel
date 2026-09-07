@@ -1,0 +1,90 @@
+<UserControl
+    x:Class="Winchisel.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="16">
+            <TextBlock Text="Hardware" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <Grid ColumnSpacing="12" RowSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Column="0" Grid.Row="0" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Processor" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="CpuBrand" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="CpuSub" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ProgressBar x:Name="CpuBar" Margin="0,8,0,0" />
+                        <TextBlock x:Name="CpuUsage" Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Grid.Row="0" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Graphics" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="GpuName" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="GpuVram" Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="0" Grid.Row="1" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Memory" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="MemValue" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="MemDetails" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ProgressBar x:Name="MemBar" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Grid.Row="1" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Storage" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="StorTotal" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="StorUsed" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ProgressBar x:Name="StorBar" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <TextBlock Text="System" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,8,0,0" />
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Windows" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="OsVersion" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="OsBuild" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Motherboard" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="Board" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="Bios" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Display" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="Display" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="3" Style="{StaticResource HomeCard}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Uptime" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Name="Uptime" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

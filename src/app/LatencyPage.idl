@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass LatencyPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        LatencyPage();
+    }
+}

@@ -47,9 +47,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="include\winchisel\platform\system.hpp" />
+    <ClInclude Include="include\winchisel\platform\home.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\system.cpp" />
+    <ClCompile Include="src\home.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">

@@ -1,0 +1,42 @@
+<UserControl
+    x:Class="Winchisel.PerformancePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="Performance" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Apply recommended tweaks or restore Windows defaults."
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <AutoSuggestBox PlaceholderText="Search tweaks" QueryIcon="Find" />
+            <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" />
+            <Button Grid.Column="2" Content="Defaults" />
+        </Grid>
+        <ScrollViewer Grid.Row="2">
+            <StackPanel Spacing="8">
+                <Expander Header="Gaming" IsExpanded="True" HorizontalAlignment="Stretch" />
+                <Expander Header="Processor" HorizontalAlignment="Stretch" />
+                <Expander Header="Graphics" HorizontalAlignment="Stretch" />
+                <Expander Header="Network" HorizontalAlignment="Stretch" />
+                <Expander Header="Security" HorizontalAlignment="Stretch" />
+                <Expander Header="Xbox" HorizontalAlignment="Stretch" />
+                <Expander Header="System Services" HorizontalAlignment="Stretch" />
+                <Expander Header="Scheduled Tasks" HorizontalAlignment="Stretch" />
+                <Expander Header="Visual Effects" HorizontalAlignment="Stretch" />
+                <Expander Header="Accessibility" HorizontalAlignment="Stretch" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

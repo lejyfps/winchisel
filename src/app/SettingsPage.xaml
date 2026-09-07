@@ -1,0 +1,38 @@
+<UserControl
+    x:Class="Winchisel.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="16">
+            <StackPanel>
+                <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock Text="Language, updates, and system protection."
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+            </StackPanel>
+            <Border Style="{StaticResource HomeCard}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Application" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <ComboBox Header="Language" SelectedIndex="0" MinWidth="200">
+                        <ComboBoxItem Content="English" />
+                        <ComboBoxItem Content="Deutsch" />
+                    </ComboBox>
+                    <ToggleSwitch Header="Check for updates on startup" />
+                    <ToggleSwitch Header="Show console" />
+                    <ToggleSwitch Header="Start with Windows" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource HomeCard}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="System Protection" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Create restore point" Style="{StaticResource AccentButtonStyle}" />
+                        <Button Content="Repair" />
+                        <Button Content="Disk cleanup" />
+                        <Button Content="Temp files" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

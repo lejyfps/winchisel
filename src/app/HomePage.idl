@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass HomePage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        HomePage();
+    }
+}

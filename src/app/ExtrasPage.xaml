@@ -1,0 +1,31 @@
+<UserControl
+    x:Class="Winchisel.ExtrasPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="16">
+            <StackPanel>
+                <TextBlock Text="Extras" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock Text="Power plan, networking, and extra system toggles."
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+            </StackPanel>
+            <Border Style="{StaticResource HomeCard}">
+                <StackPanel Spacing="12">
+                    <ToggleSwitch Header="Winchisel Power Plan" />
+                    <ToggleSwitch Header="Disable Modern Standby" />
+                    <ToggleSwitch Header="Disable Cloud Sync Provider" />
+                    <ToggleSwitch Header="Brave Debloat" />
+                    <ToggleSwitch Header="Edge Debloat" />
+                    <ToggleSwitch Header="Disable Widgets" />
+                    <ToggleSwitch Header="Disable CTFMON" />
+                    <ToggleSwitch Header="Timer Resolution" />
+                    <ToggleSwitch Header="Disable IPv6" />
+                    <ToggleSwitch Header="Disable Teredo" />
+                    <ToggleSwitch Header="Disable PowerShell 7 Telemetry" />
+                    <ToggleSwitch Header="Disable HPET" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

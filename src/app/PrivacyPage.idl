@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass PrivacyPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        PrivacyPage();
+    }
+}

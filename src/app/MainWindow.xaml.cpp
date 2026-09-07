@@ -5,12 +5,22 @@
 #include "MainWindow.g.cpp"
 #endif
 
+#include "HomePage.xaml.h"
+#include "DebloaterPage.xaml.h"
+#include "PerformancePage.xaml.h"
+#include "PrivacyPage.xaml.h"
+#include "DownloadsPage.xaml.h"
+#include "ProcessesPage.xaml.h"
+#include "LatencyPage.xaml.h"
+#include "ExtrasPage.xaml.h"
+#include "SettingsPage.xaml.h"
 #include "winchisel/application/session.hpp"
 #include "winchisel/core/navigation.hpp"
 
 #include <microsoft.ui.xaml.window.h>
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Interop.h>
+
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -49,6 +59,7 @@ MainWindow::MainWindow() {
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
     }
+    ContentFrame().Content(make<HomePage>());
 }
 
 void MainWindow::Nav_SelectionChanged(
@@ -60,7 +71,25 @@ void MainWindow::Nav_SelectionChanged(
     }
     const auto tag = winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home");
     winchisel::application::Session::instance().set_screen(screen_from_tag(tag));
-    ContentText().Text(item.Content().as<winrt::hstring>());
+    if (tag == L"home") {
+        ContentFrame().Content(make<HomePage>());
+    } else if (tag == L"debloater") {
+        ContentFrame().Content(make<DebloaterPage>());
+    } else if (tag == L"performance") {
+        ContentFrame().Content(make<PerformancePage>());
+    } else if (tag == L"privacy_security") {
+        ContentFrame().Content(make<PrivacyPage>());
+    } else if (tag == L"downloads") {
+        ContentFrame().Content(make<DownloadsPage>());
+    } else if (tag == L"processes") {
+        ContentFrame().Content(make<ProcessesPage>());
+    } else if (tag == L"latency") {
+        ContentFrame().Content(make<LatencyPage>());
+    } else if (tag == L"extras") {
+        ContentFrame().Content(make<ExtrasPage>());
+    } else if (tag == L"settings") {
+        ContentFrame().Content(make<SettingsPage>());
+    }
 }
 
 }  // namespace winrt::Winchisel::implementation

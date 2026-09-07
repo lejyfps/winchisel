@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass DownloadsPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        DownloadsPage();
+    }
+}
