@@ -15,15 +15,33 @@
         PaneDisplayMode="Left"
         SelectionChanged="Nav_SelectionChanged">
         <NavigationView.MenuItems>
-            <NavigationViewItem Content="Home" Tag="home" />
-            <NavigationViewItem Content="Debloater" Tag="debloater" />
-            <NavigationViewItem Content="Performance" Tag="performance" />
-            <NavigationViewItem Content="Privacy &amp; Security" Tag="privacy_security" />
-            <NavigationViewItem Content="Downloads" Tag="downloads" />
-            <NavigationViewItem Content="Processes" Tag="processes" />
-            <NavigationViewItem Content="Latency" Tag="latency" />
-            <NavigationViewItem Content="Extras" Tag="extras" />
-            <NavigationViewItem Content="Settings" Tag="settings" />
+            <NavigationViewItem Content="Home" Tag="home">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Home" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Debloater" Tag="debloater">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Delete" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Performance" Tag="performance">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="AllApps" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Privacy &amp; Security" Tag="privacy_security">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Permissions" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Downloads" Tag="downloads">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Download" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Processes" Tag="processes">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Contact" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Latency" Tag="latency">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Clock" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Extras" Tag="extras">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="More" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Settings" Tag="settings">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
         </NavigationView.MenuItems>
         <Frame x:Name="ContentFrame" />
     </NavigationView>

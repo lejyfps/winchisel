@@ -51,9 +51,11 @@
     <ClInclude Include="include\winchisel\core\navigation.hpp" />
     <ClInclude Include="include\winchisel\core\os.hpp" />
     <ClInclude Include="include\winchisel\core\settings.hpp" />
+    <ClInclude Include="include\winchisel\core\tweak.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\settings.cpp" />
+    <ClCompile Include="src\tweak.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
