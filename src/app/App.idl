@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass App : Microsoft.UI.Xaml.Application
+    {
+        App();
+    }
+}

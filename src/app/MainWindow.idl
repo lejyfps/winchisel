@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass MainWindow : Microsoft.UI.Xaml.Window
+    {
+        MainWindow();
+    }
+}
