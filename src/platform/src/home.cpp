@@ -31,6 +31,15 @@ std::string format_gb(double gb, const char* suffix) {
     return buf;
 }
 
+DWORD reg_dword(HKEY root, const wchar_t* path, const wchar_t* value) {
+    HKEY key{};
+    if (RegOpenKeyExW(root, path, 0, KEY_READ, &key) != ERROR_SUCCESS) return 0;
+    DWORD data{}, size = sizeof(data), type = 0;
+    const auto st = RegQueryValueExW(key, value, nullptr, &type, reinterpret_cast<LPBYTE>(&data), &size);
+    RegCloseKey(key);
+    return st == ERROR_SUCCESS && type == REG_DWORD ? data : 0;
+}
+
 std::wstring reg_sz(HKEY root, const wchar_t* path, const wchar_t* value) {
     static std::mutex mutex;
     static std::unordered_map<std::wstring, std::wstring> cache;
@@ -109,17 +118,14 @@ void gpu(std::string& name, std::string& vram) {
 }
 
 std::string display() {
-    static const auto cached = [] {
     DEVMODEW mode{};
     mode.dmSize = sizeof(mode);
     if (!EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode)) {
-        return std::string{};
+        return {};
     }
     char buf[80];
     std::snprintf(buf, sizeof(buf), "%lux%lu @ %lu Hz", mode.dmPelsWidth, mode.dmPelsHeight, mode.dmDisplayFrequency);
-    return std::string(buf);
-    }();
-    return cached;
+    return buf;
 }
 
 std::string uptime() {
@@ -161,8 +167,7 @@ winchisel::core::HomeInfo query_home_info() {
     char cores[32];
     std::snprintf(cores, sizeof(cores), "%u", si.dwNumberOfProcessors);
     info.cpu_cores = cores;
-    const DWORD mhz = static_cast<DWORD>(_wtol(
-        reg_sz(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"~MHz").c_str()));
+    const DWORD mhz = reg_dword(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"~MHz");
     if (mhz > 0) {
         char sp[32];
         std::snprintf(sp, sizeof(sp), "%.2f GHz", mhz / 1000.0);

@@ -20,6 +20,13 @@ inline std::function<void()>& theme_reload() {
     return handler;
 }
 
+inline winrt::hstring tr(std::wstring_view english) {
+    return winrt::hstring{winchisel::core::loc(english)};
+}
+inline winrt::hstring tr(winrt::hstring const& english) {
+    return tr(std::wstring_view{english});
+}
+
 inline void localize_tree(winrt::Windows::Foundation::IInspectable const& root) {
     using namespace winrt;
     using namespace Microsoft::UI::Xaml;

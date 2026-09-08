@@ -132,6 +132,17 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         DeleteFileW(replacement.c_str());
         return fail(error);
     }
-    if (!launch(*target)) return fail(GetLastError());
+    if (!launch(*target)) {
+        const auto error = GetLastError();
+        MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
+        MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);
+        return fail(error ? error : ERROR_ACCESS_DENIED);
+    }
+    std::error_code error;
+    for (auto const& entry : std::filesystem::directory_iterator(target->parent_path(), error)) {
+        auto name = entry.path().filename().wstring();
+        auto prefix = target->filename().wstring() + L".backup-";
+        if (name.rfind(prefix, 0) == 0 && entry.path() != std::filesystem::path(backup)) DeleteFileW(entry.path().c_str());
+    }
     return 0;
 }

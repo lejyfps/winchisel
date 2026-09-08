@@ -42,6 +42,7 @@ SettingsPage::SettingsPage() {
 
 SettingsPage::~SettingsPage() {
     if (save_timer_) {
+        if (save_timer_.IsEnabled()) save_settings();
         save_timer_.Tick(save_timer_token_);
         save_timer_.Stop();
     }
@@ -65,6 +66,10 @@ void SettingsPage::Theme_SelectionChanged(IInspectable const&, Controls::Selecti
 
 void SettingsPage::Settings_Toggled(IInspectable const&, RoutedEventArgs const&) {
     queue_save();
+}
+
+void SettingsPage::flush_pending_save() {
+    if (save_timer_ && save_timer_.IsEnabled()) save_settings();
 }
 
 void SettingsPage::queue_save() {

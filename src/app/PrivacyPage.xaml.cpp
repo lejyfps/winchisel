@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "PrivacyPage.xaml.h"
+#include "Localization.hpp"
 #include "winchisel/platform/system.hpp"
 
 #if __has_include("PrivacyPage.g.cpp")
@@ -61,11 +62,11 @@ Controls::Border category_card(hstring const& title, hstring const& description)
     card.HorizontalAlignment(HorizontalAlignment::Stretch);
     auto content = Controls::StackPanel();
     auto heading = Controls::TextBlock();
-    heading.Text(title);
+    heading.Text(winchisel::ui::tr(title));
     heading.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Style>());
     content.Children().Append(heading);
     auto detail = Controls::TextBlock();
-    detail.Text(description);
+    detail.Text(winchisel::ui::tr(description));
     detail.TextWrapping(TextWrapping::Wrap);
     detail.Style(resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Style>());
     content.Children().Append(detail);
@@ -158,7 +159,7 @@ void PrivacyPage::render_groups() {
         }
         ++matches;
         auto expander = Controls::Expander();
-        expander.Header(box_value(to_hstring(group.title)));
+        expander.Header(box_value(winchisel::ui::tr(to_hstring(group.title))));
         expander.HorizontalAlignment(HorizontalAlignment::Stretch);
         expander.HorizontalContentAlignment(HorizontalAlignment::Stretch);
         expander.IsExpanded(group.id == "security");

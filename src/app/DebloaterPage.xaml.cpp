@@ -2,6 +2,7 @@
 #include "AsyncSupport.hpp"
 #include "DebloaterPage.xaml.h"
 #include "AsyncLifetime.hpp"
+#include "Localization.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -165,7 +166,7 @@ void DebloaterPage::render_items() {
 
         auto row = Controls::ListViewItem();
         row.Tag(box_value(static_cast<std::uint64_t>(index)));
-        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,to_hstring(std::string(item.name)+(installed_[index]?", installed":", not installed")));
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,to_hstring(std::string(item.name))+(installed_[index]?winchisel::ui::tr(L", installed"):winchisel::ui::tr(L", not installed")));
         row.HorizontalContentAlignment(HorizontalAlignment::Stretch);
         row.Background(resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>());
         row.BorderBrush(resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>());
@@ -179,17 +180,17 @@ void DebloaterPage::render_items() {
         auto text = Controls::StackPanel();
         auto title = Controls::TextBlock(); title.Text(to_hstring(item.name)); title.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>()); text.Children().Append(title);
         auto detail_text = std::string(item.group) + " | " + std::string(item.package_name);
-        if (!item.can_reinstall) detail_text += " | Cannot be reinstalled automatically";
+        if (!item.can_reinstall) detail_text += " | " + winrt::to_string(winchisel::ui::tr(L"Cannot be reinstalled automatically"));
         auto detail = Controls::TextBlock(); detail.Text(to_hstring(detail_text)); detail.TextWrapping(TextWrapping::Wrap); detail.Foreground(item.can_reinstall ? secondary : critical); detail.Style(resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>()); text.Children().Append(detail);
         grid.Children().Append(text);
-        auto status = Controls::TextBlock(); status.Text(installed_[index] ? L"Installed" : L"Not installed"); status.Foreground(installed_[index] ? success : secondary); status.VerticalAlignment(VerticalAlignment::Center);
+        auto status = Controls::TextBlock(); status.Text(installed_[index] ? winchisel::ui::tr(L"Installed") : winchisel::ui::tr(L"Not installed")); status.Foreground(installed_[index] ? success : secondary); status.VerticalAlignment(VerticalAlignment::Center);
         Controls::Grid::SetColumn(status, 1); grid.Children().Append(status);
         row.Content(grid);
         Items().Items().Append(row);
         visible_indices_.push_back(index);
     }
     if (visible_indices_.empty()) {
-        Notice().Title(L"No matching items"); Notice().Message(L"Change the search, category, or installed-state filter."); Notice().Severity(Controls::InfoBarSeverity::Informational); Notice().IsOpen(true);
+        Notice().Title(winchisel::ui::tr(L"No matching items")); Notice().Message(winchisel::ui::tr(L"Change the search, category, or installed-state filter.")); Notice().Severity(Controls::InfoBarSeverity::Informational); Notice().IsOpen(true);
     }
     update_actions();
 }
@@ -208,8 +209,8 @@ void DebloaterPage::update_actions() {
     const bool idle = operation_ == Operation::none;
     InstallButton().IsEnabled(idle && installable > 0);
     RemoveButton().IsEnabled(idle && removable > 0);
-    InstallButton().Content(box_value(installable ? L"Install (" + to_hstring(installable) + L")" : L"Install"));
-    RemoveButton().Content(box_value(removable ? L"Remove (" + to_hstring(removable) + L")" : L"Remove"));
+    InstallButton().Content(box_value(installable ? winchisel::ui::tr(L"Install") + L" (" + to_hstring(installable) + L")" : winchisel::ui::tr(L"Install")));
+    RemoveButton().Content(box_value(removable ? winchisel::ui::tr(L"Remove") + L" (" + to_hstring(removable) + L")" : winchisel::ui::tr(L"Remove")));
 }
 
 fire_and_forget DebloaterPage::confirm_action(bool install) {

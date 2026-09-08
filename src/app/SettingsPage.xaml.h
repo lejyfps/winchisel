@@ -30,6 +30,7 @@ struct SettingsPage : SettingsPageT<SettingsPage> {
     void Cleanup_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Temp_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Link_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void flush_pending_save();
 
 private:
     enum class Action { none, restore, repair, cleanup, temp };

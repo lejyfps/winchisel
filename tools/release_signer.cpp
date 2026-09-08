@@ -17,12 +17,37 @@
 
 namespace {
 
+std::string hex(std::span<std::byte const> bytes);
+
 std::vector<std::byte> read(std::filesystem::path const& path) {
     std::ifstream input(path, std::ios::binary);
-    std::vector<char> raw{std::istreambuf_iterator<char>(input), {}};
-    std::vector<std::byte> result(raw.size());
-    std::memcpy(result.data(), raw.data(), raw.size());
+    input.seekg(0, std::ios::end);
+    const auto size = static_cast<std::size_t>(input.tellg());
+    input.seekg(0);
+    std::vector<std::byte> result(size);
+    input.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(size));
     return result;
+}
+
+std::string sha256_file(std::filesystem::path const& path) {
+    BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_HASH_HANDLE hash{};
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return {};
+    DWORD object_size{}, result{}; BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size), sizeof(object_size), &result, 0);
+    std::vector<std::byte> object(object_size), digest(32);
+    if (BCryptCreateHash(algorithm, &hash, reinterpret_cast<BYTE*>(object.data()), object_size, nullptr, 0, 0) < 0) { BCryptCloseAlgorithmProvider(algorithm, 0); return {}; }
+    std::ifstream input(path, std::ios::binary);
+    std::array<char, 65536> buffer{};
+    while (input.good()) {
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const auto n = input.gcount();
+        if (n && BCryptHashData(hash, reinterpret_cast<BYTE*>(buffer.data()), static_cast<ULONG>(n), 0) < 0) {
+            BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm, 0); return {};
+        }
+    }
+    const bool ok = input.eof() && BCryptFinishHash(hash, reinterpret_cast<BYTE*>(digest.data()), 32, 0) >= 0;
+    if (hash) BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (!ok) return {};
+    return hex(digest);
 }
 
 bool write(std::filesystem::path const& path, std::span<std::byte const> bytes) {
@@ -77,8 +102,7 @@ int sign(std::filesystem::path const& private_path, std::filesystem::path const&
 }
 
 int manifest(std::string_view version, std::filesystem::path const& setup, std::filesystem::path const& portable, std::filesystem::path const& output_path) {
-    const auto setup_bytes = read(setup), portable_bytes = read(portable);
-    const auto setup_hash = sha256(setup_bytes), portable_hash = sha256(portable_bytes);
+    const auto setup_hash = sha256_file(setup), portable_hash = sha256_file(portable);
     std::error_code error;
     const auto setup_size = std::filesystem::file_size(setup, error); if (error) return 1;
     const auto portable_size = std::filesystem::file_size(portable, error); if (error || setup_hash.empty() || portable_hash.empty()) return 1;

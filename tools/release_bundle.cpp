@@ -19,7 +19,7 @@ struct Footer { char magic[8]; std::uint64_t table_offset; std::uint64_t table_s
 static_assert(sizeof(Footer) == 28);
 constexpr char k_magic[] = "WCHBNDL2";
 
-struct File { std::filesystem::path source; std::string relative; std::uint64_t offset{}; std::uint64_t size{}; std::vector<std::byte> compressed; };
+struct File { std::filesystem::path source; std::string relative; std::uint64_t offset{}; std::uint64_t size{}; std::uint64_t compressed_size{}; std::filesystem::path packed; };
 
 bool write(std::ofstream& out, void const* data, std::size_t size) { out.write(static_cast<char const*>(data), static_cast<std::streamsize>(size)); return static_cast<bool>(out); }
 
@@ -38,8 +38,14 @@ bool compress_file(COMPRESSOR_HANDLE compressor, File& file) {
     SIZE_T required{};
     Compress(compressor, raw.data(), raw.size(), nullptr, 0, &required);
     if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !required) return false;
-    file.compressed.resize(required);
-    return Compress(compressor, raw.data(), raw.size(), file.compressed.data(), file.compressed.size(), &required) && (file.compressed.resize(required), true);
+    std::vector<std::byte> packed(required);
+    if (!Compress(compressor, raw.data(), raw.size(), packed.data(), packed.size(), &required)) return false;
+    packed.resize(required);
+    file.compressed_size = packed.size();
+    file.packed = file.source; file.packed += L".wchpack";
+    std::ofstream out(file.packed, std::ios::binary | std::ios::trunc);
+    out.write(reinterpret_cast<char const*>(packed.data()), static_cast<std::streamsize>(packed.size()));
+    return static_cast<bool>(out);
 }
 
 int bundle(std::filesystem::path const& stub, std::filesystem::path const& stage, std::filesystem::path const& output, std::uint32_t mode) {
@@ -62,16 +68,18 @@ int bundle(std::filesystem::path const& stub, std::filesystem::path const& stage
     for (auto const& file : files) table_size += sizeof(std::uint32_t) + file.relative.size() + sizeof(std::uint64_t) * 3;
     const auto stub_size = std::filesystem::file_size(stub, error); if (error) return 2;
     std::uint64_t next = stub_size + table_size;
-    for (auto& file : files) { file.offset = next; next += file.compressed.size(); }
+    for (auto& file : files) { file.offset = next; next += file.compressed_size; }
     std::filesystem::create_directories(output.parent_path(), error); if (error) return 2;
     std::ofstream out(output, std::ios::binary | std::ios::trunc); if (!out || !append(out, stub)) return 3;
     const auto count = static_cast<std::uint32_t>(files.size()); if (!write(out, &count, sizeof(count))) return 3;
     for (auto const& file : files) {
         const auto length = static_cast<std::uint32_t>(file.relative.size());
-        const auto compressed_size=static_cast<std::uint64_t>(file.compressed.size());
-        if (!write(out, &length, sizeof(length)) || !write(out, file.relative.data(), length) || !write(out, &file.offset, sizeof(file.offset)) || !write(out, &file.size, sizeof(file.size)) || !write(out, &compressed_size, sizeof(compressed_size))) return 3;
+        if (!write(out, &length, sizeof(length)) || !write(out, file.relative.data(), length) || !write(out, &file.offset, sizeof(file.offset)) || !write(out, &file.size, sizeof(file.size)) || !write(out, &file.compressed_size, sizeof(file.compressed_size))) return 3;
     }
-    for (auto const& file : files) if (!write(out,file.compressed.data(),file.compressed.size())) return 3;
+    for (auto const& file : files) {
+        if (!append(out, file.packed)) return 3;
+        std::filesystem::remove(file.packed, error);
+    }
     const Footer footer{{'W','C','H','B','N','D','L','2'}, stub_size, table_size, mode};
     return write(out, &footer, sizeof(footer)) ? 0 : 3;
 }

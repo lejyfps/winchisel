@@ -91,7 +91,10 @@ MainWindow::MainWindow() {
         presenter.PreferredMinimumHeight(650);
     }
     localize_nav();
-    Closed([](auto&&, auto&&) {
+    Closed([this](auto&&, auto&&) {
+        if (auto settings = pages_.find(L"settings"); settings != pages_.end()) {
+            if (auto page = settings->second.try_as<implementation::SettingsPage>()) page->flush_pending_save();
+        }
         winchisel::ui::language_reload() = {};
         winchisel::ui::theme_reload() = {};
         winchisel::ui::toast_handler() = {};

@@ -231,6 +231,11 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
     std::filesystem::remove(partial, error);
     if (auto downloaded = download_https_file(url, partial, artifact->size, artifact->sha256); !downloaded) return std::unexpected(downloaded.error());
     if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){ std::filesystem::remove(partial, error); return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())}); }
+    const auto updates_root = dir.parent_path();
+    for (auto const& entry : std::filesystem::directory_iterator(updates_root, error)) {
+        if (!entry.is_directory(error)) continue;
+        if (entry.path() != dir) std::filesystem::remove_all(entry.path(), error);
+    }
     return final;
 }
 

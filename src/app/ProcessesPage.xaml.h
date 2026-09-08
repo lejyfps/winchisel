@@ -2,6 +2,7 @@
 
 #include "ProcessesPage.g.h"
 #include "ProcessesPage.xaml.g.h"
+#include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
 #include <optional>
@@ -28,6 +29,8 @@ private:
     std::uint64_t previous_system_time_{};
     std::unordered_set<std::uint32_t> expanded_;
     std::vector<std::uint32_t> rendered_pids_;
+    std::vector<std::uint8_t> rendered_children_;
+    std::vector<std::wstring> rendered_names_;
     SortColumn sort_column_{SortColumn::name};
     bool ascending_{true};
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer refresh_timer_{nullptr};

@@ -46,7 +46,12 @@ StringSet registry_display_names(HKEY root,std::wstring const& path) {
 winchisel::core::Result<StringSet> winget_ids() {
     std::array<wchar_t,MAX_PATH> temp{},path{};if(!GetTempPathW(static_cast<DWORD>(temp.size()),temp.data())||!GetTempFileNameW(temp.data(),L"wci",0,path.data()))return std::unexpected(error("Temporary export path unavailable"));
     auto command=run_hidden(L"winget.exe export --output \""+std::wstring(path.data())+L"\" --accept-source-agreements --nowarn --disable-interactivity");
-    std::ifstream input(path.data(),std::ios::binary);std::string json((std::istreambuf_iterator<char>(input)),{});DeleteFileW(path.data());
+    std::string json;
+    {
+        std::ifstream input(path.data(),std::ios::binary);
+        json.assign(std::istreambuf_iterator<char>(input),{});
+    }
+    DeleteFileW(path.data());
     if(!command)return std::unexpected(command.error());if(command->exit_code!=0)return std::unexpected(error("winget export exited with "+std::to_string(command->exit_code)));
     StringSet result;static const std::regex id(R"json("PackageIdentifier"\s*:\s*"([^"]+)")json");for(std::sregex_iterator it(json.begin(),json.end(),id),end;it!=end;++it){auto value=(*it)[1].str();std::ranges::transform(value,value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});result.insert(std::move(value));}return result;
 }
