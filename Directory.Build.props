@@ -6,5 +6,6 @@
     <CharacterSet>Unicode</CharacterSet>
     <UseMultiToolTask>true</UseMultiToolTask>
     <TreatWarningAsError>true</TreatWarningAsError>
+    <EnableASAN Condition="'$(WinchiselEnableASan)'=='true'">true</EnableASAN>
   </PropertyGroup>
 </Project>

@@ -84,6 +84,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Localization.hpp" />
+    <ClInclude Include="Toast.hpp" />
+    <ClInclude Include="AsyncLifetime.hpp" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
     </ClInclude>

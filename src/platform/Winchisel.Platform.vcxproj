@@ -40,7 +40,7 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <ConformanceMode>true</ConformanceMode>
       <WarningLevel>Level4</WarningLevel>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)src\core\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)src\app\Generated Files;$(ProjectDir)include;$(SolutionDir)src\core\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -54,6 +54,8 @@
     <ClInclude Include="include\winchisel\platform\latency.hpp" />
     <ClInclude Include="include\winchisel\platform\debloater.hpp" />
     <ClInclude Include="include\winchisel\platform\update.hpp" />
+    <ClInclude Include="include\winchisel\platform\shell.hpp" />
+    <ClInclude Include="include\winchisel\platform\process.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\performance.cpp" />
@@ -64,6 +66,8 @@
     <ClCompile Include="src\latency.cpp" />
     <ClCompile Include="src\debloater.cpp" />
     <ClCompile Include="src\update.cpp" />
+    <ClCompile Include="src\shell.cpp" />
+    <ClCompile Include="src\process.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">

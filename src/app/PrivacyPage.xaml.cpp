@@ -178,7 +178,7 @@ Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group, std::strin
 
 void PrivacyPage::load_privacy_toggles(){loading_security_=true;for(auto& item:privacy_toggles_){bool found{},enabled=true;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;found=true;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto actual=winchisel::platform::read_registry_value(destination);bool match=false;if(actual){if(rule.enabled_value=="__MISSING__")match=std::holds_alternative<std::monostate>(*actual);else if(auto dword=std::get_if<std::uint32_t>(&*actual);dword)match=rule.enabled_value==std::to_string(*dword);else if(auto text=std::get_if<std::string>(&*actual);text)match=rule.enabled_value==*text;}enabled=enabled&&match;}if(found)item.control.IsOn(enabled);}loading_security_=false;}
 
-void PrivacyPage::save_privacy_toggle(std::size_t index){if(loading_security_||index>=privacy_toggles_.size())return;auto const& item=privacy_toggles_[index];bool ok=true;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto token=item.control.IsOn()?rule.enabled_value:rule.disabled_value;Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else value=static_cast<std::uint32_t>(std::stoul(std::string(token)));if(!winchisel::platform::write_registry_value(destination,value))ok=false;}if(!ok){show_write_error();load_privacy_toggles();}}
+void PrivacyPage::save_privacy_toggle(std::size_t index){if(loading_security_||index>=privacy_toggles_.size())return;auto const& item=privacy_toggles_[index];std::vector<std::pair<Target,Value>> changes;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto token=item.control.IsOn()?rule.enabled_value:rule.disabled_value;Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else value=static_cast<std::uint32_t>(std::stoul(std::string(token)));changes.emplace_back(destination,value);}if(auto result=winchisel::platform::write_registry_values_atomic(changes);!result){show_write_error(result.error().detail);load_privacy_toggles();}}
 
 Controls::StackPanel PrivacyPage::security_content() {
     auto content = Controls::StackPanel();
@@ -280,7 +280,44 @@ void PrivacyPage::load_privacy_selections(){loading_uac_=true;if(smart_app_contr
 
 void PrivacyPage::save_privacy_selections(){if(loading_uac_)return;std::vector<std::pair<Target,Value>> changes;if(smart_app_control_&&smart_app_control_.SelectedIndex()>=0)changes.emplace_back(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword),static_cast<std::uint32_t>(smart_app_control_.SelectedIndex()));if(powershell_policy_&&powershell_policy_.SelectedIndex()>=0){constexpr std::array values{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};auto selected=powershell_policy_.SelectedIndex();for(auto hive:{Hive::current_user,Hive::local_machine})changes.emplace_back(target(hive,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string),std::string(values[selected]));}if(ads_mode_&&ads_mode_.SelectedIndex()>=0)changes.emplace_back(target(Hive::current_user,"Software\\Winhance\\Settings","AdsPromotionalContentMode",Type::dword),static_cast<std::uint32_t>(ads_mode_.SelectedIndex()));if(auto result=winchisel::platform::write_registry_values_atomic(changes);!result){show_write_error(result.error().detail);load_privacy_selections();}}
 
-void PrivacyPage::apply_profile(bool recommended){for(auto& toggle:security_toggles_)toggle.control.IsOn(!recommended);for(auto& toggle:privacy_toggles_)toggle.control.IsOn(!recommended);uac_level_.SelectedIndex(recommended?4:2);if(smart_app_control_)smart_app_control_.SelectedIndex(recommended?0:2);if(powershell_policy_)powershell_policy_.SelectedIndex(recommended?2:0);if(ads_mode_)ads_mode_.SelectedIndex(recommended?1:2);}
+void PrivacyPage::apply_profile(bool recommended){
+    loading_security_=true;loading_uac_=true;
+    for(auto& toggle:security_toggles_)toggle.control.IsOn(!recommended);
+    for(auto& toggle:privacy_toggles_)toggle.control.IsOn(!recommended);
+    uac_level_.SelectedIndex(recommended?4:2);
+    if(smart_app_control_)smart_app_control_.SelectedIndex(recommended?0:2);
+    if(powershell_policy_)powershell_policy_.SelectedIndex(recommended?2:0);
+    if(ads_mode_)ads_mode_.SelectedIndex(recommended?1:2);
+    loading_security_=false;loading_uac_=false;
+    std::vector<std::pair<Target,Value>> changes;
+    for(auto const& tweak:security_toggles_){
+        auto const& values=tweak.control.IsOn()?tweak.enabled_values:tweak.disabled_values;
+        for(std::size_t i{};i<tweak.targets.size();++i)changes.emplace_back(tweak.targets[i],values[i]);
+    }
+    for(auto const& item:privacy_toggles_){
+        for(auto const& rule:winchisel::core::get_privacy_registry_rules()){
+            if(rule.id!=item.id)continue;
+            auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);
+            auto token=item.control.IsOn()?rule.enabled_value:rule.disabled_value;
+            Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else value=static_cast<std::uint32_t>(std::stoul(std::string(token)));
+            changes.emplace_back(destination,value);
+        }
+    }
+    constexpr std::array<std::pair<std::uint32_t,std::uint32_t>,5> uac{{{1,1},{2,1},{5,1},{5,0},{0,0}}};
+    const auto selected=uac_level_.SelectedIndex();
+    if(selected>=0&&selected<static_cast<int>(uac.size())){
+        const auto key="SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
+        changes.emplace_back(target(Hive::local_machine,key,"ConsentPromptBehaviorAdmin",Type::dword),uac[selected].first);
+        changes.emplace_back(target(Hive::local_machine,key,"PromptOnSecureDesktop",Type::dword),uac[selected].second);
+    }
+    if(smart_app_control_&&smart_app_control_.SelectedIndex()>=0)changes.emplace_back(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword),static_cast<std::uint32_t>(smart_app_control_.SelectedIndex()));
+    if(powershell_policy_&&powershell_policy_.SelectedIndex()>=0){constexpr std::array values{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};auto idx=powershell_policy_.SelectedIndex();for(auto hive:{Hive::current_user,Hive::local_machine})changes.emplace_back(target(hive,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string),std::string(values[idx]));}
+    if(ads_mode_&&ads_mode_.SelectedIndex()>=0)changes.emplace_back(target(Hive::current_user,"Software\\Winhance\\Settings","AdsPromotionalContentMode",Type::dword),static_cast<std::uint32_t>(ads_mode_.SelectedIndex()));
+    if(auto result=winchisel::platform::write_registry_values_atomic(changes);!result){
+        show_write_error(result.error().detail);
+        load_security();load_privacy_toggles();load_uac_level();load_privacy_selections();
+    }
+}
 void PrivacyPage::Recommended_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(true);}
 void PrivacyPage::Defaults_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(false);}
 

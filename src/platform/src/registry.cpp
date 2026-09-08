@@ -195,4 +195,14 @@ winchisel::core::Result<void> write_registry_values_atomic(
     return {};
 }
 
+winchisel::core::Result<void> rollback_registry_values(
+    std::vector<std::pair<RegistryTarget, RegistryValue>> const& previous) {
+    bool ok = true;
+    for (auto it = previous.rbegin(); it != previous.rend(); ++it) {
+        ok = static_cast<bool>(write_registry_value(it->first, it->second)) && ok;
+    }
+    if (!ok) return std::unexpected(registry_error("rollback incomplete"));
+    return {};
+}
+
 }  // namespace winchisel::platform

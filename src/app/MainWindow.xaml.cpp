@@ -14,7 +14,10 @@
 #include "LatencyPage.xaml.h"
 #include "ExtrasPage.xaml.h"
 #include "SettingsPage.xaml.h"
+#include "Localization.hpp"
+#include "Toast.hpp"
 #include "winchisel/application/session.hpp"
+#include "winchisel/core/i18n.hpp"
 #include "winchisel/core/navigation.hpp"
 
 #include <microsoft.ui.xaml.window.h>
@@ -62,6 +65,18 @@ MainWindow::MainWindow() {
         presenter.PreferredMinimumWidth(1100);
         presenter.PreferredMinimumHeight(650);
     }
+    localize_nav();
+    Closed([](auto&&, auto&&) {
+        winchisel::ui::language_reload() = {};
+        winchisel::ui::toast_handler() = {};
+    });
+    winchisel::ui::language_reload() = [this] { reload_language(); };
+    winchisel::ui::toast_handler() = [this](auto severity, auto title, auto message) {
+        ToastBar().Severity(severity);
+        ToastBar().Title(hstring{title});
+        ToastBar().Message(hstring{message});
+        ToastBar().IsOpen(true);
+    };
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
         const auto weak = get_weak();
@@ -94,6 +109,10 @@ void MainWindow::Nav_SelectionChanged(
     winchisel::application::Session::instance().set_screen(screen_from_tag(tag));
     const std::wstring key(tag.c_str());
     if (const auto existing = pages_.find(key); existing != pages_.end()) { ContentFrame().Content(existing->second); return; }
+    if (auto page = make_page(tag)) { pages_.emplace(key, page); ContentFrame().Content(page); }
+}
+
+FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
     FrameworkElement page{nullptr};
     if (tag == L"home") page = make<HomePage>();
     else if (tag == L"debloater") page = make<DebloaterPage>();
@@ -104,7 +123,42 @@ void MainWindow::Nav_SelectionChanged(
     else if (tag == L"latency") page = make<LatencyPage>();
     else if (tag == L"extras") page = make<ExtrasPage>();
     else if (tag == L"settings") page = make<SettingsPage>();
-    if (page) { pages_.emplace(key, page); ContentFrame().Content(page); }
+    if (page) {
+        page.Loaded([page](auto&&, auto&&) { winchisel::ui::localize_tree(page); });
+    }
+    return page;
+}
+
+void MainWindow::localize_nav() {
+    auto label = [](winrt::hstring const& tag) -> std::wstring {
+        if (tag == L"debloater") return winchisel::core::loc(L"Debloater");
+        if (tag == L"performance") return winchisel::core::loc(L"Performance");
+        if (tag == L"privacy_security") return winchisel::core::loc(L"Privacy & Security");
+        if (tag == L"downloads") return winchisel::core::loc(L"Downloads");
+        if (tag == L"processes") return winchisel::core::loc(L"Processes");
+        if (tag == L"latency") return winchisel::core::loc(L"Latency");
+        if (tag == L"extras") return winchisel::core::loc(L"Extras");
+        if (tag == L"settings") return winchisel::core::loc(L"Settings");
+        return winchisel::core::loc(L"Home");
+    };
+    if (auto items = Nav().MenuItems()) {
+        for (std::uint32_t index = 0; index < items.Size(); ++index) {
+            if (auto item = items.GetAt(index).try_as<Controls::NavigationViewItem>()) {
+                item.Content(box_value(hstring{label(winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home"))}));
+            }
+        }
+    }
+}
+
+void MainWindow::reload_language() {
+    localize_nav();
+    pages_.clear();
+    auto item = Nav().SelectedItem().try_as<Controls::NavigationViewItem>();
+    const auto tag = item ? winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home") : L"home";
+    if (auto page = make_page(tag)) {
+        pages_.emplace(std::wstring(tag.c_str()), page);
+        ContentFrame().Content(page);
+    }
 }
 
 }  // namespace winrt::Winchisel::implementation

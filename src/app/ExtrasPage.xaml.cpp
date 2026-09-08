@@ -80,7 +80,7 @@ winrt::fire_and_forget ExtrasPage::run_command(CommandAction action, bool enable
  switch(action){case CommandAction::power_plan: result=winchisel::platform::apply_winchisel_power_plan(); break; case CommandAction::widgets: result=winchisel::platform::set_widgets_removed(enabled); break; case CommandAction::teredo: result=winchisel::platform::set_teredo_disabled(enabled); break; case CommandAction::hpet: result=winchisel::platform::set_hpet_disabled(enabled); break;}
  (void)queue.TryEnqueue([lifetime, action, enabled, result] {
   lifetime->set_command_busy(false);
-  if(!result){lifetime->load_states();lifetime->show_result(false,L"Could not apply the setting: "+winrt::to_hstring(result.error().detail));return;}
+  if(!result){lifetime->load_states();lifetime->show_result(false,std::wstring(L"Could not apply the setting: ")+std::wstring(winrt::to_hstring(result.error().detail)));return;}
   lifetime->loading_=true;
   if(action==CommandAction::widgets)lifetime->Widgets().IsOn(enabled); else if(action==CommandAction::teredo)lifetime->Teredo().IsOn(enabled); else if(action==CommandAction::hpet)lifetime->Hpet().IsOn(enabled); else lifetime->PowerPlanButton().Content(box_value(L"Active"));
   lifetime->loading_=false; lifetime->show_result(true,action==CommandAction::power_plan?L"Winchisel power plan applied successfully.":L"Setting applied.");

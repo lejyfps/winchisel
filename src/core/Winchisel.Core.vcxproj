@@ -55,12 +55,14 @@
     <ClInclude Include="include\winchisel\core\registry.hpp" />
     <ClInclude Include="include\winchisel\core\settings.hpp" />
     <ClInclude Include="include\winchisel\core\tweak.hpp" />
+    <ClInclude Include="include\winchisel\core\i18n.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\download.cpp" />
     <ClCompile Include="src\debloater.cpp" />
     <ClCompile Include="src\settings.cpp" />
     <ClCompile Include="src\tweak.cpp" />
+    <ClCompile Include="src\i18n.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

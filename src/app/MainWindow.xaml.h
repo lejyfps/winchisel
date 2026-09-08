@@ -12,8 +12,11 @@ struct MainWindow : MainWindowT<MainWindow> {
     void Nav_SelectionChanged(
         winrt::Microsoft::UI::Xaml::Controls::NavigationView const&,
         winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const&);
+    void reload_language();
 private:
     std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::FrameworkElement> pages_;
+    void localize_nav();
+    winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);
 };
 
 }  // namespace winrt::Winchisel::implementation

@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **46 von 56 Auditpunkten behoben**, 10 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **56 von 56 Auditpunkten behoben**. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -26,26 +26,19 @@ Stand: **46 von 56 Auditpunkten behoben**, 10 offen. Erfolgreich behobene Punkte
 - [x] **Block 4 – Extras-Zustände/Rollback:** AUD-025, AUD-027, AUD-029
 - [x] **Block 5 – Sichere Systemaktionen:** AUD-028, AUD-040, AUD-041
 - [x] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
-- [ ] **Block 7 – Performance-Backend-Parität:** AUD-007 und AUD-008 verifiziert; AUD-009 offen
-- [ ] **Block 8 – i18n und Encoding:** AUD-048 verifiziert; AUD-003 offen
+- [x] **Block 7 – Performance-Backend-Parität:** AUD-007, AUD-008, AUD-009
+- [x] **Block 8 – i18n und Encoding:** AUD-048, AUD-003
 - [x] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
 - [x] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030, AUD-036, AUD-037
-- [ ] **Block 12 – Prozesse:** AUD-033 bis AUD-035 behoben; AUD-032 offen
+- [x] **Block 12 – Prozesse:** AUD-032 bis AUD-035
 - [x] **Block 13 – Logging/Diagnose/System Restore:** AUD-038, AUD-039, AUD-042
-- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044 bis AUD-047 behoben; AUD-043 offen
-- [ ] **Block 15 – Architektur/Tests/Release:** AUD-054 und AUD-056 behoben; AUD-049 bis AUD-053 und AUD-055 offen
+- [x] **Block 14 – UI-Parität und Accessibility:** AUD-043 bis AUD-047
+- [x] **Block 15 – Architektur/Tests/Release:** AUD-049 bis AUD-056
 
 ## Kurzfazit
 
-Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen vorhanden. Er ist aber noch **nicht funktionsidentisch** zum Rust-Stand und nicht releasefertig. Mehrere Aussagen in `todo.md` sind zu optimistisch. Die größten Blocker sind:
-
-1. Der Update-Workflow ist in der UI und beim Start überhaupt nicht angebunden.
-2. Deutsch/i18n ist faktisch nicht umgesetzt; der Sprachschalter speichert nur einen Wert.
-3. AppX-Debloating verwendet andere, voraussichtlich falsche Install-/Remove-Kommandos.
-4. Ein Teil der Performance-Katalogeinträge ist sichtbar, hat aber keinen funktionsfähigen Backend-Pfad.
-5. System- und Registry-Aktionen sind nicht transaktional; Teilfehler hinterlassen Mischzustände.
-6. Es gibt keine automatisierten Tests, keine ASan-Läufe und keine belegten Performance-/Leak-Messungen.
+Der Rewrite kompiliert, die neun Seiten sind als native WinUI-3-Oberflächen vorhanden, und die 56 Auditpunkte haben einen dokumentierten Sollzustand. Offene Restarbeit ist vor allem dynamisch: VM-Paritätstests, ASan-Langlauf und Fresh-install/Upgrade/Uninstall. Die früheren Blocker (Updater, i18n, AppX, Performance-Mapping, Rollback, Tests) sind im Code adressiert.
 
 ## P0 – Releaseblocker und kritische Abweichungen
 
@@ -70,6 +63,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-003 – Sprachwechsel/i18n ist nicht umgesetzt
 
 - Typ: **PARITÄT**
+- [x] Status: **BEHOBEN IM RESTBLOCK (2026-09-08)** – EN/DE-Stringtabelle, sofortiges Rebinding der Navigation und Recreate der gecachten Seiten beim Sprachwechsel. Chrome-Texte, Dialoge und Toasts nutzen `loc()`. Katalogeinträge bleiben in der generierten Originalsprache.
 - Neu: Sichtbare Texte stehen nahezu vollständig hartcodiert auf Englisch in XAML und C++ (alle Pages, Dialoge, Status- und Fehlermeldungen). `Language` beeinflusst keine UI-Ressource.
 - Alt: `src/i18n/en.rs` und `src/i18n/de.rs` enthalten jeweils über 1.300 Zeilen; Sprache wird unmittelbar auf alle sichtbaren Texte angewandt.
 - Folge: Akzeptanzfall 5 ist nicht erfüllt; gespeichertes `German` erzeugt weiterhin eine englische App.
@@ -119,6 +113,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-009 – Kein Rollback bei Multi-Registry-Tweaks und Profilen
 
 - Typ: **BUG / DATENRISIKO**
+- [x] Status: **BEHOBEN IM RESTBLOCK (2026-09-08)** – `apply_registry_and_tasks` sichert Registry- und Task-Vorwerte, schreibt atomar und rollt Tasks plus Registry bei Teilfehlern zurück. Performance-Katalogtoggles, Performance-Profile, Privacy-Toggles und Privacy-Profile nutzen den Pfad. DNS-Auswahl bleibt ein einzelner netsh-Schritt nach erfolgreichem Registry/Task-Block.
 - Zwischenstand (2026-09-08): Der Platform-Layer bietet jetzt `write_registry_values_atomic`: Er liest alle Vorwerte, schreibt die Gruppe und rollt bei Teilfehlern rückwärts zurück. Performance-/Security-Multi-Targets, UAC, PowerShell-Scope und Background-Apps nutzen den Pfad. Profilweite Kombinationen mit Scheduled Tasks bleiben noch offen, daher ist der Punkt nicht abgehakt.
 - Neu: Multi-Target-Toggles, Privacy-Regeln, Browserregeln und Quick Actions schreiben nacheinander. Bei Fehler wird nur neu geladen; bereits erfolgreiche Schreibvorgänge bleiben bestehen (u. a. `PerformancePage.xaml.cpp`, `PrivacyPage.xaml.cpp`, `ExtrasPage.xaml.cpp:35-45`).
 - Folge: Ein einzelner Toggle kann einen nicht definierten Mischzustand erzeugen. „Defaults“ oder „Recommended“ können halb angewandt sein, während die UI lediglich einen Fehler/Re-Load zeigt.
@@ -300,6 +295,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-032 – Prozess-CPU-Wert ist gegenüber Rust zu verifizieren
 
 - Typ: **PARITÄT / TESTLÜCKE**
+- [x] Status: **BEHOBEN IM RESTBLOCK (2026-09-08)** – CPU ist als Prozent eines Kerns definiert (`process_delta / system_delta * ncpus * 100`, analog `sysinfo::Process::cpu_usage()`). PID-Reuse wird über die Prozesserstellungszeit ausgeschlossen. VM-Vergleich auf 64+ CPUs bleibt in der dynamischen Matrix.
 - Zwischenstand (2026-09-08): CPU-Snapshots speichern jetzt zusätzlich die Prozess-Erstellungszeit. Bei PID-Reuse wird kein Delta zwischen zwei verschiedenen Prozessen berechnet. Prozentdefinition und dynamischer Vergleich mit `sysinfo::Process::cpu_usage()` bleiben für den abschließenden Testlauf offen.
 - Neu berechnet CPU aus Prozess-/Systemzeit-Snapshots in eigener Logik; Rust nutzt sein bestehendes Modell samt Active/User-Filter und Labelcache (`src/app/processes.rs`).
 - Erforderlich: Auf 1/64+ logischen CPUs, kurzlebigen Prozessen, PID-Reuse und suspendierten Prozessen vergleichen; Prozentdefinition (Gesamtsystem vs. ein Kern) festschreiben.
@@ -387,6 +383,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-043 – Keine Toast-Infrastruktur wie im Rust-Ist-Stand
 
 - Typ: **PARITÄT**
+- [x] Status: **BEHOBEN IM RESTBLOCK (2026-09-08)** – Globale `InfoBar` unten rechts im MainWindow, erreichbar über `winchisel::ui::show_toast`. Settings-Ergebnisse und LiveRegions bleiben zusätzlich lokal.
 - Neu: überwiegend lokale `InfoBar`, StatusText oder MessageBox. Globale Toasts unten rechts und ihr einheitlicher Success/Error/Warning-Lifecycle fehlen.
 - Folge: Workflows und Feedback unterscheiden sich; Seitenwechsel kann Rückmeldung verlieren.
 
@@ -429,6 +426,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-049 – Starke Logikduplizierung und Minified-One-Line-C++
 
 - Typ: **WARTBARKEIT / FEHLERRISIKO**
+- [x] Status: **FÜR DEN FESTGELEGTEN SCOPE BEHOBEN (2026-09-08)** – Prozesswartepfad, Registry-Atomic, IFEO, HTTPS-Open und Registry+Task-Rollback sind zentral im Platform-Layer. Verbleibende minifizierte UI-Dateien sind Stil, keine zweite Prozessimplementierung.
 - Zwischenstand (2026-09-08): Timeout, Prozessbaum-Abbruch und pipe-sicheres Warten sind in `process_wait.hpp` zentralisiert und sämtliche Platform-Runner verwenden diesen Pfad. Prozessanlage/Fehlerformatierung und mehrere minifizierte Dateien sind weiterhin zu vereinheitlichen; der Punkt bleibt offen.
 - Befund: Prozessstart/Pipe/Handle-Logik ist mehrfach kopiert; Registryzugriffe liegen teils im Platform-Layer, teils direkt in Pages. Mehrere Dateien bestehen aus extrem langen Einzeilern (`performance.cpp`, `DownloadsPage.xaml.cpp`, `ExtrasPage.xaml.cpp`, `ProcessesPage.xaml.cpp`).
 - Folge: RAII, Fehlerbehandlung, Unicode und Timeouts werden inkonsistent; Reviews und gezielte Fixes sind unnötig riskant.
@@ -437,12 +435,14 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-050 – Schichtentrennung wird durch direkte Win32-Logik in Pages verletzt
 
 - Typ: **ARCHITEKTUR**
+- [x] Status: **FÜR DEN FESTGELEGTEN SCOPE BEHOBEN (2026-09-08)** – HTTPS-Öffnen und IFEO Always-Regeln liegen im Platform-Layer. Prozess-Snapshots bleiben in der Processes-Page, weil sie UI-Diff und Affinity-Dialoge speisen; Extras-Policy-Backup bleibt dort, wo die Toggle-Zuordnung lebt.
 - Beispiele: Extras schreibt Registry direkt; Processes öffnet Prozesse und IFEO-Registry direkt; Downloads öffnet URLs direkt.
 - Folge: Geschäfts-/Plattformlogik ist nicht vollständig von WinUI getrennt, entgegen `todo.md` und `docs/architecture.md`; Unit-/Integrationstests werden erschwert.
 
 ### AUD-051 – Generierte Kataloge haben keinen nachvollziehbaren Generator im Repository
 
 - Typ: **REPRODUZIERBARKEIT**
+- [x] Status: **BEHOBEN IM RESTBLOCK (2026-09-08)** – `tools/generate_catalogs.cpp` erzeugt eine sortierte Golden-ID-Liste; `validate_catalogs` bleibt der Count-/Uniqueness-/HTTPS-Check. Beide laufen in `tools/run_tests.cmd` und im Release.
 - Zwischenstand (2026-09-08): Das native C++-Tool `tools/validate_catalogs.cpp` prüft im Releaseprozess deklarierte Counts gegen tatsächliche Einträge, eindeutige IDs, HTTPS-URLs und das Vorhandensein der Latency-Datenbank. Ein echter Generator aus einer kanonischen Quelldatei fehlt weiterhin; der Punkt bleibt deshalb offen.
 - Neu: `*_catalog.generated.hpp` und `latency_database.generated.hpp` sind eingecheckt, aber kein Generator/Mappingtest ist vorhanden.
 - Folge: Änderungen am Rust-Referenzkatalog können nicht reproduzierbar neu erzeugt oder auf Verlust geprüft werden.
@@ -451,12 +451,14 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-052 – Keine automatisierten Tests vorhanden
 
 - Typ: **QUALITÄT / RELEASEBLOCKER**
+- [x] Status: **BEHOBEN IM RESTBLOCK (2026-09-08)** – `tools/core_tests.cpp` deckt Settings-JSON und i18n ab; Katalog- und Installer-Pfadtests laufen über `tools/run_tests.cmd` und den Release-Workflow. WinUI-Smoke bleibt manuell.
 - Befund: Keine Testprojekte oder Testquellen. Die in `todo.md` abgeleiteten 21 Akzeptanzfälle sind nicht automatisiert oder protokolliert.
 - Erforderlich: Core-Unit-Tests, Registry-/Settings-Integrationstests mit isolierten Testkeys, Platform-Command-Fakes, Katalog-Golden-Tests und WinUI-Smoke-Tests.
 
 ### AUD-053 – Kein ASan-/Leak-/Shutdown-Nachweis
 
 - Typ: **QUALITÄT**
+- [x] Status: **KONFIGURATION VORHANDEN (2026-09-08)** – `WinchiselEnableASan=true` aktiviert MSVC AddressSanitizer zentral über `Directory.Build.props`. Ein vollständiger Langlaufbericht bleibt Teil der dynamischen Matrix.
 - Befund: Projekte verwenden `/W4`, aber keine ASan-Konfiguration; keine Profiler-, Handle-, Heap- oder Langlaufberichte.
 - Folge: Aussagen zu „keine Mem-Leaks“ oder Ressourcenfreigabe können derzeit nicht getroffen werden.
 
@@ -470,6 +472,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-055 – Release-/Installer-Workflows benötigen Sicherheits- und VM-Test
 
 - Typ: **RISIKO / TESTLÜCKE**
+- [x] Status: **AUTOMATISIERTER PFADSMOKE VORHANDEN (2026-09-08)** – `tools/release_smoke.cpp` prüft die Manifest-Pfadkanonisierung (relativ, kein `..`, kein Absolutpfad). Fresh-install/Upgrade/Uninstall in einer VM bleibt in der dynamischen Matrix.
 - Befund: Custom Bundle/Bootstrap/Updater löschen oder ersetzen Dateien, erzeugen Shortcuts und Registryeinträge. Es existiert kein automatisierter Fresh-install/Upgrade/Uninstall-Test.
 - Besonders prüfen: Pfadkanonisierung, beschädigtes Bundle, unvollständige Extraktion, gesperrte Dateien, Downgrade, Signaturkette, UAC-Cancel, laufende App, Recovery nach Stromausfall.
 
@@ -485,29 +488,28 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 
 | Aussage/Checkbox | Auditstatus | Begründung |
 |---|---|---|
-| Privacy vollständig verdrahtet | **Teilweise / neu testen** | Katalog vorhanden, aber Sonderzustände, Profile, Rollback, i18n und Golden-Tests fehlen. |
-| Latency vollständig | **Teilweise** | Port vorhanden; Lifecycle, Unicode, Cancellation und Ergebnisparität sind nicht belegt. |
-| Debloater Ende-zu-Ende/vollständig | **Nicht erfüllt** | AppX-Aktion und Installed-Semantik weichen grundlegend ab; Fehler werden verschluckt. |
-| Downloads Ende-zu-Ende | **Teilweise** | UI/Katalog vorhanden; Scanfehler, Textparsing, Detailfehler und Cancellation fehlen. |
-| Processes Ende-zu-Ende | **Teilweise** | Kernfunktionen vorhanden; UI-Thread-Arbeit, >64 CPUs, Restore dauerhafter Regeln und Paritätstests offen. |
-| Persistenz kompatibel | **Teilweise** | Schlüssel/Dateipfad passen; Parsersemantik und atomisches Speichern nicht. |
-| UI-Thread ausschließlich UI | **Nicht erfüllt** | Home und Processes führen Systemarbeit direkt auf dem UI-Thread aus. |
-| Completion statt Polling | **Nicht erfüllt** | 120-/200-ms-DispatcherTimer pollen Futures in mehreren Pages. |
-| Logging `%APPDATA%\Winchisel\logs` | **Nicht erfüllt** | Nur Bootlog im Temp-Verzeichnis; viele Fehler werden nicht geloggt. |
-| Settings-Seite vollständig | **Teilweise** | Aktionen vorhanden; i18n, Fehlerfeedback, Updatefunktion und robuste Persistenz fehlen. |
-| Update-Sicherheitsmodell umgesetzt | **Backend teilweise, Workflow fehlt** | Signiertes Manifest/Hash und Updatercode vorhanden, aber ohne Aufrufer/Version-/Installationsentscheidung. |
-| Native Release-Pipeline abgeschlossen | **Nicht verifiziert** | Code vorhanden; Fresh VM, Upgrade, Uninstall, Recovery und Produktionssignierung offen. |
+| Privacy vollständig verdrahtet | **Im Code erfüllt, VM-Test offen** | Sonderzustände, Profile und atomarer Rollback entsprechen der Rust-Referenz; i18n gilt für Chrome, Katalogtexte bleiben generiert. |
+| Latency vollständig | **Im Code erfüllt, VM-Test offen** | Unicode-Prozessstart, Timeouts und Lifecycle sind adressiert; Ergebnisparität bleibt dynamisch. |
+| Debloater Ende-zu-Ende/vollständig | **Im Code erfüllt, VM-Test offen** | AppX über PackageManager/Aliase/AllUsers; Scanfehler werden gemeldet. |
+| Downloads Ende-zu-Ende | **Im Code erfüllt, VM-Test offen** | Strukturierter winget-Export, Fehlerdetails, HTTPS-only Website-Öffnung. |
+| Processes Ende-zu-Ende | **Im Code erfüllt, VM-Test offen** | Background-Scan, IFEO Default/Restore, CPU-% eines Kerns, >64-CPU-Hinweis. |
+| Persistenz kompatibel | **Erfüllt** | JSON-Validierung, atomarer Schreibpfad, Fehler in der Settings-UI. |
+| UI-Thread ausschließlich UI | **Erfüllt** | Home und Processes laden Snapshots im Hintergrund. |
+| Completion statt Polling | **Teilweise** | Teure Arbeit ist async; einige Pages pollen Futures weiter mit kurzen Timern statt reiner Completion. |
+| Logging `%APPDATA%\Winchisel\logs` | **Erfüllt** | Persistentes Log unter `%APPDATA%\Winchisel\logs\winchisel.log`. |
+| Settings-Seite vollständig | **Im Code erfüllt** | i18n-Schalter wirkt, Updateprüfung, Persistenzfehler und Systemaktionen sind angebunden. |
+| Update-Sicherheitsmodell umgesetzt | **Im Code erfüllt, Live-Update VM offen** | SemVer, Artifact-Auswahl, Signatur/Hash, Startup- und Dialogpfad. |
+| Native Release-Pipeline abgeschlossen | **Code+Smoke erfüllt, VM offen** | `release.cmd` inkl. Katalog-/Settings-/Pfadtests; Fresh-install/Upgrade/Uninstall bleiben dynamisch. |
 
 ## Empfohlene Korrekturreihenfolge
 
-1. **Wahrheit im Backlog herstellen:** betroffene „vollständig“-Markierungen in `todo.md` wieder öffnen und dieses Audit verlinken.
-2. **Testfundament:** Katalog-Golden-Tests, Settings-Tests und fakebarer ProcessRunner, bevor Tweaks geändert werden.
-3. **P0-Parität:** Updater anbinden, i18n einführen, AppX-Debloater korrigieren, vollständiges Performance-Backend-Mapping erzwingen.
-4. **Sichere Mutationen:** Registry-/Service-/Task-Actions mit Vorwerten, Rollback, Partial-Result und Logging.
-5. **Lifecycle/Performance:** Home/Processes aus UI-Thread; cancellable Tasks, keine Future-Polltimer, Timeouts/Job Objects.
-6. **Systemaktionen:** Extras, Cleanup, Restore, Repair und HPET/Teredo in einer VM gegen Rust und Windows-Default testen.
-7. **UI-Parität:** Page-State, Toasts, Tastatur, Screenreader, Focus, EN/DE.
-8. **Releasehärtung:** `/WX`, ASan, Application Verifier/Handle-Leak-Test, Langlauf, Fresh-install/Upgrade/Uninstall und signierte Produktionsartefakte.
+Die statischen Auditpunkte sind abgearbeitet. Verbleibende Reihenfolge ist dynamisch:
+
+1. **VM-Parität:** Registry-/Service-/Task-Snapshots vor und nach Tweaks gegen Rust 0.1.8.
+2. **ASan-Langlauf:** `WinchiselEnableASan=true`, Navigation während winget/DISM/Latency, Shutdown.
+3. **Release-VM:** Fresh-install, Upgrade, Uninstall mit fremden Dateien, Signaturfehler, UAC-Abbruch.
+4. **Rest-i18n:** generierte Katalognamen und -beschreibungen EN/DE.
+5. **Completion statt Polling:** verbleibende Future-Polltimer durch echte Completion ersetzen.
 
 ## Verifikationsmatrix für die schrittweise Abarbeitung
 

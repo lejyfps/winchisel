@@ -13,6 +13,7 @@
 #include <array>
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -249,23 +250,41 @@ void PerformancePage::load_catalog_toggles() {
     loading_gaming_toggles_ = false;
 }
 
+Value catalog_desired(auto const& rule, bool enabled) {
+    auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
+    auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
+    auto values = enabled ? rule.enabled_values : rule.disabled_values; auto separator = values.find('|'); auto value = values.substr(0, separator);
+    Value desired;
+    if (rule.kind == 0) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{static_cast<std::uint32_t>(std::stoul(std::string(value)))};
+    else if (rule.kind == 1) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{std::string(value)};
+    else {
+        auto current=winchisel::platform::read_registry_value(destination);
+        auto bytes=current?std::get_if<std::vector<std::uint8_t>>(&*current):nullptr;
+        std::vector<std::uint8_t> data=bytes?*bytes:std::vector<std::uint8_t>{};
+        if(rule.byte_index<0) return desired;
+        if(data.size()<=static_cast<std::size_t>(rule.byte_index))data.resize(rule.byte_index+1);
+        if(enabled)data[rule.byte_index]|=rule.bit_mask;else data[rule.byte_index]&=static_cast<std::uint8_t>(~rule.bit_mask);
+        desired=std::move(data);
+    }
+    return desired;
+}
+
 void PerformancePage::save_catalog_toggle(std::size_t index) {
     if (loading_gaming_toggles_ || index >= catalog_toggles_.size()) return;
-    auto const& item = catalog_toggles_[index]; const bool enabled = item.control.IsOn(); bool ok = true;
+    auto const& item = catalog_toggles_[index]; const bool enabled = item.control.IsOn();
+    std::vector<std::pair<Target,Value>> registry;
+    std::vector<std::pair<std::string,bool>> tasks;
     for (auto const& rule : winchisel::core::get_performance_registry_rules()) {
         if (rule.id != item.id) continue;
         auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
         auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
-        auto values = enabled ? rule.enabled_values : rule.disabled_values; auto separator = values.find('|'); auto value = values.substr(0, separator);
-        Value desired;
-        if (rule.kind == 0) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{static_cast<std::uint32_t>(std::stoul(std::string(value)))};
-        else if (rule.kind == 1) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{std::string(value)};
-        else { auto current=winchisel::platform::read_registry_value(destination); auto bytes=current?std::get_if<std::vector<std::uint8_t>>(&*current):nullptr; std::vector<std::uint8_t> data=bytes?*bytes:std::vector<std::uint8_t>{}; if(rule.byte_index<0)continue;if(data.size()<=static_cast<std::size_t>(rule.byte_index))data.resize(rule.byte_index+1);if(enabled)data[rule.byte_index]|=rule.bit_mask;else data[rule.byte_index]&=static_cast<std::uint8_t>(~rule.bit_mask);desired=std::move(data); }
-        if (!winchisel::platform::write_registry_value(destination, desired)) ok = false;
+        registry.emplace_back(destination, catalog_desired(rule, enabled));
     }
     const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;});
-    if(!has_registry&&!winchisel::platform::write_scheduled_task(item.id,enabled))ok=false;
-    if (!ok) {show_write_error();load_catalog_toggles();}
+    if(!has_registry) tasks.emplace_back(std::string(item.id), enabled);
+    if (auto result = winchisel::platform::apply_registry_and_tasks(registry, tasks); !result) {
+        show_write_error(result.error().detail); load_catalog_toggles();
+    }
 }
 
 void PerformancePage::load_catalog_selections() {
@@ -363,8 +382,25 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     loading_gaming_toggles_ = true;
     for (auto& item : catalog_toggles_) if (auto value = profile_for(item.id, false)) item.control.IsOn(*value != 0);
     loading_gaming_toggles_ = false;
-    for (std::size_t index{}; index < catalog_toggles_.size(); ++index) {
-        if (profile_for(catalog_toggles_[index].id, false)) save_catalog_toggle(index);
+    std::vector<std::pair<Target,Value>> registry;
+    std::vector<std::pair<std::string,bool>> tasks;
+    for (auto& item : catalog_toggles_) {
+        if (!profile_for(item.id, false)) continue;
+        const bool enabled = item.control.IsOn();
+        bool has_registry = false;
+        for (auto const& rule : winchisel::core::get_performance_registry_rules()) {
+            if (rule.id != item.id) continue;
+            has_registry = true;
+            auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
+            auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
+            registry.emplace_back(destination, catalog_desired(rule, enabled));
+        }
+        if (!has_registry) tasks.emplace_back(item.id, enabled);
+    }
+    if (auto result = winchisel::platform::apply_registry_and_tasks(registry, tasks); !result) {
+        show_write_error(result.error().detail);
+        load_catalog_toggles();
+        return;
     }
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {

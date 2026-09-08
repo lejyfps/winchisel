@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
+#include "winchisel/core/i18n.hpp"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/update.hpp"
 #include "winchisel/application/session.hpp"
@@ -45,9 +46,9 @@ winrt::fire_and_forget App::check_for_updates() {
     co_await ui_thread;
     Controls::ContentDialog dialog;
     dialog.XamlRoot(lifetime->window_.Content().XamlRoot());
-    dialog.Title(box_value(L"Winchisel update available"));
+    dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
     dialog.Content(box_value(L"Version " + to_hstring(manifest->version) + L" is available. Download and install it now?"));
-    dialog.PrimaryButtonText(L"Update"); dialog.CloseButtonText(L"Later");
+    dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Update")}); dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
     if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) co_return;
     co_await winrt::resume_background();
     auto staged = winchisel::platform::stage_release_artifact(*manifest, artifact_id);

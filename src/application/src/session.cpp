@@ -1,5 +1,6 @@
 #include "winchisel/application/session.hpp"
 
+#include "winchisel/core/i18n.hpp"
 #include "winchisel/platform/system.hpp"
 
 namespace winchisel::application {
@@ -29,6 +30,7 @@ bool Session::bootstrap() {
         settings_ = winchisel::core::settings_defaults();
     }
     settings_.autostart_enabled = winchisel::platform::is_autostart_enabled();
+    winchisel::core::set_ui_language(settings_.language);
     (void)winchisel::platform::save_settings(settings_);
     winchisel::platform::set_console_visible(settings_.show_console);
     return true;
@@ -44,6 +46,7 @@ winchisel::core::Result<void> Session::set_settings(winchisel::core::Settings se
         winchisel::platform::set_console_visible(settings.show_console);
     }
     settings_ = std::move(settings);
+    winchisel::core::set_ui_language(settings_.language);
     return winchisel::platform::save_settings(settings_);
 }
 

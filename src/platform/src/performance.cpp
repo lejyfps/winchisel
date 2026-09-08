@@ -1,4 +1,5 @@
 #include "winchisel/platform/performance.hpp"
+#include "winchisel/platform/registry.hpp"
 #include "winchisel/platform/system.hpp"
 #include "process_wait.hpp"
 #include <Windows.h>
@@ -9,6 +10,8 @@
 #include <string>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
+#include <utility>
 #pragma comment(lib, "taskschd.lib")
 #pragma comment(lib, "ole32.lib")
 namespace winchisel::platform { namespace {
@@ -28,4 +31,37 @@ winchisel::core::Result<ITaskService*> open_task_service(){
 winchisel::core::Result<IRegisteredTask*> open_task(std::string_view full){auto service=open_task_service();if(!service)return std::unexpected(service.error());BSTR root_path=SysAllocString(L"\\");ITaskFolder* root{};auto hr=(*service)->GetFolder(root_path,&root);SysFreeString(root_path);if(FAILED(hr)){(*service)->Release();return std::unexpected(error(std::to_string(hr)));}std::wstring path(full.begin(),full.end());BSTR value=SysAllocString(path.c_str());IRegisteredTask* task{};hr=root->GetTask(value,&task);SysFreeString(value);root->Release();(*service)->Release();if(FAILED(hr))return std::unexpected(error(std::to_string(hr)));return task;}
 winchisel::core::Result<bool> read_scheduled_task(std::string_view id){auto full=task_path(id);if(full.empty())return std::unexpected(error("unknown scheduled task"));auto task=open_task(full);if(!task)return std::unexpected(task.error());VARIANT_BOOL enabled{};auto hr=(*task)->get_Enabled(&enabled);(*task)->Release();if(FAILED(hr))return std::unexpected(error(std::to_string(hr)));return enabled==VARIANT_TRUE;}
 winchisel::core::Result<void> write_scheduled_task(std::string_view id,bool enabled){auto full=task_path(id);if(full.empty())return std::unexpected(error("unknown scheduled task"));auto task=open_task(full);if(!task)return std::unexpected(task.error());auto hr=(*task)->put_Enabled(enabled?VARIANT_TRUE:VARIANT_FALSE);(*task)->Release();if(FAILED(hr))return std::unexpected(error(std::to_string(hr)));return{};}
+
+winchisel::core::Result<void> apply_registry_and_tasks(
+    std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& registry,
+    std::vector<std::pair<std::string, bool>> const& tasks) {
+    std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> previous_registry;
+    previous_registry.reserve(registry.size());
+    for (auto const& [target, _] : registry) {
+        auto value = read_registry_value(target);
+        if (!value) return std::unexpected(value.error());
+        previous_registry.emplace_back(target, std::move(*value));
+    }
+    std::vector<std::pair<std::string, bool>> previous_tasks;
+    previous_tasks.reserve(tasks.size());
+    for (auto const& [id, _] : tasks) {
+        auto state = read_scheduled_task(id);
+        if (!state) return std::unexpected(state.error());
+        previous_tasks.emplace_back(id, *state);
+    }
+    if (auto written = write_registry_values_atomic(registry); !written) return written;
+    for (std::size_t index{}; index < tasks.size(); ++index) {
+        auto result = write_scheduled_task(tasks[index].first, tasks[index].second);
+        if (result) continue;
+        auto original = result.error();
+        while (index > 0) {
+            --index;
+            (void)write_scheduled_task(previous_tasks[index].first, previous_tasks[index].second);
+        }
+        (void)rollback_registry_values(previous_registry);
+        original.detail += "; profile rollback attempted";
+        return std::unexpected(std::move(original));
+    }
+    return {};
+}
 }

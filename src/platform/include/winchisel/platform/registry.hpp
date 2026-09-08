@@ -15,5 +15,7 @@ winchisel::core::Result<void> write_registry_value(
     winchisel::core::RegistryValue const& value);
 winchisel::core::Result<void> write_registry_values_atomic(
     std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& changes);
+winchisel::core::Result<void> rollback_registry_values(
+    std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& previous);
 
 }  // namespace winchisel::platform

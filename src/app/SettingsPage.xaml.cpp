@@ -6,7 +6,10 @@
 #include "SettingsPage.g.cpp"
 #endif
 
+#include "Localization.hpp"
+#include "Toast.hpp"
 #include "winchisel/application/session.hpp"
+#include "winchisel/core/i18n.hpp"
 #include "winchisel/platform/system.hpp"
 
 #include <chrono>
@@ -73,6 +76,7 @@ void SettingsPage::save_settings() {
     settings.check_updates_on_startup = CheckUpdates().IsOn();
     settings.show_console = ShowConsole().IsOn();
     settings.autostart_enabled = Autostart().IsOn();
+    const auto previous_language = winchisel::core::ui_language();
     if (auto result = winchisel::application::Session::instance().set_settings(settings); !result) {
         loading_ = true;
         const auto& current = winchisel::application::Session::instance().settings();
@@ -81,7 +85,11 @@ void SettingsPage::save_settings() {
         ShowConsole().IsOn(current.show_console);
         Autostart().IsOn(current.autostart_enabled);
         loading_ = false;
-        show_result(false, L"Settings could not be saved: " + to_hstring(result.error().detail));
+        show_result(false, hstring{winchisel::core::loc(L"Settings could not be saved")} + L": " + to_hstring(result.error().detail));
+        return;
+    }
+    if (previous_language != settings.language && winchisel::ui::language_reload()) {
+        winchisel::ui::language_reload()();
     }
 }
 
@@ -124,6 +132,9 @@ void SettingsPage::show_result(bool ok, hstring const& text) {
     ResultBar().Severity(ok ? Controls::InfoBarSeverity::Success : Controls::InfoBarSeverity::Error);
     ResultBar().Message(text);
     ResultBar().IsOpen(true);
+    winchisel::ui::show_toast(ok ? Controls::InfoBarSeverity::Success : Controls::InfoBarSeverity::Error,
+        ok ? winchisel::core::loc(L"Settings") : winchisel::core::loc(L"Could not apply setting"),
+        std::wstring(text));
 }
 
 void SettingsPage::set_stage(hstring const& text) {

@@ -393,6 +393,15 @@ winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progre
             const bool reparse_point = it->is_symlink(type_error);
             if (type_error) {
                 failures.push_back(path.string() + ": " + type_error.message());
+            } else if (reparse_point) {
+                std::filesystem::remove(path, ec);
+                if (!ec) {
+                    ++removed;
+                    if (progress) progress(false, path.filename().string());
+                } else {
+                    failures.push_back(path.string() + ": " + ec.message());
+                    ec.clear();
+                }
             } else {
                 std::filesystem::remove_all(path, ec);
                 if (!ec) {
