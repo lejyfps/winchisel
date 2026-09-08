@@ -17,7 +17,7 @@
 
 namespace {
 
-std::string hex(std::span<std::byte const> bytes);
+std::string hex_encode(std::span<std::byte const> bytes);
 
 std::vector<std::byte> read(std::filesystem::path const& path) {
     std::ifstream input(path, std::ios::binary);
@@ -47,7 +47,7 @@ std::string sha256_file(std::filesystem::path const& path) {
     const bool ok = input.eof() && BCryptFinishHash(hash, reinterpret_cast<BYTE*>(digest.data()), 32, 0) >= 0;
     if (hash) BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm, 0);
     if (!ok) return {};
-    return hex(digest);
+    return hex_encode(digest);
 }
 
 bool write(std::filesystem::path const& path, std::span<std::byte const> bytes) {
@@ -67,7 +67,7 @@ std::vector<std::byte> sha256(std::span<std::byte const> value) {
     if (hash) BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm, 0); return status ? digest : std::vector<std::byte>{};
 }
 
-std::string hex(std::span<std::byte const> bytes) {
+std::string hex_encode(std::span<std::byte const> bytes) {
     static constexpr char digits[] = "0123456789abcdef";
     std::string output; output.reserve(bytes.size() * 2);
     for (const auto byte : bytes) { const auto value = static_cast<unsigned>(byte); output.push_back(digits[value >> 4]); output.push_back(digits[value & 15]); }
@@ -108,8 +108,8 @@ int manifest(std::string_view version, std::filesystem::path const& setup, std::
     const auto portable_size = std::filesystem::file_size(portable, error); if (error || setup_hash.empty() || portable_hash.empty()) return 1;
     std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
     output << "{\n  \"version\": \"" << version << "\",\n  \"artifacts\": [\n"
-           << "    {\n      \"id\": \"setup-x64\",\n      \"file\": \"" << setup.filename().string() << "\",\n      \"sha256\": \"" << hex(setup_hash) << "\",\n      \"size\": " << setup_size << "\n    },\n"
-           << "    {\n      \"id\": \"portable-x64\",\n      \"file\": \"" << portable.filename().string() << "\",\n      \"sha256\": \"" << hex(portable_hash) << "\",\n      \"size\": " << portable_size << "\n    }\n  ]\n}\n";
+           << "    {\n      \"id\": \"setup-x64\",\n      \"file\": \"" << setup.filename().string() << "\",\n      \"sha256\": \"" << setup_hash << "\",\n      \"size\": " << setup_size << "\n    },\n"
+           << "    {\n      \"id\": \"portable-x64\",\n      \"file\": \"" << portable.filename().string() << "\",\n      \"sha256\": \"" << portable_hash << "\",\n      \"size\": " << portable_size << "\n    }\n  ]\n}\n";
     return output ? 0 : 1;
 }
 
