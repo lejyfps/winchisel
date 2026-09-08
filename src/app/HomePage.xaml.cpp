@@ -41,7 +41,7 @@ winrt::fire_and_forget HomePage::Refresh() {
         if (!self) return;
         self->refresh_running_ = false;
         self->CpuBrand().Text(winrt::to_hstring(info.cpu_brand));
-        self->CpuSub().Text(winrt::to_hstring(info.cpu_cores + (info.cpu_speed.empty() ? "" : " · " + info.cpu_speed)));
+        self->CpuSub().Text(winrt::to_hstring(info.cpu_speed));
         self->CpuUsage().Text(winrt::to_hstring(info.cpu_usage));
         self->CpuBar().Value(info.cpu_usage_percent);
 
@@ -51,10 +51,12 @@ winrt::fire_and_forget HomePage::Refresh() {
         self->MemValue().Text(winrt::to_hstring(info.memory_total + " · " + info.memory_used));
         self->MemDetails().Text(winrt::to_hstring(info.ram_details));
         self->MemBar().Value(info.memory_fraction * 100.0);
+        self->MemUsage().Text(to_hstring(static_cast<int>(info.memory_fraction * 100.0f)) + L"%");
 
         self->StorTotal().Text(winrt::to_hstring(info.storage_total));
         self->StorUsed().Text(winrt::to_hstring(info.storage_used));
         self->StorBar().Value(info.storage_fraction * 100.0);
+        self->StorUsage().Text(to_hstring(static_cast<int>(info.storage_fraction * 100.0f)) + L"%");
 
         self->OsVersion().Text(winrt::to_hstring(info.os_version));
         self->OsBuild().Text(winrt::to_hstring(info.windows_build + " — " + info.computer_name));
@@ -62,6 +64,9 @@ winrt::fire_and_forget HomePage::Refresh() {
         self->Bios().Text(winrt::to_hstring(info.bios));
         self->Display().Text(winrt::to_hstring(info.display));
         self->Uptime().Text(winrt::to_hstring(info.uptime));
+        self->ProcessCount().Text(winrt::to_hstring(info.process_count));
+        self->CpuThreads().Text(winrt::to_hstring(info.cpu_cores));
+        self->ComputerName().Text(winrt::to_hstring(info.computer_name));
     });
 }
 

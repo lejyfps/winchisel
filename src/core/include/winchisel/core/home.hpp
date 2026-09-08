@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace winchisel::core {
@@ -34,6 +35,7 @@ struct HomeInfo {
 
     std::string display;
     std::string uptime;
+    std::uint32_t process_count{};
 };
 
 }  // namespace winchisel::core

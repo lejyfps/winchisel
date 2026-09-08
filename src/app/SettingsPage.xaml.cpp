@@ -10,6 +10,8 @@
 #include "winchisel/application/session.hpp"
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/platform/system.hpp"
+#include "winchisel/platform/shell.hpp"
+#include "winchisel/platform/update.hpp"
 
 #include <chrono>
 
@@ -20,6 +22,7 @@ namespace winrt::Winchisel::implementation {
 
 SettingsPage::SettingsPage() {
     InitializeComponent();
+    AboutVersion().Text(L"Version " + to_hstring(winchisel::platform::current_app_version()) + L" · 64-bit");
     const auto& settings = winchisel::application::Session::instance().settings();
     Language().SelectedIndex(static_cast<int>(settings.language));
     Theme().SelectedIndex(static_cast<int>(settings.theme));
@@ -105,6 +108,12 @@ void SettingsPage::Restore_Click(IInspectable const&, RoutedEventArgs const&) { 
 void SettingsPage::Repair_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::repair); }
 void SettingsPage::Cleanup_Click(IInspectable const&, RoutedEventArgs const&) { start_cleanup(); }
 void SettingsPage::Temp_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::temp); }
+
+void SettingsPage::Link_Click(IInspectable const& sender, RoutedEventArgs const&) {
+    if (auto button = sender.try_as<Controls::Button>()) {
+        (void)winchisel::platform::open_https_url(std::wstring(unbox_value_or<hstring>(button.Tag(), L"")));
+    }
+}
 
 void SettingsPage::start_cleanup() {
     if (action_ != Action::none) {

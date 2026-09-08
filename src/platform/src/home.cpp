@@ -2,6 +2,7 @@
 
 #include <dxgi.h>
 #include <windows.h>
+#include <TlHelp32.h>
 
 #include <cstdio>
 #include <string>
@@ -136,6 +137,16 @@ std::string uptime() {
     return buf;
 }
 
+std::uint32_t process_count() {
+    const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return 0;
+    PROCESSENTRY32W entry{.dwSize = sizeof(PROCESSENTRY32W)};
+    std::uint32_t count{};
+    if (Process32FirstW(snapshot, &entry)) do { ++count; } while (Process32NextW(snapshot, &entry));
+    CloseHandle(snapshot);
+    return count;
+}
+
 }  // namespace
 
 winchisel::core::HomeInfo query_home_info() {
@@ -148,7 +159,7 @@ winchisel::core::HomeInfo query_home_info() {
     SYSTEM_INFO si{};
     GetSystemInfo(&si);
     char cores[32];
-    std::snprintf(cores, sizeof(cores), "%u cores", si.dwNumberOfProcessors);
+    std::snprintf(cores, sizeof(cores), "%u", si.dwNumberOfProcessors);
     info.cpu_cores = cores;
     const DWORD mhz = static_cast<DWORD>(_wtol(
         reg_sz(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"~MHz").c_str()));
@@ -172,6 +183,7 @@ winchisel::core::HomeInfo query_home_info() {
     const double used_gb = (mem.ullTotalPhys - mem.ullAvailPhys) / (1024.0 * 1024.0 * 1024.0);
     info.memory_total = format_gb(total_gb, "GB total");
     info.memory_used = format_gb(used_gb, "GB used");
+    info.ram_details = format_gb(mem.ullAvailPhys / (1024.0 * 1024.0 * 1024.0), "GB available");
     info.memory_fraction = total_gb > 0 ? static_cast<float>(used_gb / total_gb) : 0.f;
 
     ULARGE_INTEGER free_b{}, total_b{}, dummy{};
@@ -208,6 +220,7 @@ winchisel::core::HomeInfo query_home_info() {
 
     info.display = display();
     info.uptime = uptime();
+    info.process_count = process_count();
     return info;
 }
 
