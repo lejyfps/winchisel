@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <commctrl.h>
+#include <compressapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 
@@ -17,13 +18,14 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "cabinet.lib")
 #pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 namespace {
 #pragma pack(push, 1)
 struct Footer { char magic[8]; std::uint64_t table_offset; std::uint64_t table_size; std::uint32_t mode; };
 #pragma pack(pop)
-struct Entry { std::wstring path; std::uint64_t offset; std::uint64_t size; };
+struct Entry { std::wstring path; std::uint64_t offset; std::uint64_t size; std::uint64_t compressed_size; };
 
 constexpr wchar_t k_uninstall_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Winchisel";
 
@@ -36,11 +38,11 @@ std::filesystem::path module_path() { std::array<wchar_t,32768> raw{};const auto
 
 bool unpack(std::filesystem::path const& self,std::filesystem::path const& target) {
     std::ifstream input(self,std::ios::binary|std::ios::ate);const auto end=input.tellg();if(end<static_cast<std::streamoff>(sizeof(Footer)))return false;
-    Footer footer{};input.seekg(end-static_cast<std::streamoff>(sizeof(Footer)));input.read(reinterpret_cast<char*>(&footer),sizeof(footer));if(!input||std::string_view(footer.magic,8)!="WCHBNDL1"||footer.table_offset+footer.table_size>static_cast<std::uint64_t>(end))return false;
+    Footer footer{};input.seekg(end-static_cast<std::streamoff>(sizeof(Footer)));input.read(reinterpret_cast<char*>(&footer),sizeof(footer));if(!input||std::string_view(footer.magic,8)!="WCHBNDL2"||footer.table_offset+footer.table_size>static_cast<std::uint64_t>(end))return false;
     input.seekg(static_cast<std::streamoff>(footer.table_offset));std::uint32_t count{};input.read(reinterpret_cast<char*>(&count),sizeof(count));if(!input||count>10000)return false;std::vector<Entry> entries;const auto payload_end=static_cast<std::uint64_t>(end)-sizeof(Footer);const auto payload_begin=footer.table_offset+footer.table_size;
-    for(std::uint32_t i{};i<count;++i){std::uint32_t length{};input.read(reinterpret_cast<char*>(&length),sizeof(length));if(!input||!length||length>32768)return false;std::string raw(length,'\0');Entry entry{};input.read(raw.data(),length);input.read(reinterpret_cast<char*>(&entry.offset),sizeof(entry.offset));input.read(reinterpret_cast<char*>(&entry.size),sizeof(entry.size));entry.path=utf8(raw);if(!input||!safe(entry.path)||entry.offset<payload_begin||entry.offset>payload_end||entry.size>payload_end-entry.offset)return false;entries.push_back(std::move(entry));}
-    std::error_code error;std::filesystem::create_directories(target,error);if(error)return false;std::array<char,65536> buffer{};
-    for(auto const& entry:entries){const auto file=target/entry.path;std::filesystem::create_directories(file.parent_path(),error);if(error)return false;std::ofstream output(file,std::ios::binary|std::ios::trunc);input.clear();input.seekg(static_cast<std::streamoff>(entry.offset));std::uint64_t remaining=entry.size;while(remaining){const auto chunk=static_cast<std::streamsize>(std::min<std::uint64_t>(remaining,buffer.size()));input.read(buffer.data(),chunk);if(input.gcount()!=chunk)return false;output.write(buffer.data(),chunk);remaining-=chunk;}if(!output)return false;}return true;
+    for(std::uint32_t i{};i<count;++i){std::uint32_t length{};input.read(reinterpret_cast<char*>(&length),sizeof(length));if(!input||!length||length>32768)return false;std::string raw(length,'\0');Entry entry{};input.read(raw.data(),length);input.read(reinterpret_cast<char*>(&entry.offset),sizeof(entry.offset));input.read(reinterpret_cast<char*>(&entry.size),sizeof(entry.size));input.read(reinterpret_cast<char*>(&entry.compressed_size),sizeof(entry.compressed_size));entry.path=utf8(raw);if(!input||!safe(entry.path)||entry.offset<payload_begin||entry.offset>payload_end||entry.compressed_size>payload_end-entry.offset)return false;entries.push_back(std::move(entry));}
+    DECOMPRESSOR_HANDLE decompressor{};if(!CreateDecompressor(COMPRESS_ALGORITHM_XPRESS_HUFF,nullptr,&decompressor))return false;std::error_code error;std::filesystem::create_directories(target,error);if(error){CloseDecompressor(decompressor);return false;}
+    for(auto const& entry:entries){const auto file=target/entry.path;std::filesystem::create_directories(file.parent_path(),error);if(error){CloseDecompressor(decompressor);return false;}std::vector<std::byte> packed(static_cast<std::size_t>(entry.compressed_size)),raw(static_cast<std::size_t>(entry.size));input.clear();input.seekg(static_cast<std::streamoff>(entry.offset));input.read(reinterpret_cast<char*>(packed.data()),static_cast<std::streamsize>(packed.size()));SIZE_T written{};if(!input||!Decompress(decompressor,packed.data(),packed.size(),raw.data(),raw.size(),&written)||written!=raw.size()){CloseDecompressor(decompressor);return false;}std::ofstream output(file,std::ios::binary|std::ios::trunc);output.write(reinterpret_cast<char const*>(raw.data()),static_cast<std::streamsize>(raw.size()));if(!output){CloseDecompressor(decompressor);return false;}}CloseDecompressor(decompressor);return true;
 }
 
 bool start(std::filesystem::path const& executable) { std::wstring command=L"\""+executable.wstring()+L"\"";STARTUPINFOW info{.cb=sizeof(info)};PROCESS_INFORMATION process{};if(!CreateProcessW(executable.c_str(),command.data(),nullptr,nullptr,FALSE,0,nullptr,executable.parent_path().c_str(),&info,&process))return false;CloseHandle(process.hThread);CloseHandle(process.hProcess);return true; }
@@ -57,4 +59,4 @@ int install(std::filesystem::path const& self){constexpr TASKDIALOG_BUTTON choic
 int portable(std::filesystem::path const& self,Footer const& footer){const auto target=known(FOLDERID_LocalAppData)/L"Winchisel"/L"portable"/std::to_wstring(footer.table_offset);if(!unpack(self,target))return failure(L"The portable application could not be extracted.");return start(target/L"Winchisel.exe")?0:failure(L"The portable application could not be started.");}
 }
 
-int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int){const auto self=module_path();if(self.empty())return failure(L"The package path could not be determined.");if(std::wstring_view(GetCommandLineW()).find(L"--uninstall")!=std::wstring_view::npos)return uninstall(self);std::ifstream input(self,std::ios::binary|std::ios::ate);Footer footer{};input.seekg(-static_cast<std::streamoff>(sizeof(footer)),std::ios::end);input.read(reinterpret_cast<char*>(&footer),sizeof(footer));if(!input||std::string_view(footer.magic,8)!="WCHBNDL1")return failure(L"The embedded package is invalid.");return footer.mode==2?install(self):portable(self,footer);}
+int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int){const auto self=module_path();if(self.empty())return failure(L"The package path could not be determined.");if(std::wstring_view(GetCommandLineW()).find(L"--uninstall")!=std::wstring_view::npos)return uninstall(self);std::ifstream input(self,std::ios::binary|std::ios::ate);Footer footer{};input.seekg(-static_cast<std::streamoff>(sizeof(footer)),std::ios::end);input.read(reinterpret_cast<char*>(&footer),sizeof(footer));if(!input||std::string_view(footer.magic,8)!="WCHBNDL2")return failure(L"The embedded package is invalid.");return footer.mode==2?install(self):portable(self,footer);}
