@@ -14,6 +14,7 @@
 #include <array>
 #include <algorithm>
 #include <cctype>
+#include <optional>
 #include <vector>
 
 using namespace winrt;
@@ -353,15 +354,10 @@ void PerformancePage::apply_gaming_profile(bool recommended) {
         tweak.control.IsOn(recommended ? tweak.recommended : tweak.windows_default);
     }
     loading_gaming_toggles_ = false;
-    for (std::size_t index = 0; index < gaming_toggles_.size(); ++index) {
-        save_gaming_toggle(index);
-    }
     loading_gaming_selections_ = true;
     mouse_hover_time_.SelectedIndex(recommended ? 0 : 5);
     background_apps_.SelectedIndex(recommended ? 2 : 0);
     loading_gaming_selections_ = false;
-    save_mouse_hover_time();
-    save_background_apps();
     apply_catalog_profile(recommended);
 }
 
@@ -378,6 +374,17 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     loading_gaming_toggles_ = false;
     std::vector<std::pair<Target,Value>> registry;
     std::vector<std::pair<std::string,bool>> tasks;
+    for (auto const& tweak : gaming_toggles_) {
+        auto const& values = tweak.control.IsOn() ? tweak.enabled_values : tweak.disabled_values;
+        for (std::size_t i{}; i < tweak.targets.size(); ++i) registry.emplace_back(tweak.targets[i], values[i]);
+    }
+    constexpr std::array hover_values{"1", "10", "50", "100", "200", "400"};
+    if (auto index = mouse_hover_time_.SelectedIndex(); index >= 0 && index < static_cast<int>(hover_values.size()))
+        registry.emplace_back(target(Hive::current_user,"Control Panel\\Mouse","MouseHoverTime",Type::string), std::string(hover_values[index]));
+    const auto bg = background_apps_.SelectedIndex();
+    const Value bg_value = bg == 1 ? Value{std::uint32_t{1}} : bg == 2 ? Value{std::uint32_t{2}} : Value{std::monostate{}};
+    registry.emplace_back(target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword), bg_value);
+    registry.emplace_back(target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword), bg_value);
     for (auto& item : catalog_toggles_) {
         if (!profile_for(item.id, false)) continue;
         const bool enabled = item.control.IsOn();
@@ -391,15 +398,25 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         }
         if (!has_registry) tasks.emplace_back(item.id, enabled);
     }
-    submit([registry=std::move(registry),tasks=std::move(tasks)]{return winchisel::platform::apply_registry_and_tasks(registry,tasks);});
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
         if (auto value = profile_for(item.id, true); value && *value >= 0 && *value < static_cast<std::int32_t>(item.options.size())) item.control.SelectedIndex(*value);
     }
     loading_gaming_selections_ = false;
-    for (std::size_t index{}; index < catalog_selections_.size(); ++index) {
-        if (profile_for(catalog_selections_[index].id, true)) save_catalog_selection(index);
+    std::optional<int> dns;
+    for (auto const& item : catalog_selections_) {
+        auto selected = item.control.SelectedIndex();
+        if (selected < 0 || !profile_for(item.id, true)) continue;
+        if (item.id == "gaming-dns-server") { if (selected != 7) dns = selected; continue; }
+        Target destination; std::uint32_t value{};
+        if (item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
+        else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))continue;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
+        else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
+        else if(auto service=service_name(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
+        else continue;
+        registry.emplace_back(destination, Value{value});
     }
+    submit([registry=std::move(registry),tasks=std::move(tasks),dns]{return winchisel::platform::apply_registry_and_tasks(registry,tasks,dns);});
 }
 
 void PerformancePage::load_gaming_selections() {

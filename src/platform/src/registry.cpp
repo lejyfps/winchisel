@@ -60,6 +60,59 @@ bool expected_type_matches(RegistryValueType expected, DWORD actual) {
     return false;
 }
 
+struct RawRegistryValue {
+    bool missing{true};
+    DWORD type{};
+    std::vector<std::uint8_t> data;
+};
+
+winchisel::core::Result<RawRegistryValue> read_raw(RegistryTarget const& target) {
+    const auto key_path = to_wide(target.key_path);
+    const auto value_name = to_wide(target.value_name);
+    if ((!target.key_path.empty() && key_path.empty()) || (!target.value_name.empty() && value_name.empty())) {
+        return std::unexpected(registry_error("invalid UTF-8 registry target"));
+    }
+    HKEY key{};
+    auto status = RegOpenKeyExW(native_hive(target.hive), key_path.c_str(), 0, KEY_QUERY_VALUE, &key);
+    if (status == ERROR_FILE_NOT_FOUND) return RawRegistryValue{};
+    if (status != ERROR_SUCCESS) return std::unexpected(registry_error(std::to_string(status)));
+    DWORD type{};
+    DWORD bytes{};
+    status = RegQueryValueExW(key, value_name.c_str(), nullptr, &type, nullptr, &bytes);
+    if (status == ERROR_FILE_NOT_FOUND) { RegCloseKey(key); return RawRegistryValue{}; }
+    if (status != ERROR_SUCCESS) { RegCloseKey(key); return std::unexpected(registry_error(std::to_string(status))); }
+    RawRegistryValue raw{.missing = false, .type = type, .data = std::vector<std::uint8_t>(bytes)};
+    status = RegQueryValueExW(key, value_name.c_str(), nullptr, &type, raw.data.data(), &bytes);
+    RegCloseKey(key);
+    if (status != ERROR_SUCCESS) return std::unexpected(registry_error(std::to_string(status)));
+    raw.type = type;
+    raw.data.resize(bytes);
+    return raw;
+}
+
+winchisel::core::Result<void> write_raw(RegistryTarget const& target, RawRegistryValue const& raw) {
+    const auto key_path = to_wide(target.key_path);
+    const auto value_name = to_wide(target.value_name);
+    HKEY key{};
+    LONG status{};
+    if (raw.missing) {
+        status = RegOpenKeyExW(native_hive(target.hive), key_path.c_str(), 0, KEY_SET_VALUE, &key);
+        if (status == ERROR_FILE_NOT_FOUND) return {};
+        if (status != ERROR_SUCCESS) return std::unexpected(registry_error(std::to_string(status)));
+        status = RegDeleteValueW(key, value_name.c_str());
+        if (status == ERROR_FILE_NOT_FOUND) status = ERROR_SUCCESS;
+        RegCloseKey(key);
+        if (status != ERROR_SUCCESS) return std::unexpected(registry_error(std::to_string(status)));
+        return {};
+    }
+    status = RegCreateKeyExW(native_hive(target.hive), key_path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr);
+    if (status != ERROR_SUCCESS) return std::unexpected(registry_error(std::to_string(status)));
+    status = RegSetValueExW(key, value_name.c_str(), 0, raw.type, raw.data.empty() ? nullptr : raw.data.data(), static_cast<DWORD>(raw.data.size()));
+    RegCloseKey(key);
+    if (status != ERROR_SUCCESS) return std::unexpected(registry_error(std::to_string(status)));
+    return {};
+}
+
 }  // namespace
 
 winchisel::core::Result<RegistryValue> read_registry_value(RegistryTarget const& target) {
@@ -169,10 +222,10 @@ winchisel::core::Result<void> write_registry_value(RegistryTarget const& target,
 
 winchisel::core::Result<void> write_registry_values_atomic(
     std::vector<std::pair<RegistryTarget, RegistryValue>> const& changes) {
-    std::vector<RegistryValue> previous;
+    std::vector<RawRegistryValue> previous;
     previous.reserve(changes.size());
     for (auto const& [target, _] : changes) {
-        auto value = read_registry_value(target);
+        auto value = read_raw(target);
         if (!value) return std::unexpected(value.error());
         previous.push_back(std::move(*value));
     }
@@ -183,7 +236,7 @@ winchisel::core::Result<void> write_registry_values_atomic(
         bool rollback_ok = true;
         while (index > 0) {
             --index;
-            rollback_ok = static_cast<bool>(write_registry_value(changes[index].first, previous[index])) && rollback_ok;
+            rollback_ok = static_cast<bool>(write_raw(changes[index].first, previous[index])) && rollback_ok;
         }
         if (!rollback_ok) original_error.detail += "; rollback incomplete";
         return std::unexpected(std::move(original_error));
@@ -199,6 +252,16 @@ winchisel::core::Result<void> rollback_registry_values(
     }
     if (!ok) return std::unexpected(registry_error("rollback incomplete"));
     return {};
+}
+
+winchisel::core::Result<RegistryNativeValue> read_registry_native(RegistryTarget const& target) {
+    auto raw = read_raw(target);
+    if (!raw) return std::unexpected(raw.error());
+    return RegistryNativeValue{raw->missing, raw->type, std::move(raw->data)};
+}
+
+winchisel::core::Result<void> write_registry_native(RegistryTarget const& target, RegistryNativeValue const& value) {
+    return write_raw(target, RawRegistryValue{value.missing, value.type, value.data});
 }
 
 }  // namespace winchisel::platform

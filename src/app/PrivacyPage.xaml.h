@@ -41,8 +41,13 @@ private:
     void load_privacy_toggles();
     void save_privacy_toggle(std::size_t index);
     void load_privacy_selections();
-    void save_privacy_selections();
+    void save_smart_app_control();
+    void save_powershell_policy();
+    void save_ads_mode();
     void apply_profile(bool recommended);
+    void append_privacy_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, std::string_view id, bool enabled) const;
+    void append_ads_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, int mode) const;
+    int detect_ads_mode() const;
     void show_write_error(std::string const& detail = {});
 
     std::vector<SecurityToggle> security_toggles_;

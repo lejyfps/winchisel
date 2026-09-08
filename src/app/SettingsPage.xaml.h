@@ -5,7 +5,9 @@
 
 #include "winchisel/core/error.hpp"
 
+#include <deque>
 #include <future>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -39,6 +41,7 @@ private:
     void show_result(bool ok, winrt::hstring const& text);
     void set_stage(winrt::hstring const& text);
     void append_log(std::string_view text);
+    void flush_log();
     void finish_dialog(winchisel::core::Result<void> const& result);
     winrt::fire_and_forget run_dialog(Action action);
 
@@ -46,6 +49,9 @@ private:
     Action action_{Action::none};
     std::future<winchisel::core::Result<void>> worker_;
     std::vector<std::string> log_lines_;
+    std::mutex log_mutex_;
+    std::deque<std::string> pending_log_;
+    bool log_flush_queued_{};
     winrt::Microsoft::UI::Xaml::Controls::ContentDialog action_dialog_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ProgressRing dialog_ring_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::TextBlock dialog_stage_{nullptr};

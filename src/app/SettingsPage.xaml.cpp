@@ -184,28 +184,41 @@ void SettingsPage::set_stage(hstring const& text) {
 }
 
 void SettingsPage::append_log(std::string_view text) {
-    if (text.empty() || !dialog_log_) {
-        return;
+    if (text.empty()) return;
+    bool queue_flush = false;
+    {
+        std::lock_guard lock(log_mutex_);
+        pending_log_.emplace_back(text);
+        while (pending_log_.size() > 12) pending_log_.pop_front();
+        if (!log_flush_queued_) { log_flush_queued_ = true; queue_flush = true; }
     }
-    if (log_lines_.empty() && dialog_log_.Text() == L"Waiting for output...") {
-        dialog_log_.Text(L"");
+    if (queue_flush) {
+        auto weak = get_weak();
+        DispatcherQueue().TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low, [weak] {
+            if (auto self = weak.get()) self->flush_log();
+        });
     }
-    log_lines_.emplace_back(text);
-    if (log_lines_.size() > 12) {
-        log_lines_.erase(log_lines_.begin(), log_lines_.begin() + static_cast<std::ptrdiff_t>(log_lines_.size() - 12));
+}
+
+void SettingsPage::flush_log() {
+    std::deque<std::string> pending;
+    {
+        std::lock_guard lock(log_mutex_);
+        pending.swap(pending_log_);
+        log_flush_queued_ = false;
+    }
+    if (pending.empty() || !dialog_log_) return;
+    for (auto const& line : pending) {
+        log_lines_.push_back(line);
+        if (log_lines_.size() > 12) log_lines_.erase(log_lines_.begin());
     }
     std::string joined;
     for (std::size_t index{}; index < log_lines_.size(); ++index) {
-        if (index) {
-            joined += "\n";
-        }
+        if (index) joined += "\n";
         joined += log_lines_[index];
     }
     dialog_log_.Text(to_hstring(joined));
-    if (dialog_scroll_) {
-        dialog_scroll_.UpdateLayout();
-        dialog_scroll_.ChangeView(nullptr, dialog_scroll_.ScrollableHeight(), nullptr);
-    }
+    if (dialog_scroll_) dialog_scroll_.ChangeView(nullptr, dialog_scroll_.ScrollableHeight(), nullptr);
 }
 
 void SettingsPage::finish_dialog(winchisel::core::Result<void> const& result) {
@@ -220,6 +233,7 @@ void SettingsPage::finish_dialog(winchisel::core::Result<void> const& result) {
         : L"Temporary Files - Remove";
     if (!ok && !result.error().detail.empty()) {
         append_log(result.error().detail);
+        flush_log();
     }
     if (dialog_ring_) {
         dialog_ring_.IsActive(false);
@@ -316,14 +330,12 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
     worker_ = std::async(std::launch::async, [action, queue, weak] {
         auto progress = [queue, weak](bool is_stage, std::string_view text) {
             std::string copy{text};
-            (void)winchisel::ui::enqueue_safe(queue, [weak, is_stage, copy = std::move(copy)] {
-                if (auto page = weak.get()) {
-                    if (is_stage) {
-                        page->set_stage(to_hstring(copy));
-                    } else {
-                        page->append_log(copy);
-                    }
-                }
+            if (!is_stage) {
+                if (auto page = weak.get()) page->append_log(copy);
+                return;
+            }
+            (void)winchisel::ui::enqueue_safe(queue, [weak, copy = std::move(copy)] {
+                if (auto page = weak.get()) page->set_stage(to_hstring(copy));
             });
         };
         auto result = winchisel::ui::result_or_error([&]() -> winchisel::core::Result<void> {
