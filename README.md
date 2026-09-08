@@ -61,4 +61,29 @@ Release artifacts are built with `tools\release.cmd`. The complete local and Git
 
 ## License
 
-The repository currently does not include a license file. Do not assume that reuse or redistribution is permitted until a license is added.
+### Software License
+
+Winchisel is licensed under the [AGPL-3.0](LICENSE).
+
+In plain language:
+
+- ✅ Free to use for everyone — individuals, businesses, IT professionals
+- ✅ Use it to service and consult for clients
+- ✅ Modify for your own internal use
+- ✅ Fork and modify under AGPL-3.0 terms (must remain open source)
+- ❌ Remove or circumvent license/copyright notices
+- ❌ Rebrand redistributed versions as "Winchisel"
+
+### Community guidelines
+
+We respectfully ask contributors and forkers:
+
+1. **Consider upstream contributions** — Pull requests help everyone
+2. **Use distinct branding** for public forks — "Winchisel" is reserved
+3. **Credit original work** — Link back to this repository
+
+These are social expectations, not legal requirements. The AGPL-3.0 governs all rights and obligations.
+
+### Trademark
+
+“Winchisel” and the Winchisel logo are trademarks of lyrx2k. Derivative works must use a different name and branding.
