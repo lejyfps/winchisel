@@ -42,6 +42,7 @@ private:
     bool set_affinity(std::uint32_t,DWORD_PTR);
     bool set_io_priority(std::uint32_t,std::uint32_t);
     bool set_always(std::wstring const&,wchar_t const*,DWORD);
+    bool remove_always(std::wstring const&,wchar_t const*);
     std::optional<DWORD> read_always(std::wstring const&,wchar_t const*);
     std::optional<std::uint32_t> read_io_priority(std::uint32_t);
     winrt::fire_and_forget confirm_realtime(std::uint32_t);

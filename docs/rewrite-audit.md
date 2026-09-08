@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **23 von 56 Auditpunkten behoben**, 33 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **35 von 56 Auditpunkten behoben**, 21 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -26,15 +26,15 @@ Stand: **23 von 56 Auditpunkten behoben**, 33 offen. Erfolgreich behobene Punkte
 - [x] **Block 4 – Extras-Zustände/Rollback:** AUD-025, AUD-027, AUD-029
 - [x] **Block 5 – Sichere Systemaktionen:** AUD-028, AUD-040, AUD-041
 - [x] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
-- [ ] **Block 7 – Performance-Backend-Parität:** AUD-007, AUD-008, AUD-009
-- [ ] **Block 8 – i18n und Encoding:** AUD-003, AUD-048
+- [ ] **Block 7 – Performance-Backend-Parität:** AUD-007 und AUD-008 verifiziert; AUD-009 offen
+- [ ] **Block 8 – i18n und Encoding:** AUD-048 verifiziert; AUD-003 offen
 - [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
-- [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030, AUD-036, AUD-037
-- [ ] **Block 12 – Prozesse:** AUD-032 bis AUD-035
-- [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-038, AUD-039, AUD-042
-- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-043 bis AUD-047
-- [ ] **Block 15 – Architektur/Tests/Release:** AUD-049 bis AUD-056
+- [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-030 und AUD-037 erledigt; AUD-026 und AUD-036 offen
+- [ ] **Block 12 – Prozesse:** AUD-034 und AUD-035 behoben; AUD-032 und AUD-033 offen
+- [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-039 behoben; AUD-038 und AUD-042 offen
+- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044 und AUD-045 behoben; AUD-043, AUD-046 und AUD-047 offen
+- [ ] **Block 15 – Architektur/Tests/Release:** AUD-054 und AUD-056 behoben; AUD-049 bis AUD-053 und AUD-055 offen
 
 ## Kurzfazit
 
@@ -103,6 +103,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-007 – Performance-Einträge ohne Registry-Regel werden pauschal als Scheduled Task behandelt
 
 - Typ: **BUG / PARITÄT**
+- [x] Status: **DURCH VOLLSTÄNDIGEN COVERAGE-ABGLEICH KORRIGIERT (2026-09-08)** – Alle Toggle-IDs ohne Registryregel gehören zur Scheduled-Task-Gruppe und sind in `task_path` abgedeckt. Task-Lesefehler werden nun als Fehler statt als `false` propagiert.
 - Neu: `PerformancePage::save_catalog_toggle()` ruft bei jedem Toggle ohne Registry-Regel `write_scheduled_task(item.id, enabled)` auf (`src/app/PerformancePage.xaml.cpp:259-261`). `write_scheduled_task` kennt jedoch nur eine begrenzte ID-Tabelle (`src/platform/src/performance.cpp:13-28`).
 - Folge: Nicht-registrybasierte Spezial-Tweaks, die Dienste, PowerShell oder andere Windows-APIs benötigen, werden als unbekannte Task abgewiesen und zurückgesetzt. Sichtbar im Katalog bedeutet daher nicht funktionsfähig.
 - Korrektur: Expliziten Backend-Typ pro Katalogeintrag generieren (`registry`, `service`, `task`, `dns`, `special`) und Exhaustiveness-Test hinzufügen. Keine implizite Fallback-Deutung.
@@ -110,6 +111,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-008 – Performance-Auswahlwerte sind nur für wenige IDs implementiert
 
 - Typ: **PARITÄT**
+- [x] Status: **DURCH VOLLSTÄNDIGEN COVERAGE-ABGLEICH KORRIGIERT (2026-09-08)** – Alle Selection-IDs sind abgedeckt: Registry-Sonderwerte, DNS, 35 Services sowie die zwei separat gerenderten Gaming-Auswahlen MouseHoverTime und BackgroundApps.
 - Neu: `load_catalog_selections`/`save_catalog_selection` behandeln nur DNS, Win32PrioritySeparation, SvcHostSplitThreshold, VisualFXSetting und die hartcodierte Service-Liste (`src/app/PerformancePage.xaml.cpp:266-310`). Alle übrigen Selection-Einträge laufen in `continue`/`return`.
 - Alt: `src/performance.rs` enthält individuelle Lese-/Schreiblogik und Profile für den vollständigen Katalog.
 - Folge: Mehrere Dropdowns sehen bedienbar aus, ändern aber nichts; Quick Actions können die UI-Auswahl ändern, ohne den Systemzustand zu ändern.
@@ -276,6 +278,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-030 – Powerplan-Erkennung ist lokalisierungsabhängig
 
 - Typ: **BUG**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Importierte GUID wird gespeichert und mit `powercfg /getactivescheme` verglichen; Planname und Ausgabesprache sind irrelevant.
 - Neu: sucht im Text von `powercfg /list` nach `(Winchisel)` und `*` (`src/platform/src/system.cpp:478-480`).
 - Folge: Ausgabeformat/Lokalisierung/Namensvarianten können falschen Zustand liefern. GUID sollte persistiert/strukturiert ermittelt werden.
 
@@ -304,6 +307,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-034 – „Always“-Regeln sind nur Setzen, kein sauberer Restore-Workflow
 
 - Typ: **PARITÄT / UX**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Beide „Always“-Menüs besitzen einen expliziten Default-Eintrag; er entfernt den jeweiligen IFEO-Wert und räumt leere `PerfOptions`-/Image-Keys auf. Fehler und Erfolg werden sichtbar gemeldet.
 - Neu: `set_always()` schreibt IFEO/PerfOptions; ein allgemeiner Lösch-/Defaultpfad ist nicht ersichtlich (`src/app/ProcessesPage.xaml.cpp:99-100`).
 - Folge: Dauerhafte Prioritäten können schwer rückgängig zu machen sein; leere PerfOptions-Schlüssel bleiben möglich.
 - Korrektur: explizites „Default/Regel entfernen“, Wert- und Key-Cleanup, Bestätigung und Fehlerdetail.
@@ -311,6 +315,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-035 – Undokumentierte ProcessInformation-Klasse als Magic Number
 
 - Typ: **WARTBARKEIT / KOMPATIBILITÄT**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Die InformationClass ist als `ProcessIoPriority` benannt und an Set/Query konsistent.
 - Neu: I/O-Priorität verwendet `33` direkt für Set/NtQuery (`src/app/ProcessesPage.xaml.cpp:98,101`).
 - Folge: schlecht prüfbar und SDK-/OS-fehleranfällig.
 - Korrektur: benannten kompatiblen Typ/Wrapper, statische Größenprüfung und OS-Fehlerausgabe verwenden.
@@ -325,6 +330,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-037 – Registry-Views sind nicht explizit
 
 - Typ: **PARITÄT / KOMPATIBILITÄT**
+- [x] Status: **FÜR DEN FESTGELEGTEN SCOPE VERIFIZIERT (2026-09-08)** – Alle Projekte und Releaseartefakte sind ausschließlich x64; native x64-Registryview ist damit definiert. ARM64 bleibt laut `todo.md` ein späteres Architekturthema.
 - Neu: Registryzugriffe verwenden überwiegend nur `KEY_READ/KEY_WRITE`, ohne `KEY_WOW64_64KEY`/`KEY_WOW64_32KEY` (`src/platform/src/registry.cpp` und direkte Page-Zugriffe).
 - Folge: x64 funktioniert derzeit meist erwartbar; ARM64/32-bit-Zukunft und explizite WOW6432-Semantik sind nicht festgelegt. Downloadscan kompensiert nur teilweise manuell.
 
@@ -337,6 +343,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-039 – Boot-Log liegt im Temp-Ordner statt im dokumentierten Logpfad
 
 - Typ: **PARITÄT ZUR ZIELARCHITEKTUR**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Thread-sicheres, zeitgestempeltes Log unter `%APPDATA%\Winchisel\logs\winchisel.log` umgesetzt.
 - Neu: `%TEMP%\winchisel-boot.log` (`src/platform/src/system.cpp:199-212`).
 - Todo/Architektur: `%APPDATA%\Winchisel\logs\` plus Debug-Ausgabe.
 - Folge: Kein einheitliches Log, keine Rotation, mögliche Vermischung paralleler Läufe.
@@ -375,12 +382,14 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-044 – Fenster wird nicht zentriert
 
 - Typ: **PARITÄT**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Startposition wird anhand der WorkArea des aktuellen Displays zentriert.
 - Neu: nur `Resize({1280,720})` und Minimum (`src/app/MainWindow.xaml.cpp:51-58`).
 - Alt: Startfenster zentriert.
 
 ### AUD-045 – Jede Navigation konstruiert Pages neu und verwirft Zustand
 
 - Typ: **PARITÄT / PERFORMANCE**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – MainWindow cached jede Page-Instanz; Suche, Auswahl, Scroll-/Expander- und Ergebniszustände bleiben erhalten.
 - Neu: `MainWindow::Nav_SelectionChanged` setzt jeweils `Content(make<Page>())` (`src/app/MainWindow.xaml.cpp:74-95`).
 - Folge: Suchtext, Expand/Collapse, Auswahl, Scrollposition und laufende Resultate gehen beim Seitenwechsel verloren; teure Scans starten erneut. Rust hält Seitenzustände in der App-Struktur.
 - Korrektur: Frame-Navigation mit Cache oder ViewModels/Application-Services mit klarer State-Lebensdauer.
@@ -399,6 +408,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-048 – UI enthält Mojibake im eingecheckten Quelltext
 
 - Typ: **BUG / ENCODING**
+- [x] Status: **DURCH BYTE-/UTF-8-PRÜFUNG KORRIGIERT (2026-09-08)** – Die vermeintlichen Zeichen waren eine Konsolendecodierung des ersten Reviews; in den Quelldateien liegen korrekte UTF-8-Zeichen vor.
 - Beispiele: `src/application/src/session.cpp` enthält `â€”`; `src/app/HomePage.xaml.cpp` enthält `Â·` und `â€”`.
 - Folge: Trotz `/utf-8` werden diese bereits falsch gespeicherten Bytes als sichtbare falsche Zeichen ausgegeben.
 - Korrektur: Dateien als korrektes UTF-8 normalisieren und Encoding-Test/Resource-Lokalisierung nutzen.
@@ -438,6 +448,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-054 – Warnungen werden nicht als Fehler behandelt
 
 - Typ: **QUALITÄT**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – `TreatWarningAsError` ist zentral für alle eigenen MSBuild-Projekte aktiviert; die drei separat mit `cl` gebauten Releasewerkzeuge verwenden ebenfalls `/WX`. Die endgültige Warnungsfreiheit wird wie vereinbart im abschließenden Buildlauf geprüft.
 - Befund: `/W4` ist gesetzt, `TreatWarningAsError` nicht. Der geprüfte Debug-Build war erfolgreich; damit ist aber „Warnungen dauerhaft null“ nicht CI-erzwungen.
 - Korrektur: `/WX` zunächst für eigene Projekte, externe/generated Warnungen gezielt isolieren.
 
@@ -450,6 +461,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-056 – Deinstaller löscht den gesamten eigenen Installationsordner ohne Manifest
 
 - Typ: **DATENRISIKO**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Der Bootstrap schreibt beim Entpacken ein relatives Produktdatei-Manifest. Der Deinstaller akzeptiert daraus nur sichere relative Pfade, entfernt anschließend ausschließlich leere Verzeichnisse und bewahrt unbekannte Dateien ausdrücklich auf.
 - Neu: `tools/release_bootstrap.cpp:55` iteriert über den Zielordner und `remove_all()` auf alles außer sich selbst.
 - Folge: Falls Nutzerdateien oder fremde Dateien im Installationsordner liegen, werden sie mitgelöscht. Recovery besteht nur teilweise über Pending-Reboot.
 - Korrektur: Nur manifestierte Produktdateien löschen; unbekannte Dateien erhalten bzw. Nutzer explizit informieren.

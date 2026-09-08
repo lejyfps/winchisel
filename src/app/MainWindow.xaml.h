@@ -2,6 +2,8 @@
 
 #include "MainWindow.g.h"
 #include "MainWindow.xaml.g.h"
+#include <string>
+#include <unordered_map>
 
 namespace winrt::Winchisel::implementation {
 
@@ -10,6 +12,8 @@ struct MainWindow : MainWindowT<MainWindow> {
     void Nav_SelectionChanged(
         winrt::Microsoft::UI::Xaml::Controls::NavigationView const&,
         winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const&);
+private:
+    std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::FrameworkElement> pages_;
 };
 
 }  // namespace winrt::Winchisel::implementation

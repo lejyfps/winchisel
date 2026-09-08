@@ -11,6 +11,9 @@
 #include <string>
 #include <vector>
 #include <regex>
+#include <chrono>
+#include <iomanip>
+#include <mutex>
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
@@ -209,17 +212,18 @@ void show_error_message(const wchar_t* text) {
 }
 
 void boot_log(const char* message) {
-    wchar_t temp[MAX_PATH]{};
-    if (GetTempPathW(MAX_PATH, temp) == 0) {
-        return;
-    }
-    std::filesystem::path log = temp;
-    log /= L"winchisel-boot.log";
+    static std::mutex log_mutex;
+    std::scoped_lock lock(log_mutex);
+    auto directory = appdata_dir() / L"logs";
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    if (error) return;
+    const auto log = directory / L"winchisel.log";
     std::ofstream out(log, std::ios::app);
-    if (!out) {
-        return;
-    }
-    out << message << '\n';
+    if (!out) return;
+    const auto now = std::chrono::system_clock::now(); const auto time = std::chrono::system_clock::to_time_t(now);
+    std::tm local{}; localtime_s(&local, &time);
+    out << std::put_time(&local, "%Y-%m-%d %H:%M:%S") << " [" << GetCurrentProcessId() << "] " << message << '\n';
     out.flush();
 }
 
@@ -459,7 +463,15 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
     std::smatch match;
     if (!std::regex_search(output, match, guid_pattern)) return fail("power_plan_failed", "Unable to read imported power plan GUID");
     const auto guid = match[1].str();
-    return run_hidden(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()), "power_plan_failed");
+    if (auto activated = run_hidden(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()), "power_plan_failed"); !activated) return activated;
+    HKEY key{};
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Winchisel", 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+        const std::wstring value(guid.begin(), guid.end());
+        RegSetValueExW(key, L"PowerPlanGuid", 0, REG_SZ, reinterpret_cast<BYTE const*>(value.c_str()),
+            static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+    }
+    return {};
 }
 
 winchisel::core::Result<void> set_widgets_removed(bool enabled) {
@@ -533,8 +545,12 @@ ExtrasCommandState read_extras_command_state() {
     };
 
     ExtrasCommandState state;
-    const auto [power_code, power] = capture(L"powercfg.exe /list");
-    state.power_plan_active = power_code == 0 && power.find("(Winchisel)") != std::string::npos && power.find('*') != std::string::npos;
+    const auto [power_code, power] = capture(L"powercfg.exe /getactivescheme");
+    std::array<wchar_t, 64> saved_guid{}; DWORD saved_size=sizeof(saved_guid);
+    const bool has_saved_guid=RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Winchisel",L"PowerPlanGuid",RRF_RT_REG_SZ,nullptr,saved_guid.data(),&saved_size)==ERROR_SUCCESS;
+    std::string expected;
+    if(has_saved_guid){const auto chars=WideCharToMultiByte(CP_UTF8,0,saved_guid.data(),-1,nullptr,0,nullptr,nullptr);if(chars>1){expected.resize(chars);WideCharToMultiByte(CP_UTF8,0,saved_guid.data(),-1,expected.data(),chars,nullptr,nullptr);expected.pop_back();}}
+    state.power_plan_active = power_code == 0 && !expected.empty() && power.find(expected)!=std::string::npos;
     HKEY widgets{};
     state.widgets_removed = true;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Data", 0, KEY_READ, &widgets) == ERROR_SUCCESS) {

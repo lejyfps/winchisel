@@ -53,6 +53,11 @@ MainWindow::MainWindow() {
     SystemBackdrop(Media::MicaBackdrop());
     auto app_window = app_window_from(*this);
     app_window.Resize({1280, 720});
+    if (auto area = Microsoft::UI::Windowing::DisplayArea::GetFromWindowId(
+            app_window.Id(), Microsoft::UI::Windowing::DisplayAreaFallback::Primary)) {
+        const auto work = area.WorkArea();
+        app_window.Move({work.X + (work.Width - 1280) / 2, work.Y + (work.Height - 720) / 2});
+    }
     if (auto presenter = app_window.Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>()) {
         presenter.PreferredMinimumWidth(1100);
         presenter.PreferredMinimumHeight(650);
@@ -61,7 +66,7 @@ MainWindow::MainWindow() {
         Nav().SelectedItem(items.GetAt(0));
     }
     if (ContentFrame().Content() == nullptr) {
-        ContentFrame().Content(make<HomePage>());
+        auto home = make<HomePage>(); pages_.emplace(L"home", home); ContentFrame().Content(home);
     }
 }
 
@@ -74,25 +79,15 @@ void MainWindow::Nav_SelectionChanged(
     }
     const auto tag = winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home");
     winchisel::application::Session::instance().set_screen(screen_from_tag(tag));
-    if (tag == L"home") {
-        ContentFrame().Content(make<HomePage>());
-    } else if (tag == L"debloater") {
-        ContentFrame().Content(make<DebloaterPage>());
-    } else if (tag == L"performance") {
-        ContentFrame().Content(make<PerformancePage>());
-    } else if (tag == L"privacy_security") {
-        ContentFrame().Content(make<PrivacyPage>());
-    } else if (tag == L"downloads") {
-        ContentFrame().Content(make<DownloadsPage>());
-    } else if (tag == L"processes") {
-        ContentFrame().Content(make<ProcessesPage>());
-    } else if (tag == L"latency") {
-        ContentFrame().Content(make<LatencyPage>());
-    } else if (tag == L"extras") {
-        ContentFrame().Content(make<ExtrasPage>());
-    } else if (tag == L"settings") {
-        ContentFrame().Content(make<SettingsPage>());
-    }
+    const std::wstring key(tag.c_str());
+    if (const auto existing = pages_.find(key); existing != pages_.end()) { ContentFrame().Content(existing->second); return; }
+    FrameworkElement page{nullptr};
+    if (tag == L"home") page = make<HomePage>(); else if (tag == L"debloater") page = make<DebloaterPage>();
+    else if (tag == L"performance") page = make<PerformancePage>(); else if (tag == L"privacy_security") page = make<PrivacyPage>();
+    else if (tag == L"downloads") page = make<DownloadsPage>(); else if (tag == L"processes") page = make<ProcessesPage>();
+    else if (tag == L"latency") page = make<LatencyPage>(); else if (tag == L"extras") page = make<ExtrasPage>();
+    else if (tag == L"settings") page = make<SettingsPage>();
+    if (page) { pages_.emplace(key, page); ContentFrame().Content(page); }
 }
 
 }  // namespace winrt::Winchisel::implementation
