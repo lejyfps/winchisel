@@ -30,6 +30,11 @@ int main() {
     expect(language_from_string("ja") == Language::japanese, "japanese language");
     expect(language_from_string("ko") == Language::korean, "korean language");
     expect(language_from_string("it") == Language::italian, "italian language");
+    expect(language_from_string("nl") == Language::dutch, "dutch language");
+    expect(language_from_string("uk") == Language::ukrainian, "ukrainian language");
+    expect(language_from_string("cs") == Language::czech, "czech language");
+    expect(language_from_string("id") == Language::indonesian, "indonesian language");
+    expect(language_from_string("vi") == Language::vietnamese, "vietnamese language");
     expect(parsed.show_console, "show_console true");
     expect(!parsed.check_updates_on_startup, "updates false");
     expect(parsed.autostart_enabled, "autostart true");
@@ -53,6 +58,11 @@ int main() {
     set_ui_language(Language::japanese); expect(loc(L"Settings") == L"設定", "japanese settings label");
     set_ui_language(Language::korean); expect(loc(L"Settings") == L"설정", "korean settings label");
     set_ui_language(Language::italian); expect(loc(L"Settings") == L"Impostazioni", "italian settings label");
+    set_ui_language(Language::dutch); expect(loc(L"Settings") == L"Instellingen", "dutch settings label");
+    set_ui_language(Language::ukrainian); expect(loc(L"Settings") == L"Налаштування", "ukrainian settings label");
+    set_ui_language(Language::czech); expect(loc(L"Settings") == L"Nastavení", "czech settings label");
+    set_ui_language(Language::indonesian); expect(loc(L"Settings") == L"Pengaturan", "indonesian settings label");
+    set_ui_language(Language::vietnamese); expect(loc(L"Settings") == L"Cài đặt", "vietnamese settings label");
 
     auto json = serialize_settings_json(parsed);
     expect(json.find("German") != std::string::npos, "serialize language");

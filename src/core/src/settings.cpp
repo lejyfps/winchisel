@@ -130,6 +130,11 @@ Language language_from_string(std::string_view s) {
     if (s == "Japanese" || s == "ja") return Language::japanese;
     if (s == "Korean" || s == "ko") return Language::korean;
     if (s == "Italian" || s == "it") return Language::italian;
+    if (s == "Dutch" || s == "nl") return Language::dutch;
+    if (s == "Ukrainian" || s == "uk") return Language::ukrainian;
+    if (s == "Czech" || s == "cs") return Language::czech;
+    if (s == "Indonesian" || s == "id") return Language::indonesian;
+    if (s == "Vietnamese" || s == "vi") return Language::vietnamese;
     return Language::english;
 }
 
@@ -151,6 +156,11 @@ std::string_view language_to_string(Language language) {
         case Language::japanese: return "Japanese";
         case Language::korean: return "Korean";
         case Language::italian: return "Italian";
+        case Language::dutch: return "Dutch";
+        case Language::ukrainian: return "Ukrainian";
+        case Language::czech: return "Czech";
+        case Language::indonesian: return "Indonesian";
+        case Language::vietnamese: return "Vietnamese";
         case Language::english:
         default:
             return "English";

@@ -167,6 +167,11 @@ winchisel::core::Language system_ui_language() {
     if (_wcsnicmp(locale, L"ja", 2) == 0) return winchisel::core::Language::japanese;
     if (_wcsnicmp(locale, L"ko", 2) == 0) return winchisel::core::Language::korean;
     if (_wcsnicmp(locale, L"it", 2) == 0) return winchisel::core::Language::italian;
+    if (_wcsnicmp(locale, L"nl", 2) == 0) return winchisel::core::Language::dutch;
+    if (_wcsnicmp(locale, L"uk", 2) == 0) return winchisel::core::Language::ukrainian;
+    if (_wcsnicmp(locale, L"cs", 2) == 0) return winchisel::core::Language::czech;
+    if (_wcsnicmp(locale, L"id", 2) == 0) return winchisel::core::Language::indonesian;
+    if (_wcsnicmp(locale, L"vi", 2) == 0) return winchisel::core::Language::vietnamese;
     return winchisel::core::Language::english;
 }
 
