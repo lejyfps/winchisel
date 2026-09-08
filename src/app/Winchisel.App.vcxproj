@@ -286,7 +286,7 @@
   <Target Name="XamlCompileForNative" BeforeTargets="ClCompile" DependsOnTargets="MarkupCompilePass1" />
   <Target Name="MakeWinchiselPri" AfterTargets="Build">
     <Copy SourceFiles="$(SolutionDir)assets\Winchisel.pow" DestinationFolder="$(OutDir)assets\" />
-    <Copy SourceFiles="$(SolutionDir)assets\sidebar.png;$(SolutionDir)assets\icon.png;$(SolutionDir)assets\icon.ico" DestinationFolder="$(OutDir)assets\" />
+    <Copy SourceFiles="$(SolutionDir)assets\icon.png;$(SolutionDir)assets\icon.ico" DestinationFolder="$(OutDir)assets\" />
     <Copy SourceFiles="$(OutDir)Microsoft.UI.Xaml.Controls.pri" DestinationFiles="$(OutDir)resources.pri" />
     <Copy SourceFiles="$(OutDir)App.xbf" DestinationFiles="$(OutDir)App.xaml" />
     <Copy SourceFiles="$(OutDir)MainWindow.xbf" DestinationFiles="$(OutDir)MainWindow.xaml" />
