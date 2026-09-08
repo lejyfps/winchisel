@@ -1,0 +1,36 @@
+name: Build Winchisel
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  production-package:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        shell: cmd
+        run: choco install innosetup 7zip -y --no-progress
+
+      - name: Build unsigned production package
+        shell: cmd
+        run: |
+          set VERSION=0.0.0
+          if "%GITHUB_REF_TYPE%"=="tag" set VERSION=%GITHUB_REF_NAME:~1%
+          call tools\release.cmd %VERSION% --unsigned
+
+      - name: Upload package for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winchisel-${{ github.ref_name }}-unsigned
+          path: release-output/
+          if-no-files-found: error

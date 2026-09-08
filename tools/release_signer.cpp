@@ -42,6 +42,13 @@ std::vector<std::byte> sha256(std::span<std::byte const> value) {
     if (hash) BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm, 0); return status ? digest : std::vector<std::byte>{};
 }
 
+std::string hex(std::span<std::byte const> bytes) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string output; output.reserve(bytes.size() * 2);
+    for (const auto byte : bytes) { const auto value = static_cast<unsigned>(byte); output.push_back(digits[value >> 4]); output.push_back(digits[value & 15]); }
+    return output;
+}
+
 std::string base64(std::span<std::byte const> bytes) {
     DWORD size{}; CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &size);
     std::string output(size, '\0'); CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, output.data(), &size); output.resize(size - 1); return output;
@@ -69,10 +76,24 @@ int sign(std::filesystem::path const& private_path, std::filesystem::path const&
     std::ofstream output(manifest_path.string() + ".sig", std::ios::binary | std::ios::trunc); output << base64(signature) << "\n"; return output ? 0 : 1;
 }
 
+int manifest(std::string_view version, std::filesystem::path const& setup, std::filesystem::path const& portable, std::filesystem::path const& output_path) {
+    const auto setup_bytes = read(setup), portable_bytes = read(portable);
+    const auto setup_hash = sha256(setup_bytes), portable_hash = sha256(portable_bytes);
+    std::error_code error;
+    const auto setup_size = std::filesystem::file_size(setup, error); if (error) return 1;
+    const auto portable_size = std::filesystem::file_size(portable, error); if (error || setup_hash.empty() || portable_hash.empty()) return 1;
+    std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
+    output << "{\n  \"version\": \"" << version << "\",\n  \"artifacts\": [\n"
+           << "    {\n      \"id\": \"setup-x64\",\n      \"file\": \"" << setup.filename().string() << "\",\n      \"sha256\": \"" << hex(setup_hash) << "\",\n      \"size\": " << setup_size << "\n    },\n"
+           << "    {\n      \"id\": \"portable-x64\",\n      \"file\": \"" << portable.filename().string() << "\",\n      \"sha256\": \"" << hex(portable_hash) << "\",\n      \"size\": " << portable_size << "\n    }\n  ]\n}\n";
+    return output ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc == 3 && std::string_view(argv[1]) == "keygen") return keygen(argv[2]);
     if (argc == 4 && std::string_view(argv[1]) == "sign") return sign(argv[2], argv[3]);
-    std::cerr << "Usage: release_signer keygen <private-key-file> | release_signer sign <private-key-file> <release.json>\n"; return 2;
+    if (argc == 6 && std::string_view(argv[1]) == "manifest") return manifest(argv[2], argv[3], argv[4], argv[5]);
+    std::cerr << "Usage: release_signer keygen <private-key-file> | release_signer sign <private-key-file> <release.json> | release_signer manifest <version> <setup.exe> <portable.exe> <release.json>\n"; return 2;
 }
