@@ -43,7 +43,8 @@ private:
     std::future<winchisel::core::Result<std::vector<bool>>> scan_worker_;
     std::future<winchisel::core::Result<winchisel::platform::DebloatActionResult>> action_worker_;
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};
-    winrt::event_token timer_token_{};
+    winrt::Microsoft::UI::Xaml::DispatcherTimer search_timer_{nullptr};
+    winrt::event_token timer_token_{}, search_timer_token_{};
     Operation operation_{Operation::none};
     bool ui_ready_{};
 };

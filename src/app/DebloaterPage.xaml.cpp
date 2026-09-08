@@ -38,6 +38,9 @@ DebloaterPage::DebloaterPage() {
     timer_ = DispatcherTimer();
     timer_.Interval(std::chrono::milliseconds(120));
     timer_token_ = timer_.Tick([this](auto&&, auto&&) { poll_worker(); });
+    search_timer_ = DispatcherTimer();
+    search_timer_.Interval(std::chrono::milliseconds(200));
+    search_timer_token_ = search_timer_.Tick([this](auto&&, auto&&) { search_timer_.Stop(); if (operation_ == Operation::none) render_items(); });
     ui_ready_ = true;
     start_scan();
 }
@@ -45,6 +48,8 @@ DebloaterPage::DebloaterPage() {
 DebloaterPage::~DebloaterPage() {
     timer_.Stop();
     timer_.Tick(timer_token_);
+    search_timer_.Stop();
+    search_timer_.Tick(search_timer_token_);
     winchisel::ui::finish_in_background(scan_worker_);
     winchisel::ui::finish_in_background(action_worker_);
 }
@@ -201,7 +206,7 @@ void DebloaterPage::Tabs_SelectionChanged(IInspectable const&, Controls::Selecto
 void DebloaterPage::Refresh_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) start_scan(); }
 void DebloaterPage::Install_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(true); }
 void DebloaterPage::Remove_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(false); }
-void DebloaterPage::Search_TextChanged(IInspectable const&, Controls::AutoSuggestBoxTextChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) render_items(); }
+void DebloaterPage::Search_TextChanged(IInspectable const&, Controls::AutoSuggestBoxTextChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) { search_timer_.Stop(); search_timer_.Start(); } }
 void DebloaterPage::Filter_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) render_items(); }
 void DebloaterPage::Items_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_) update_actions(); }
 

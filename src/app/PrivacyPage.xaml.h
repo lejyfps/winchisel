@@ -11,6 +11,7 @@ namespace winrt::Winchisel::implementation {
 
 struct PrivacyPage : PrivacyPageT<PrivacyPage> {
     PrivacyPage();
+    ~PrivacyPage();
     void Search_TextChanged(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::Controls::AutoSuggestBoxTextChangedEventArgs const&);
@@ -52,6 +53,8 @@ private:
     winrt::Microsoft::UI::Xaml::Controls::ComboBox ads_mode_{nullptr};
     bool loading_security_{};
     bool loading_uac_{};
+    winrt::Microsoft::UI::Xaml::DispatcherTimer search_timer_{nullptr};
+    winrt::event_token search_timer_token_{};
 };
 
 }  // namespace winrt::Winchisel::implementation

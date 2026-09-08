@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -104,6 +105,9 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
 
 PrivacyPage::PrivacyPage() {
     InitializeComponent();
+    search_timer_ = DispatcherTimer();
+    search_timer_.Interval(std::chrono::milliseconds(200));
+    search_timer_token_ = search_timer_.Tick([this](auto&&, auto&&) { search_timer_.Stop(); render_groups(); });
     security_toggles_ = {
         {L"Workplace join messages", L"Allow Windows to show prompts for a work or school account.", true, true,
          {target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\WorkplaceJoin", "BlockAADWorkplaceJoin", Type::dword),
@@ -130,8 +134,11 @@ PrivacyPage::PrivacyPage() {
     render_groups();
 }
 
+PrivacyPage::~PrivacyPage() { search_timer_.Stop(); search_timer_.Tick(search_timer_token_); }
+
 void PrivacyPage::Search_TextChanged(Windows::Foundation::IInspectable const&, Controls::AutoSuggestBoxTextChangedEventArgs const&) {
-    render_groups();
+    search_timer_.Stop();
+    search_timer_.Start();
 }
 
 void PrivacyPage::render_groups() {

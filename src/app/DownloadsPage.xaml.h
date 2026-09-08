@@ -22,6 +22,6 @@ private:
  std::vector<Microsoft::UI::Xaml::Controls::ListView> category_lists_;
  std::future<winchisel::core::Result<std::vector<bool>>> scan_worker_;
  std::future<winchisel::core::Result<winchisel::platform::DownloadInstallResult>> install_worker_;
- Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr}; winrt::event_token timer_token_{}; Operation operation_{Operation::none}; bool ui_ready_{};
+ Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr}, search_timer_{nullptr}; winrt::event_token timer_token_{}, search_timer_token_{}; Operation operation_{Operation::none}; bool ui_ready_{};
 }; }
 namespace winrt::Winchisel::factory_implementation { struct DownloadsPage : DownloadsPageT<DownloadsPage, implementation::DownloadsPage> {}; }

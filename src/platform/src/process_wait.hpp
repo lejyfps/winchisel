@@ -10,6 +10,8 @@
 
 namespace winchisel::platform::detail {
 
+inline constexpr std::size_t k_max_captured_output = 4 * 1024 * 1024;
+
 struct ProcessWaitResult {
     DWORD exit_code{};
     bool timed_out{};
@@ -97,7 +99,8 @@ inline std::pair<ProcessWaitResult, std::string> run_captured(std::wstring comma
     CloseHandle(write);
     std::string output;
     const auto waited = wait_process_with_pipe(process.hProcess, read, timeout_ms, [&](char const* data, DWORD size) {
-        output.append(data, size);
+        if (output.size() < k_max_captured_output)
+            output.append(data, std::min<std::size_t>(size, k_max_captured_output - output.size()));
     });
     CloseHandle(read);
     CloseHandle(process.hThread);

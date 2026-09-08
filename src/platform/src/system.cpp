@@ -205,6 +205,12 @@ void boot_log(const char* message) {
     std::filesystem::create_directories(directory, error);
     if (error) return;
     const auto log = directory / L"winchisel.log";
+    if (std::filesystem::file_size(log, error) > 1024 * 1024 && !error) {
+        const auto previous = directory / L"winchisel.log.1";
+        std::filesystem::remove(previous, error);
+        error.clear();
+        std::filesystem::rename(log, previous, error);
+    }
     std::ofstream out(log, std::ios::app);
     if (!out) return;
     const auto now = std::chrono::system_clock::now(); const auto time = std::chrono::system_clock::to_time_t(now);
@@ -307,6 +313,8 @@ winchisel::core::Result<void> run_logged(std::wstring command, char const* messa
     const auto waited = detail::wait_process_with_pipe(process.hProcess, read, 30 * 60 * 1000, [&](char const* buffer,DWORD read_count) {
         pending.append(buffer, read_count);
         emit_lines(pending, progress);
+        if (pending.size() > detail::k_max_captured_output)
+            pending.erase(0, pending.size() - detail::k_max_captured_output);
     });
     emit_lines(pending, progress);
     if (!pending.empty() && progress) {

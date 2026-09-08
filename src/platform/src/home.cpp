@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <mutex>
+#include <unordered_map>
 
 #pragma comment(lib, "dxgi.lib")
 
@@ -29,6 +31,11 @@ std::string format_gb(double gb, const char* suffix) {
 }
 
 std::wstring reg_sz(HKEY root, const wchar_t* path, const wchar_t* value) {
+    static std::mutex mutex;
+    static std::unordered_map<std::wstring, std::wstring> cache;
+    const std::wstring cache_key = (root == HKEY_LOCAL_MACHINE ? L"HKLM\\" : L"HKCU\\") + std::wstring(path) + L"\\" + value;
+    std::scoped_lock lock(mutex);
+    if (const auto found = cache.find(cache_key); found != cache.end()) return found->second;
     HKEY key{};
     if (RegOpenKeyExW(root, path, 0, KEY_READ, &key) != ERROR_SUCCESS) {
         return {};
@@ -41,7 +48,7 @@ std::wstring reg_sz(HKEY root, const wchar_t* path, const wchar_t* value) {
     if (st != ERROR_SUCCESS) {
         return {};
     }
-    return buf;
+    return cache.emplace(cache_key, buf).first->second;
 }
 
 float cpu_usage() {
@@ -74,34 +81,44 @@ float cpu_usage() {
 }
 
 void gpu(std::string& name, std::string& vram) {
+    static const auto cached = [] {
+        std::pair<std::string, std::string> result;
+        auto& [cached_name, cached_vram] = result;
     IDXGIFactory1* factory{};
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) || factory == nullptr) {
-        name = "Unknown GPU";
-        return;
+        cached_name = "Unknown GPU";
+        return result;
     }
     IDXGIAdapter1* adapter{};
     if (SUCCEEDED(factory->EnumAdapters1(0, &adapter)) && adapter != nullptr) {
         DXGI_ADAPTER_DESC1 desc{};
         adapter->GetDesc1(&desc);
-        name = narrow(desc.Description);
-        vram = format_gb(static_cast<double>(desc.DedicatedVideoMemory) / (1024.0 * 1024.0 * 1024.0), "GB VRAM");
+        cached_name = narrow(desc.Description);
+        cached_vram = format_gb(static_cast<double>(desc.DedicatedVideoMemory) / (1024.0 * 1024.0 * 1024.0), "GB VRAM");
         adapter->Release();
     }
     factory->Release();
-    if (name.empty()) {
-        name = "Unknown GPU";
+    if (cached_name.empty()) {
+        cached_name = "Unknown GPU";
     }
+        return result;
+    }();
+    name = cached.first;
+    vram = cached.second;
 }
 
 std::string display() {
+    static const auto cached = [] {
     DEVMODEW mode{};
     mode.dmSize = sizeof(mode);
     if (!EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode)) {
-        return {};
+        return std::string{};
     }
     char buf[80];
     std::snprintf(buf, sizeof(buf), "%lux%lu @ %lu Hz", mode.dmPelsWidth, mode.dmPelsHeight, mode.dmDisplayFrequency);
-    return buf;
+    return std::string(buf);
+    }();
+    return cached;
 }
 
 std::string uptime() {

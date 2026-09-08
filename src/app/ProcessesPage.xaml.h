@@ -27,6 +27,7 @@ private:
     std::unordered_map<std::uint32_t, std::uint64_t> previous_process_created_;
     std::uint64_t previous_system_time_{};
     std::unordered_set<std::uint32_t> expanded_;
+    std::vector<std::uint32_t> rendered_pids_;
     SortColumn sort_column_{SortColumn::name};
     bool ascending_{true};
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer refresh_timer_{nullptr};
