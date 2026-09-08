@@ -43,6 +43,12 @@
                                 <ComboBoxItem Content="Français" />
                                 <ComboBoxItem Content="Русский" />
                                 <ComboBoxItem Content="简体中文" />
+                                <ComboBoxItem Content="Português (Brasil)" />
+                                <ComboBoxItem Content="Polski" />
+                                <ComboBoxItem Content="Türkçe" />
+                                <ComboBoxItem Content="日本語" />
+                                <ComboBoxItem Content="한국어" />
+                                <ComboBoxItem Content="Italiano" />
                             </ComboBox>
                         </Grid>
                     </Border>

@@ -124,6 +124,12 @@ Language language_from_string(std::string_view s) {
     if (s == "French" || s == "french" || s == "fr") return Language::french;
     if (s == "Russian" || s == "russian" || s == "ru") return Language::russian;
     if (s == "Simplified Chinese" || s == "simplified_chinese" || s == "zh-CN") return Language::simplified_chinese;
+    if (s == "Portuguese (Brazil)" || s == "pt-BR") return Language::portuguese_brazil;
+    if (s == "Polish" || s == "pl") return Language::polish;
+    if (s == "Turkish" || s == "tr") return Language::turkish;
+    if (s == "Japanese" || s == "ja") return Language::japanese;
+    if (s == "Korean" || s == "ko") return Language::korean;
+    if (s == "Italian" || s == "it") return Language::italian;
     return Language::english;
 }
 
@@ -139,6 +145,12 @@ std::string_view language_to_string(Language language) {
             return "Russian";
         case Language::simplified_chinese:
             return "Simplified Chinese";
+        case Language::portuguese_brazil: return "Portuguese (Brazil)";
+        case Language::polish: return "Polish";
+        case Language::turkish: return "Turkish";
+        case Language::japanese: return "Japanese";
+        case Language::korean: return "Korean";
+        case Language::italian: return "Italian";
         case Language::english:
         default:
             return "English";

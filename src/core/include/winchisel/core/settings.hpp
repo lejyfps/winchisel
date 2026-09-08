@@ -8,7 +8,7 @@
 
 namespace winchisel::core {
 
-enum class Language { english, german, spanish, french, russian, simplified_chinese };
+enum class Language { english, german, spanish, french, russian, simplified_chinese, portuguese_brazil, polish, turkish, japanese, korean, italian };
 enum class Theme { system, light, dark };
 
 struct Settings {

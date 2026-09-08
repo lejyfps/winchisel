@@ -24,6 +24,12 @@ int main() {
     expect(language_from_string("fr") == Language::french, "french language");
     expect(language_from_string("ru") == Language::russian, "russian language");
     expect(language_from_string("zh-CN") == Language::simplified_chinese, "simplified chinese language");
+    expect(language_from_string("pt-BR") == Language::portuguese_brazil, "brazilian portuguese language");
+    expect(language_from_string("pl") == Language::polish, "polish language");
+    expect(language_from_string("tr") == Language::turkish, "turkish language");
+    expect(language_from_string("ja") == Language::japanese, "japanese language");
+    expect(language_from_string("ko") == Language::korean, "korean language");
+    expect(language_from_string("it") == Language::italian, "italian language");
     expect(parsed.show_console, "show_console true");
     expect(!parsed.check_updates_on_startup, "updates false");
     expect(parsed.autostart_enabled, "autostart true");
@@ -41,6 +47,12 @@ int main() {
     expect(loc(L"Settings") == L"Настройки", "russian settings label");
     set_ui_language(Language::simplified_chinese);
     expect(loc(L"Settings") == L"设置", "simplified chinese settings label");
+    set_ui_language(Language::portuguese_brazil); expect(loc(L"Settings") == L"Configurações", "brazilian portuguese settings label");
+    set_ui_language(Language::polish); expect(loc(L"Settings") == L"Ustawienia", "polish settings label");
+    set_ui_language(Language::turkish); expect(loc(L"Settings") == L"Ayarlar", "turkish settings label");
+    set_ui_language(Language::japanese); expect(loc(L"Settings") == L"設定", "japanese settings label");
+    set_ui_language(Language::korean); expect(loc(L"Settings") == L"설정", "korean settings label");
+    set_ui_language(Language::italian); expect(loc(L"Settings") == L"Impostazioni", "italian settings label");
 
     auto json = serialize_settings_json(parsed);
     expect(json.find("German") != std::string::npos, "serialize language");
