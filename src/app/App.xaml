@@ -8,6 +8,22 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <Thickness x:Key="PagePadding">32,28,32,32</Thickness>
+            <Style TargetType="NavigationViewItem">
+                <Setter Property="Margin" Value="4,1" />
+                <Setter Property="MinHeight" Value="40" />
+            </Style>
+            <Style TargetType="InfoBar">
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
+            <Style TargetType="Button">
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="MinHeight" Value="32" />
+            </Style>
+            <Style TargetType="ComboBox">
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="MinHeight" Value="32" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

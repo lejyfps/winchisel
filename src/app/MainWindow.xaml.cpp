@@ -53,6 +53,7 @@ winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
 MainWindow::MainWindow() {
     InitializeComponent();
     SystemBackdrop(Media::MicaBackdrop());
+    apply_theme();
     auto app_window = app_window_from(*this);
     app_window.Resize({1280, 720});
     if (auto area = Microsoft::UI::Windowing::DisplayArea::GetFromWindowId(
@@ -67,9 +68,11 @@ MainWindow::MainWindow() {
     localize_nav();
     Closed([](auto&&, auto&&) {
         winchisel::ui::language_reload() = {};
+        winchisel::ui::theme_reload() = {};
         winchisel::ui::toast_handler() = {};
     });
     winchisel::ui::language_reload() = [this] { reload_language(); };
+    winchisel::ui::theme_reload() = [this] { apply_theme(); };
     winchisel::ui::toast_handler() = [this](auto severity, auto title, auto message) {
         ToastBar().Severity(severity);
         ToastBar().Title(hstring{title});
@@ -95,6 +98,12 @@ MainWindow::MainWindow() {
     if (ContentFrame().Content() == nullptr) {
         auto home = make<HomePage>(); pages_.emplace(L"home", home); ContentFrame().Content(home);
     }
+}
+
+void MainWindow::apply_theme() {
+    const auto theme = winchisel::application::Session::instance().settings().theme;
+    Nav().RequestedTheme(theme == winchisel::core::Theme::light ? ElementTheme::Light
+        : theme == winchisel::core::Theme::dark ? ElementTheme::Dark : ElementTheme::Default);
 }
 
 void MainWindow::Nav_SelectionChanged(

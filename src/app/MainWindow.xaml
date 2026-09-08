@@ -8,12 +8,17 @@
         x:Name="Nav"
         IsBackButtonVisible="Collapsed"
         IsSettingsVisible="False"
-        OpenPaneLength="228"
+        OpenPaneLength="240"
         CompactModeThresholdWidth="0"
         ExpandedModeThresholdWidth="0"
         IsPaneToggleButtonVisible="False"
         PaneDisplayMode="Left"
         SelectionChanged="Nav_SelectionChanged">
+        <NavigationView.PaneHeader>
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="4,8,0,12">
+                <Image Source="assets/sidebar.png" Width="176" Height="52" Stretch="Uniform" />
+            </StackPanel>
+        </NavigationView.PaneHeader>
         <NavigationView.MenuItems>
             <NavigationViewItem Content="Home" Tag="home">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Home" /></NavigationViewItem.Icon>
@@ -44,7 +49,7 @@
             </NavigationViewItem>
         </NavigationView.MenuItems>
         <Grid>
-            <Frame x:Name="ContentFrame" />
+            <Frame x:Name="ContentFrame" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" />
             <InfoBar x:Name="ToastBar"
                      VerticalAlignment="Bottom"
                      HorizontalAlignment="Right"

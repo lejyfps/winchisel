@@ -22,6 +22,7 @@ SettingsPage::SettingsPage() {
     InitializeComponent();
     const auto& settings = winchisel::application::Session::instance().settings();
     Language().SelectedIndex(settings.language == winchisel::core::Language::german ? 1 : 0);
+    Theme().SelectedIndex(static_cast<int>(settings.theme));
     CheckUpdates().IsOn(settings.check_updates_on_startup);
     ShowConsole().IsOn(settings.show_console);
     Autostart().IsOn(settings.autostart_enabled);
@@ -54,6 +55,10 @@ void SettingsPage::Language_SelectionChanged(IInspectable const&, Controls::Sele
     queue_save();
 }
 
+void SettingsPage::Theme_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) {
+    queue_save();
+}
+
 void SettingsPage::Settings_Toggled(IInspectable const&, RoutedEventArgs const&) {
     queue_save();
 }
@@ -72,14 +77,17 @@ void SettingsPage::save_settings() {
     settings.language = Language().SelectedIndex() == 1
         ? winchisel::core::Language::german
         : winchisel::core::Language::english;
+    settings.theme = static_cast<winchisel::core::Theme>(std::max(Theme().SelectedIndex(), 0));
     settings.check_updates_on_startup = CheckUpdates().IsOn();
     settings.show_console = ShowConsole().IsOn();
     settings.autostart_enabled = Autostart().IsOn();
     const auto previous_language = winchisel::core::ui_language();
+    const auto previous_theme = winchisel::application::Session::instance().settings().theme;
     if (auto result = winchisel::application::Session::instance().set_settings(settings); !result) {
         loading_ = true;
         const auto& current = winchisel::application::Session::instance().settings();
         Language().SelectedIndex(current.language == winchisel::core::Language::german ? 1 : 0);
+        Theme().SelectedIndex(static_cast<int>(current.theme));
         CheckUpdates().IsOn(current.check_updates_on_startup);
         ShowConsole().IsOn(current.show_console);
         Autostart().IsOn(current.autostart_enabled);
@@ -89,6 +97,9 @@ void SettingsPage::save_settings() {
     }
     if (previous_language != settings.language && winchisel::ui::language_reload()) {
         winchisel::ui::language_reload()();
+    }
+    if (previous_theme != settings.theme && winchisel::ui::theme_reload()) {
+        winchisel::ui::theme_reload()();
     }
 }
 

@@ -9,11 +9,13 @@
 namespace winchisel::core {
 
 enum class Language { english, german };
+enum class Theme { system, light, dark };
 
 struct Settings {
     bool check_updates_on_startup{true};
     bool show_console{false};
     Language language{Language::english};
+    Theme theme{Theme::system};
     bool autostart_enabled{false};
 };
 
@@ -23,5 +25,7 @@ std::string serialize_settings_json(const Settings& settings);
 
 Language language_from_string(std::string_view s);
 std::string_view language_to_string(Language language);
+Theme theme_from_string(std::string_view value);
+std::string_view theme_to_string(Theme theme);
 
 }  // namespace winchisel::core

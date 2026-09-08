@@ -18,11 +18,12 @@ int main() {
 
     expect(parse_settings_json("{").language == Language::english, "invalid json uses defaults");
     expect(!parse_settings_json(R"({"show_console": trueXYZ})").show_console, "fragment json rejected");
-    auto parsed = parse_settings_json(R"({"language":"German","show_console":true,"check_updates_on_startup":false,"autostart_enabled":true})");
+    auto parsed = parse_settings_json(R"({"language":"German","theme":"Dark","show_console":true,"check_updates_on_startup":false,"autostart_enabled":true})");
     expect(parsed.language == Language::german, "german language");
     expect(parsed.show_console, "show_console true");
     expect(!parsed.check_updates_on_startup, "updates false");
     expect(parsed.autostart_enabled, "autostart true");
+    expect(parsed.theme == Theme::dark, "dark theme");
 
     set_ui_language(Language::german);
     expect(loc(L"Settings") == L"Einstellungen", "german settings label");
@@ -31,5 +32,6 @@ int main() {
 
     auto json = serialize_settings_json(parsed);
     expect(json.find("German") != std::string::npos, "serialize language");
+    expect(json.find("Dark") != std::string::npos, "serialize theme");
     return failed ? 1 : 0;
 }

@@ -55,6 +55,34 @@
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"
+                            CornerRadius="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="App theme" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Use the Windows theme or choose light or dark mode."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ComboBox x:Name="Theme"
+                                      Grid.Column="1"
+                                      MinWidth="160"
+                                      VerticalAlignment="Center"
+                                      SelectionChanged="Theme_SelectionChanged">
+                                <ComboBoxItem Content="System default" />
+                                <ComboBoxItem Content="Light" />
+                                <ComboBoxItem Content="Dark" />
+                            </ComboBox>
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
                             CornerRadius="4">
                         <Grid>
                             <Grid.ColumnDefinitions>

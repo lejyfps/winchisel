@@ -3,14 +3,21 @@
 #include "process_wait.hpp"
 
 #include <windows.h>
+#include <cfgmgr32.h>
+#include <initguid.h>
+#include <devpkey.h>
+#include <setupapi.h>
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cwctype>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#pragma comment(lib, "cfgmgr32.lib")
+#pragma comment(lib, "setupapi.lib")
 
 namespace winchisel::platform {
 namespace {
@@ -158,62 +165,63 @@ std::string run_command(wchar_t const* command) {
 }
 
 std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
-    constexpr auto script = LR"PS(
-$devices = Get-PnpDevice -Status OK -ErrorAction SilentlyContinue | Where-Object {
-    $_.InstanceId -match '^USB\\' -and
-    ((Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_CompatibleIds' -ErrorAction SilentlyContinue).Data -match 'Class_03')
-}
-$devices += Get-PnpDevice -Class 'XboxComposite','XnaComposite','XUSBClass' -Status OK -ErrorAction SilentlyContinue
-foreach ($device in ($devices | Sort-Object InstanceId -Unique)) {
-    $usbParent = $device.InstanceId
-    if ($usbParent -match '^HID\\') {
-        $usbParent = (Get-PnpDeviceProperty -InstanceId $usbParent -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data
-    }
-    $current = $usbParent
-    $hubs = 0
-    $controller = ''
-    for ($i = 0; $current -and $i -lt 15; $i++) {
-        $node = Get-PnpDevice -InstanceId $current -ErrorAction SilentlyContinue
-        if ($current -match 'ROOT_HUB') {
-            $controller = (Get-PnpDeviceProperty -InstanceId $current -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data
-            break
-        }
-        if ($node.FriendlyName -match 'Hub' -and $node.FriendlyName -notmatch 'Root') { $hubs++ }
-        $current = (Get-PnpDeviceProperty -InstanceId $current -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data
-    }
-    if (-not $controller) { continue }
-    $vid = if ($usbParent -match 'VID_([0-9A-Fa-f]{4})') { $Matches[1].ToUpper() } else { '????' }
-    $pid = if ($usbParent -match 'PID_([0-9A-Fa-f]{4})') { $Matches[1].ToUpper() } else { '????' }
-    $name = (Get-PnpDeviceProperty -InstanceId $usbParent -KeyName 'DEVPKEY_Device_BusReportedDeviceDesc' -ErrorAction SilentlyContinue).Data
-    if (-not $name) { $name = $device.FriendlyName }
-    [string]::Join([char]9, @(($name -replace [char]9, ' '), $vid, $pid, $controller, $hubs))
-}
-)PS";
-    auto output = run_command((L"powershell.exe -NoProfile -NonInteractive -Command \"" + std::wstring(script) + L"\"").c_str());
     std::vector<Device> result;
-    std::istringstream lines(output);
-    for (std::string line; std::getline(lines, line);) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        std::array<std::string, 5> fields;
-        std::size_t start{};
-        bool valid = true;
-        for (std::size_t index{}; index < fields.size(); ++index) {
-            const auto end = line.find('\t', start);
-            if (index + 1 < fields.size() && end == std::string::npos) { valid = false; break; }
-            fields[index] = line.substr(start, end == std::string::npos ? end : end - start);
-            start = end == std::string::npos ? line.size() : end + 1;
+    const auto devices = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES | DIGCF_PRESENT);
+    if (devices == INVALID_HANDLE_VALUE) return result;
+    std::unordered_set<std::string> seen;
+    auto instance_id = [](DEVINST node) {
+        std::array<wchar_t, MAX_DEVICE_ID_LEN> value{};
+        return CM_Get_Device_IDW(node, value.data(), static_cast<ULONG>(value.size()), 0) == CR_SUCCESS ? std::wstring(value.data()) : std::wstring{};
+    };
+    auto property = [devices](SP_DEVINFO_DATA& info, DWORD key) {
+        std::array<wchar_t, 1024> value{}; DWORD type{}, bytes{};
+        return SetupDiGetDeviceRegistryPropertyW(devices, &info, key, &type, reinterpret_cast<BYTE*>(value.data()), sizeof(value), &bytes)
+            ? std::wstring(value.data()) : std::wstring{};
+    };
+    for (DWORD index{};; ++index) {
+        SP_DEVINFO_DATA info{sizeof(info)};
+        if (!SetupDiEnumDeviceInfo(devices, index, &info)) break;
+        auto id = instance_id(info.DevInst);
+        auto compatible = property(info, SPDRP_COMPATIBLEIDS);
+        auto device_class = property(info, SPDRP_CLASS);
+        auto lowered = compatible + L" " + device_class;
+        std::ranges::transform(lowered, lowered.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+        if (!lowered.contains(L"class_03") && !lowered.contains(L"xboxcomposite") &&
+            !lowered.contains(L"xnacomposite") && !lowered.contains(L"xusbclass")) continue;
+
+        DEVINST current = info.DevInst;
+        int hubs{};
+        std::wstring controller_id;
+        for (int step{}; step < 15; ++step) {
+            auto current_id = instance_id(current);
+            auto upper = current_id;
+            std::ranges::transform(upper, upper.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towupper(c)); });
+            DEVINST parent{};
+            if (CM_Get_Parent(&parent, current, 0) != CR_SUCCESS) break;
+            if (upper.contains(L"ROOT_HUB")) { controller_id = instance_id(parent); break; }
+            std::array<wchar_t, 512> name{}; ULONG bytes = sizeof(name); DEVPROPTYPE type{};
+            if (CM_Get_DevNode_PropertyW(current, &DEVPKEY_Device_FriendlyName, &type,
+                    reinterpret_cast<PBYTE>(name.data()), &bytes, 0) == CR_SUCCESS) {
+                auto label = std::wstring(name.data());
+                if (label.contains(L"Hub") && !label.contains(L"Root")) ++hubs;
+            }
+            current = parent;
         }
-        if (!valid || fields[0].empty() || fields[3].empty()) continue;
+        if (controller_id.empty()) continue;
         const auto controller = std::ranges::find_if(controllers, [&](auto const& item) {
-            return _stricmp(item.instance_id.c_str(), fields[3].c_str()) == 0;
+            return _wcsicmp(wide(item.instance_id).c_str(), controller_id.c_str()) == 0;
         });
         if (controller == controllers.end()) continue;
-        try {
-            const auto controller_index = static_cast<std::size_t>(controller - controllers.begin());
-            const auto hubs = std::stoi(fields[4]);
-            result.push_back({std::move(fields[0]), std::move(fields[1]), std::move(fields[2]), controller->chip_level + hubs, hubs, controller_index});
-        } catch (...) {}
+        auto ascii_id = utf8(id);
+        auto vid = extract_hex(ascii_id, "VID_").value_or("????");
+        auto pid = extract_hex(ascii_id, "PID_").value_or("????");
+        if (!seen.insert(vid + ':' + pid).second) continue;
+        auto name = property(info, SPDRP_FRIENDLYNAME);
+        if (name.empty()) name = property(info, SPDRP_DEVICEDESC);
+        const auto controller_index = static_cast<std::size_t>(controller - controllers.begin());
+        result.push_back({utf8(name), std::move(vid), std::move(pid), controller->chip_level + hubs, hubs, controller_index});
     }
+    SetupDiDestroyDeviceInfoList(devices);
     return result;
 }
 

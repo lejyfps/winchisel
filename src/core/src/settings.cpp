@@ -133,6 +133,18 @@ std::string_view language_to_string(Language language) {
     }
 }
 
+Theme theme_from_string(std::string_view value) {
+    if (value == "Light" || value == "light") return Theme::light;
+    if (value == "Dark" || value == "dark") return Theme::dark;
+    return Theme::system;
+}
+
+std::string_view theme_to_string(Theme theme) {
+    if (theme == Theme::light) return "Light";
+    if (theme == Theme::dark) return "Dark";
+    return "System";
+}
+
 Settings parse_settings_json(std::string_view json) {
     Settings s = settings_defaults();
     if (trim(json).empty() || !JsonValidator(json).valid()) {
@@ -142,6 +154,7 @@ Settings parse_settings_json(std::string_view json) {
     s.show_console = extract_bool(json, "show_console", s.show_console);
     s.autostart_enabled = extract_bool(json, "autostart_enabled", s.autostart_enabled);
     s.language = language_from_string(extract_string(json, "language", language_to_string(s.language)));
+    s.theme = theme_from_string(extract_string(json, "theme", theme_to_string(s.theme)));
     return s;
 }
 
@@ -151,6 +164,7 @@ std::string serialize_settings_json(const Settings& settings) {
     out << "  \"check_updates_on_startup\": " << (settings.check_updates_on_startup ? "true" : "false") << ",\n";
     out << "  \"show_console\": " << (settings.show_console ? "true" : "false") << ",\n";
     out << "  \"language\": \"" << language_to_string(settings.language) << "\",\n";
+    out << "  \"theme\": \"" << theme_to_string(settings.theme) << "\",\n";
     out << "  \"autostart_enabled\": " << (settings.autostart_enabled ? "true" : "false") << "\n";
     out << "}\n";
     return out.str();

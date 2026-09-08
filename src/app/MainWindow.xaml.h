@@ -16,6 +16,7 @@ struct MainWindow : MainWindowT<MainWindow> {
 private:
     std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::FrameworkElement> pages_;
     void localize_nav();
+    void apply_theme();
     winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);
 };
 

@@ -1,0 +1,2 @@
+#define IDI_WINCHISEL 1
+IDI_WINCHISEL ICON "../../assets/icon.ico"

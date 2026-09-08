@@ -15,6 +15,11 @@ inline std::function<void()>& language_reload() {
     return handler;
 }
 
+inline std::function<void()>& theme_reload() {
+    static std::function<void()> handler;
+    return handler;
+}
+
 inline void localize_tree(winrt::Windows::Foundation::IInspectable const& root) {
     using namespace winrt;
     using namespace Microsoft::UI::Xaml;
