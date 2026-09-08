@@ -166,7 +166,7 @@ void DebloaterPage::render_items() {
 
         auto row = Controls::ListViewItem();
         row.Tag(box_value(static_cast<std::uint64_t>(index)));
-        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,to_hstring(std::string(item.name))+(installed_[index]?winchisel::ui::tr(L", installed"):winchisel::ui::tr(L", not installed")));
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,winrt::hstring{std::wstring(to_hstring(std::string(item.name)))+std::wstring(installed_[index]?winchisel::ui::tr(L", installed"):winchisel::ui::tr(L", not installed"))});
         row.HorizontalContentAlignment(HorizontalAlignment::Stretch);
         row.Background(resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>());
         row.BorderBrush(resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>());
@@ -209,8 +209,8 @@ void DebloaterPage::update_actions() {
     const bool idle = operation_ == Operation::none;
     InstallButton().IsEnabled(idle && installable > 0);
     RemoveButton().IsEnabled(idle && removable > 0);
-    InstallButton().Content(box_value(installable ? winchisel::ui::tr(L"Install") + L" (" + to_hstring(installable) + L")" : winchisel::ui::tr(L"Install")));
-    RemoveButton().Content(box_value(removable ? winchisel::ui::tr(L"Remove") + L" (" + to_hstring(removable) + L")" : winchisel::ui::tr(L"Remove")));
+    InstallButton().Content(box_value(installable ? winrt::hstring{std::wstring(winchisel::ui::tr(L"Install")) + L" (" + std::to_wstring(installable) + L")"} : winchisel::ui::tr(L"Install")));
+    RemoveButton().Content(box_value(removable ? winrt::hstring{std::wstring(winchisel::ui::tr(L"Remove")) + L" (" + std::to_wstring(removable) + L")"} : winchisel::ui::tr(L"Remove")));
 }
 
 fire_and_forget DebloaterPage::confirm_action(bool install) {

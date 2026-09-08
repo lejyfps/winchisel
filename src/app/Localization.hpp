@@ -23,6 +23,9 @@ inline std::function<void()>& theme_reload() {
 inline winrt::hstring tr(std::wstring_view english) {
     return winrt::hstring{winchisel::core::loc(english)};
 }
+inline winrt::hstring tr(wchar_t const* english) {
+    return tr(std::wstring_view{english});
+}
 inline winrt::hstring tr(winrt::hstring const& english) {
     return tr(std::wstring_view{english});
 }
