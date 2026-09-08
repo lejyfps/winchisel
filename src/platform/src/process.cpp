@@ -16,7 +16,7 @@ std::wstring ifeo_path(std::wstring const& image) {
 }
 
 winchisel::core::Error win32_error(std::string detail) {
-    return {winchisel::core::ErrorCode::platform, "ifeo_failed", std::move(detail)};
+    return {std::move(detail)};
 }
 
 }  // namespace

@@ -51,7 +51,6 @@
     <ClInclude Include="include\winchisel\core\home.hpp" />
     <ClInclude Include="include\winchisel\core\error.hpp" />
     <ClInclude Include="include\winchisel\core\navigation.hpp" />
-    <ClInclude Include="include\winchisel\core\os.hpp" />
     <ClInclude Include="include\winchisel\core\registry.hpp" />
     <ClInclude Include="include\winchisel\core\settings.hpp" />
     <ClInclude Include="include\winchisel\core\tweak.hpp" />

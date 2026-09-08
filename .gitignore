@@ -2,6 +2,8 @@
 src/app/Generated Files/
 /.vs/
 /out/
+/src/core/out/
+/src/platform/out/
 /build/
 /**/bin/
 /**/obj/

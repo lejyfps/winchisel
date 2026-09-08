@@ -59,7 +59,7 @@ std::uint32_t current_windows_build() {
 }
 
 bool is_supported_windows() {
-    return current_windows_build() >= winchisel::core::k_min_windows_build;
+    return current_windows_build() >= k_min_windows_build;
 }
 
 bool is_user_an_admin() {
@@ -111,11 +111,7 @@ winchisel::core::Result<void> set_autostart_enabled(bool enabled) {
         HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0,
         KEY_READ | KEY_WRITE, nullptr, &key, nullptr);
     if (open_status != ERROR_SUCCESS) {
-        return std::unexpected(winchisel::core::Error{
-            .code = winchisel::core::ErrorCode::io,
-            .message_key = "autostart_update_failed",
-            .detail = std::to_string(open_status),
-        });
+        return std::unexpected(winchisel::core::Error{.detail = std::to_string(open_status)});
     }
 
     LONG status{};
@@ -133,11 +129,7 @@ winchisel::core::Result<void> set_autostart_enabled(bool enabled) {
     }
     RegCloseKey(key);
     if (status != ERROR_SUCCESS) {
-        return std::unexpected(winchisel::core::Error{
-            .code = winchisel::core::ErrorCode::io,
-            .message_key = "autostart_update_failed",
-            .detail = std::to_string(status),
-        });
+        return std::unexpected(winchisel::core::Error{.detail = std::to_string(status)});
     }
     return {};
 }
@@ -179,11 +171,7 @@ winchisel::core::Result<void> save_settings(const winchisel::core::Settings& set
     const auto temporary = path.wstring() + L".tmp";
     std::ofstream out(std::filesystem::path(temporary), std::ios::binary | std::ios::trunc);
     if (!out) {
-        return std::unexpected(winchisel::core::Error{
-            .code = winchisel::core::ErrorCode::io,
-            .message_key = "settings_save_failed",
-            .detail = std::filesystem::path(temporary).string(),
-        });
+        return std::unexpected(winchisel::core::Error{.detail = std::filesystem::path(temporary).string()});
     }
     out << winchisel::core::serialize_settings_json(settings);
     out.flush();
@@ -191,11 +179,7 @@ winchisel::core::Result<void> save_settings(const winchisel::core::Settings& set
     if (!out || !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         const auto error = GetLastError();
         DeleteFileW(temporary.c_str());
-        return std::unexpected(winchisel::core::Error{
-            .code = winchisel::core::ErrorCode::io,
-            .message_key = "settings_save_failed",
-            .detail = std::to_string(error),
-        });
+        return std::unexpected(winchisel::core::Error{.detail = std::to_string(error)});
     }
     return {};
 }
@@ -236,12 +220,8 @@ void set_current_directory_to_exe() {
     SetCurrentDirectoryW(path.parent_path().c_str());
 }
 
-winchisel::core::Result<void> fail(char const* message_key, std::string detail) {
-    return std::unexpected(winchisel::core::Error{
-        .code = winchisel::core::ErrorCode::platform,
-        .message_key = message_key,
-        .detail = std::move(detail),
-    });
+winchisel::core::Result<void> fail(char const*, std::string detail) {
+    return std::unexpected(winchisel::core::Error{.detail = std::move(detail)});
 }
 
 void emit_lines(std::string& pending, ProtectionProgress const& progress) {
@@ -439,30 +419,7 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
     std::filesystem::copy_file(plan, temp, std::filesystem::copy_options::overwrite_existing, ec);
     if (ec) return fail("power_plan_failed", "Unable to write temporary power plan: " + ec.message());
 
-    const auto command = L"powercfg.exe /import \"" + temp.wstring() + L"\"";
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_HIDE;
-    SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
-    HANDLE read{}, write{};
-    if (!CreatePipe(&read, &write, &security, 0)) {
-        std::filesystem::remove(temp, ec);
-        return fail("power_plan_failed", "Unable to create output pipe");
-    }
-    SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
-    startup.hStdOutput = write;
-    startup.hStdError = write;
-    PROCESS_INFORMATION process{};
-    std::wstring mutable_command = command;
-    if (!CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
-        CloseHandle(read); CloseHandle(write); std::filesystem::remove(temp, ec);
-        return fail("power_plan_failed", "powercfg /import could not be started");
-    }
-    CloseHandle(write);
-    std::string output;
-    const auto waited=detail::wait_process_with_pipe(process.hProcess,read,30*60*1000,[&](char const* buffer,DWORD count){output.append(buffer,count);});
-    CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess);
+    auto [waited, output] = detail::run_captured(L"powercfg.exe /import \"" + temp.wstring() + L"\"");
     std::filesystem::remove(temp, ec);
     if (waited.exit_code != 0) return fail("power_plan_failed", waited.timed_out ? "powercfg /import timed out" : "powercfg /import exited with " + std::to_string(waited.exit_code));
 
@@ -526,24 +483,7 @@ winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
 
 ExtrasCommandState read_extras_command_state() {
     auto capture = [](std::wstring command) -> std::pair<DWORD, std::string> {
-        SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
-        HANDLE read{}, write{};
-        if (!CreatePipe(&read, &write, &security, 0)) return {ERROR_NOT_ENOUGH_MEMORY, {}};
-        SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
-        STARTUPINFOW startup{};
-        startup.cb = sizeof(startup);
-        startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-        startup.wShowWindow = SW_HIDE;
-        startup.hStdOutput = write;
-        startup.hStdError = write;
-        PROCESS_INFORMATION process{};
-        if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
-            CloseHandle(read); CloseHandle(write); return {GetLastError(), {}};
-        }
-        CloseHandle(write);
-        std::string output;
-        const auto waited=detail::wait_process_with_pipe(process.hProcess,read,2*60*1000,[&](char const* buffer,DWORD count){output.append(buffer,count);});
-        CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess);
+        auto [waited, output] = detail::run_captured(std::move(command), 2 * 60 * 1000);
         return {waited.exit_code, std::move(output)};
     };
 

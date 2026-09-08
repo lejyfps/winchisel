@@ -15,7 +15,6 @@
 #include "ExtrasPage.xaml.h"
 #include "SettingsPage.xaml.h"
 #include "Localization.hpp"
-#include "Toast.hpp"
 #include "winchisel/application/session.hpp"
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/navigation.hpp"

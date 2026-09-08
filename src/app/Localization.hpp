@@ -3,6 +3,7 @@
 #include "winchisel/core/i18n.hpp"
 
 #include <functional>
+#include <string>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Windows.Foundation.h>
@@ -44,6 +45,17 @@ inline void localize_tree(winrt::Windows::Foundation::IInspectable const& root) 
     for (int index = 0; index < count; ++index) {
         localize_tree(Media::VisualTreeHelper::GetChild(element, index));
     }
+}
+
+using ToastHandler = std::function<void(winrt::Microsoft::UI::Xaml::Controls::InfoBarSeverity, std::wstring, std::wstring)>;
+
+inline ToastHandler& toast_handler() {
+    static ToastHandler handler;
+    return handler;
+}
+
+inline void show_toast(winrt::Microsoft::UI::Xaml::Controls::InfoBarSeverity severity, std::wstring title, std::wstring message) {
+    if (toast_handler()) toast_handler()(severity, std::move(title), std::move(message));
 }
 
 }  // namespace winchisel::ui

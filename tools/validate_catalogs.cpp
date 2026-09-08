@@ -1,6 +1,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <ostream>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -13,7 +14,7 @@ std::string read(std::filesystem::path const& path) {
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
-bool validate(std::filesystem::path const& root, std::filesystem::path const& relative, std::string const& symbol) {
+bool validate(std::filesystem::path const& root, std::filesystem::path const& relative, std::string const& symbol, std::ostream* golden) {
     const auto text = read(root / relative);
     const std::regex declaration("array<[^,]+,\\s*(\\d+)>\\s+" + symbol);
     std::smatch declared;
@@ -44,18 +45,30 @@ bool validate(std::filesystem::path const& root, std::filesystem::path const& re
         return false;
     }
     std::cout << symbol << ": " << count << " unique entries\n";
+    if (golden) {
+        *golden << symbol << ' ' << ids.size() << '\n';
+        for (auto const& id : ids) *golden << id << '\n';
+        *golden << '\n';
+    }
     return true;
 }
 }
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 2) return 2;
+    if (argc != 2 && argc != 3) return 2;
     const std::filesystem::path root = argv[1];
+    std::ofstream golden_file;
+    std::ostream* golden = nullptr;
+    if (argc == 3) {
+        golden_file.open(argv[2], std::ios::binary | std::ios::trunc);
+        if (!golden_file) return 1;
+        golden = &golden_file;
+    }
     bool ok = true;
-    ok = validate(root, "src/core/src/debloater_catalog.generated.hpp", "generated_debloat_catalog") && ok;
-    ok = validate(root, "src/core/src/download_catalog.generated.hpp", "generated_download_catalog") && ok;
-    ok = validate(root, "src/core/src/performance_catalog.generated.hpp", "generated_performance_catalog") && ok;
-    ok = validate(root, "src/core/src/privacy_catalog.generated.hpp", "generated_privacy_catalog") && ok;
+    ok = validate(root, "src/core/src/debloater_catalog.generated.hpp", "generated_debloat_catalog", golden) && ok;
+    ok = validate(root, "src/core/src/download_catalog.generated.hpp", "generated_download_catalog", golden) && ok;
+    ok = validate(root, "src/core/src/performance_catalog.generated.hpp", "generated_performance_catalog", golden) && ok;
+    ok = validate(root, "src/core/src/privacy_catalog.generated.hpp", "generated_privacy_catalog", golden) && ok;
     const auto downloads = read(root / "src/core/src/download_catalog.generated.hpp");
     if (downloads.find("\"http://") != std::string::npos) {
         std::cerr << "download catalog contains an insecure URL\n";

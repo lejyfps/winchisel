@@ -1,5 +1,4 @@
 #include "winchisel/core/tweak.hpp"
-#include "winchisel/core/registry.hpp"
 #include "performance_catalog.generated.hpp"
 #include "privacy_catalog.generated.hpp"
 
@@ -9,29 +8,8 @@ std::span<PerformanceRegistryRule const> get_performance_registry_rules() noexce
 std::span<PerformanceProfileRule const> get_performance_profile_rules() noexcept { return generated_performance_profile_rules; }
 std::span<PrivacyCatalogEntry const> get_privacy_catalog() noexcept { return generated_privacy_catalog; }
 std::span<PrivacyRegistryRule const> get_privacy_registry_rules() noexcept { return generated_privacy_rules; }
-namespace {
 
-constexpr TweakProfile k_toggle_profile{
-    .recommended_toggle = true,
-    .default_toggle = false,
-};
-constexpr TweakProfile k_selection_profile{
-    .recommended_selection = 2,
-    .default_selection = 0,
-};
-
-static_assert(match_toggle_profile(k_toggle_profile, true).recommended);
-static_assert(match_toggle_profile(k_toggle_profile, false).windows_default);
-static_assert(match_selection_profile(k_selection_profile, 1).custom());
 static_assert(k_performance_groups.size() == 10);
 static_assert(k_privacy_security_groups.size() == 13);
 
-const RegistryTarget k_registry_target{
-    .hive = RegistryHive::current_user,
-    .key_path = "Software\\Winchisel",
-    .value_name = "Example",
-    .type = RegistryValueType::dword,
-};
-
-}  // namespace
 }  // namespace winchisel::core

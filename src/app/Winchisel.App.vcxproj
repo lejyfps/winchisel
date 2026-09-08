@@ -85,7 +85,6 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Localization.hpp" />
-    <ClInclude Include="Toast.hpp" />
     <ClInclude Include="AsyncLifetime.hpp" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
@@ -205,6 +204,9 @@
       <DependentUpon>SettingsPage.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="..\application\src\session.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="Generated Files\module.g.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -261,9 +263,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\application\Winchisel.Application.vcxproj">
-      <Project>{A1C0E001-0003-4000-8000-000000000003}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">
       <Project>{A1C0E001-0001-4000-8000-000000000001}</Project>
     </ProjectReference>

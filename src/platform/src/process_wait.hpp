@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <string>
+#include <utility>
 
 namespace winchisel::platform::detail {
 
@@ -72,6 +74,35 @@ ProcessWaitResult wait_process_with_pipe(HANDLE process, HANDLE pipe, DWORD time
                                                             : ProcessWaitResult{GetLastError(), false};
     if (job) CloseHandle(job);
     return result;
+}
+
+inline std::pair<ProcessWaitResult, std::string> run_captured(std::wstring command, DWORD timeout_ms = 30 * 60 * 1000) {
+    SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
+    HANDLE read{}, write{};
+    if (!CreatePipe(&read, &write, &security, 0)) return {{GetLastError(), false}, {}};
+    SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdOutput = write;
+    startup.hStdError = write;
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+        const auto code = GetLastError();
+        CloseHandle(read);
+        CloseHandle(write);
+        return {{code, false}, {}};
+    }
+    CloseHandle(write);
+    std::string output;
+    const auto waited = wait_process_with_pipe(process.hProcess, read, timeout_ms, [&](char const* data, DWORD size) {
+        output.append(data, size);
+    });
+    CloseHandle(read);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return {waited, std::move(output)};
 }
 
 } // namespace winchisel::platform::detail

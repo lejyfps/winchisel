@@ -24,7 +24,7 @@ ScanData cache;
 bool cache_valid{};
 
 winchisel::core::Error error(std::string detail) {
-    return {.code=winchisel::core::ErrorCode::platform,.message_key="downloads_command_failed",.detail=std::move(detail)};
+    return {.detail=std::move(detail)};
 }
 
 std::wstring wide(std::string_view text) {
@@ -34,14 +34,8 @@ std::wstring wide(std::string_view text) {
 }
 
 winchisel::core::Result<CommandResult> run_hidden(std::wstring command) {
-    SECURITY_ATTRIBUTES security{sizeof(security),nullptr,TRUE};HANDLE read{},write{};
-    if(!CreatePipe(&read,&write,&security,0))return std::unexpected(error("CreatePipe: "+std::to_string(GetLastError())));
-    if(!SetHandleInformation(read,HANDLE_FLAG_INHERIT,0)){auto code=GetLastError();CloseHandle(read);CloseHandle(write);return std::unexpected(error("SetHandleInformation: "+std::to_string(code)));}
-    STARTUPINFOW startup{};startup.cb=sizeof(startup);startup.dwFlags=STARTF_USESTDHANDLES|STARTF_USESHOWWINDOW;startup.wShowWindow=SW_HIDE;startup.hStdOutput=write;startup.hStdError=write;
-    PROCESS_INFORMATION process{};
-    if(!CreateProcessW(nullptr,command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process)){auto code=GetLastError();CloseHandle(read);CloseHandle(write);return std::unexpected(error("CreateProcessW: "+std::to_string(code)));}
-    CloseHandle(write);std::string output;const auto waited=detail::wait_process_with_pipe(process.hProcess,read,30*60*1000,[&](char const* buffer,DWORD count){output.append(buffer,count);});
-    CloseHandle(read);CloseHandle(process.hThread);CloseHandle(process.hProcess);return CommandResult{waited.exit_code,std::move(output)};
+    auto [waited, output] = detail::run_captured(std::move(command));
+    return CommandResult{waited.exit_code, std::move(output)};
 }
 
 StringSet registry_display_names(HKEY root,std::wstring const& path) {

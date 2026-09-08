@@ -11,7 +11,7 @@ namespace winchisel::platform {
 namespace {
 
 using winchisel::core::Error;
-using winchisel::core::ErrorCode;
+
 using winchisel::core::RegistryHive;
 using winchisel::core::RegistryTarget;
 using winchisel::core::RegistryValue;
@@ -48,11 +48,7 @@ std::string to_utf8(std::wstring const& text) {
 
 Error registry_error(std::string detail) {
     boot_log(("registry operation failed: " + detail).c_str());
-    return {
-        .code = ErrorCode::platform,
-        .message_key = "registry_operation_failed",
-        .detail = std::move(detail),
-    };
+    return {.detail = std::move(detail)};
 }
 
 bool expected_type_matches(RegistryValueType expected, DWORD actual) {
