@@ -97,6 +97,29 @@ std::string sha256_hex(std::span<std::byte const> value) {
     static constexpr char hex[]="0123456789abcdef"; std::string result_hex; result_hex.reserve(64); for(auto byte:digest){const auto v=static_cast<unsigned>(byte);result_hex.push_back(hex[v>>4]);result_hex.push_back(hex[v&15]);} return result_hex;
 }
 
+std::optional<std::wstring> portable_host() {
+    const auto size = GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", nullptr, 0);
+    if (size > 1) {
+        std::wstring host(size, L'\0');
+        if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), size)) {
+            if (host.back() == L'\0') host.pop_back();
+            return host;
+        }
+    }
+    int count{};
+    auto arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (!arguments) return std::nullopt;
+    std::optional<std::wstring> host;
+    for (int index = 1; index + 1 < count; ++index) {
+        if (std::wstring_view(arguments[index]) == L"--portable-host") {
+            host = arguments[index + 1];
+            break;
+        }
+    }
+    LocalFree(arguments);
+    return host;
+}
+
 } // namespace
 
 winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_view json, std::string_view signature) {
@@ -152,7 +175,7 @@ bool is_newer_version(std::string_view candidate, std::string_view current) {
 }
 
 bool is_portable_install() {
-    return GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", nullptr, 0) > 1;
+    return portable_host().has_value();
 }
 
 std::string_view update_artifact_id() { return is_portable_install() ? "portable-x64" : "setup-x64"; }
@@ -165,14 +188,11 @@ winchisel::core::Result<void> launch_staged_update(
         if (result <= 32) return std::unexpected(winchisel::core::Error{.detail=std::to_string(result)});
         return {};
     }
-    const auto host_size = GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", nullptr, 0);
-    std::wstring host(host_size, L'\0');
-    if (!host_size || !GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), host_size))
-        return std::unexpected(winchisel::core::Error{.detail="Portable host unavailable"});
-    if (!host.empty() && host.back() == L'\0') host.pop_back();
+    const auto host = portable_host();
+    if (!host) return std::unexpected(winchisel::core::Error{.detail="Portable host unavailable"});
     std::array<wchar_t, 32768> module{}; const auto length=GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
     const auto updater=std::filesystem::path(std::wstring(module.data(),length)).parent_path()/L"Winchisel.Updater.exe";
-    std::wstring command=L"\""+updater.wstring()+L"\" --staged \""+staged.wstring()+L"\" --target \""+host+
+    std::wstring command=L"\""+updater.wstring()+L"\" --staged \""+staged.wstring()+L"\" --target \""+*host+
         L"\" --sha256 "+std::wstring(artifact.sha256.begin(),artifact.sha256.end())+L" --wait-pid "+std::to_wstring(GetCurrentProcessId());
     STARTUPINFOW startup{.cb=sizeof(startup)}; PROCESS_INFORMATION process{};
     if(!CreateProcessW(updater.c_str(),command.data(),nullptr,nullptr,FALSE,0,nullptr,updater.parent_path().c_str(),&startup,&process))

@@ -80,8 +80,17 @@ bool restart_elevated() {
         return false;
     }
     const auto dir = path.parent_path();
+    std::wstring arguments;
+    const auto host_size = GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", nullptr, 0);
+    if (host_size > 1) {
+        std::wstring host(host_size, L'\0');
+        if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), host_size)) {
+            if (!host.empty() && host.back() == L'\0') host.pop_back();
+            arguments = L"--portable-host \"" + host + L"\"";
+        }
+    }
     const INT_PTR rc = reinterpret_cast<INT_PTR>(ShellExecuteW(
-        nullptr, L"runas", path.c_str(), nullptr, dir.c_str(), SW_SHOWNORMAL));
+        nullptr, L"runas", path.c_str(), arguments.empty() ? nullptr : arguments.c_str(), dir.c_str(), SW_SHOWNORMAL));
     return rc > 32;
 }
 
