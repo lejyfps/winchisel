@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **40 von 56 Auditpunkten behoben**, 16 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **42 von 56 Auditpunkten behoben**, 14 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -28,10 +28,10 @@ Stand: **40 von 56 Auditpunkten behoben**, 16 offen. Erfolgreich behobene Punkte
 - [x] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
 - [ ] **Block 7 – Performance-Backend-Parität:** AUD-007 und AUD-008 verifiziert; AUD-009 offen
 - [ ] **Block 8 – i18n und Encoding:** AUD-048 verifiziert; AUD-003 offen
-- [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014 und AUD-031 behoben; AUD-015 und AUD-016 offen
+- [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-016 und AUD-031 behoben; AUD-015 offen
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
 - [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030 und AUD-037 erledigt; AUD-036 offen
-- [ ] **Block 12 – Prozesse:** AUD-034 und AUD-035 behoben; AUD-032 und AUD-033 offen
+- [ ] **Block 12 – Prozesse:** AUD-033 bis AUD-035 behoben; AUD-032 offen
 - [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-039 und AUD-042 behoben; AUD-038 offen
 - [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044, AUD-045 und AUD-047 behoben; AUD-043 und AUD-046 offen
 - [ ] **Block 15 – Architektur/Tests/Release:** AUD-054 und AUD-056 behoben; AUD-049 bis AUD-053 und AUD-055 offen
@@ -176,6 +176,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-016 – `std::async` plus Page-Lebenszyklus kann Navigation/Shutdown blockieren
 
 - Typ: **PERFORMANCE / LIFECYCLE-RISIKO**
+- [x] Status: **BEHOBEN IM ASYNC-MEHRFACHBLOCK (2026-09-08)** – Debloater, Downloads, Latency und Settings übertragen beim Destruktor noch laufende Futures an einen kleinen detached Completion-Waiter. Dadurch blockiert kein `std::future`-Destruktor mehr den UI-/Shutdown-Thread; UI-Rückmeldungen verwenden bereits Weak-References.
 - Neu: Debloater, Downloads, Latency und Settings halten `std::future` als Member. Destruktoren stoppen Timer, brechen die Arbeit aber nicht ab. Ein Future aus `std::async(std::launch::async)` kann bei Zerstörung auf Abschluss warten.
 - Folge: Navigation oder App-Ende kann bis zum Ende von winget/DISM/Analyse hängen.
 - Korrektur: cancellable Task-Service außerhalb kurzlebiger Page-Objekte; `std::jthread`/Stop-Token oder WinRT-Async mit sauberem Ownership-Modell.
@@ -303,6 +304,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-033 – Affinity unterstützt nur eine Prozessgruppe/64 Bits
 
 - Typ: **BUG / SKALIERBARKEIT**
+- [x] Status: **SICHER EINGESCHRÄNKT IM MEHRFACHBLOCK (2026-09-08)** – Systeme mit mehreren Processor Groups werden explizit erkannt. Affinity-Anzeige und -Menü kennzeichnen die Funktion dort als nicht verfügbar und jeder Set-Pfad verweigert die unvollständige 64-Bit-Maske mit verständlicher Meldung, statt still nur Gruppe 0 zu verändern.
 - Neu iteriert nur über `sizeof(DWORD_PTR)*8` und nutzt `Get/SetProcessAffinityMask` (`src/app/ProcessesPage.xaml.cpp:97,112,119-123`).
 - Folge: Systeme mit mehr als 64 logischen Prozessoren/mehreren Processor Groups werden unvollständig behandelt.
 - Korrektur: CPU Sets/Processor Groups berücksichtigen oder Einschränkung klar anzeigen.
@@ -340,6 +342,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-038 – Fehlerdetails verschwinden an vielen UI-Grenzen
 
 - Typ: **QUALITÄT / SUPPORTABILITY**
+- Zwischenstand (2026-09-08): Extras zeigt Fehlerdetails der Platform-Resultate bzw. Win32-Codes und schreibt jede Rückmeldung zusätzlich in das persistente Log. Prozess-Affinity meldet Öffnungs-/Set-Fehler mit Win32-Code. Performance-/Privacy-Grenzen sind noch offen, daher bleibt der Auditpunkt unmarkiert.
 - Beispiele: Extras zeigt nur „Could not apply the setting“, Performance lädt still zurück, Autostart springt zurück, Paketaktionen liefern nur Zähler.
 - Folge: Fehler sind weder für Nutzer noch Support reproduzierbar; Ziel „reproduzierbar protokollieren“ ist nicht erfüllt.
 
@@ -401,6 +404,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-046 – Accessibility ist nicht systematisch umgesetzt
 
 - Typ: **QUALITÄT / PARITÄT**
+- Zwischenstand (2026-09-08): Dynamische Performance-/Privacy-Toggles, Download-/Debloater-Zeilen sowie Prozesszeilen und Expand-Buttons besitzen Automation-Namen. InfoBars und dynamische Prozess-/Latency-Statusfelder sind LiveRegions. Ein abschließender Tastatur-/Screenreader-Smoke-Test bleibt offen, daher noch nicht abgehakt.
 - Befund: Dynamisch erzeugte Toggles, Icon-/Expand-Buttons, Prozesskontextmenüs und Statusupdates besitzen keine systematische `AutomationProperties.Name/HelpText`, LiveRegion oder Focus-Strategie.
 - Folge: Todo-Punkte zu Tastaturbedienung/Accessibility sind offen und die dynamischen Controls sind für Screenreader schwer verständlich.
 
@@ -434,6 +438,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-051 – Generierte Kataloge haben keinen nachvollziehbaren Generator im Repository
 
 - Typ: **REPRODUZIERBARKEIT**
+- Zwischenstand (2026-09-08): `tools/validate_catalogs.ps1` prüft jetzt deklarierte Counts gegen tatsächliche Einträge, eindeutige IDs, HTTPS-URLs und das Vorhandensein der Latency-Datenbank. Ein echter Generator aus einer kanonischen Quelldatei fehlt weiterhin; der Punkt bleibt deshalb offen.
 - Neu: `*_catalog.generated.hpp` und `latency_database.generated.hpp` sind eingecheckt, aber kein Generator/Mappingtest ist vorhanden.
 - Folge: Änderungen am Rust-Referenzkatalog können nicht reproduzierbar neu erzeugt oder auf Verlust geprüft werden.
 - Korrektur: Generator plus Golden-Dateien/Counts/ID-Uniqueness/Backend-Coverage einchecken.

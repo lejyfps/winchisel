@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "SettingsPage.xaml.h"
+#include "AsyncLifetime.hpp"
 
 #if __has_include("SettingsPage.g.cpp")
 #include "SettingsPage.g.cpp"
@@ -44,6 +45,7 @@ SettingsPage::~SettingsPage() {
     if (action_dialog_) {
         action_dialog_.Hide();
     }
+    winchisel::ui::finish_in_background(worker_);
 }
 
 void SettingsPage::Language_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) {

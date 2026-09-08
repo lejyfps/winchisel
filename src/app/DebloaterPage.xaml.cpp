@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "DebloaterPage.xaml.h"
+#include "AsyncLifetime.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -44,6 +45,8 @@ DebloaterPage::DebloaterPage() {
 DebloaterPage::~DebloaterPage() {
     timer_.Stop();
     timer_.Tick(timer_token_);
+    winchisel::ui::finish_in_background(scan_worker_);
+    winchisel::ui::finish_in_background(action_worker_);
 }
 
 void DebloaterPage::start_scan(bool clear_notice) {
@@ -125,6 +128,7 @@ void DebloaterPage::render_items() {
 
         auto row = Controls::ListViewItem();
         row.Tag(box_value(static_cast<std::uint64_t>(index)));
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,to_hstring(std::string(item.name)+(installed_[index]?", installed":", not installed")));
         row.HorizontalContentAlignment(HorizontalAlignment::Stretch);
         row.Background(resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>());
         row.BorderBrush(resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>());

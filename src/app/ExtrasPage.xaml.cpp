@@ -23,7 +23,7 @@ bool ExtrasPage::read_dword(HKEY root,wchar_t const* path,wchar_t const* name,DW
 bool ExtrasPage::read_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring& value){DWORD size{};if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,nullptr,&size)!=ERROR_SUCCESS)return false;value.resize(size/sizeof(wchar_t));if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,value.data(),&size)!=ERROR_SUCCESS)return false;if(!value.empty()&&!value.back())value.pop_back();return true;}
 bool ExtrasPage::write_dword(HKEY root,wchar_t const* path,wchar_t const* name,std::optional<DWORD> value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;LSTATUS result=value?RegSetValueExW(key,name,0,REG_DWORD,reinterpret_cast<BYTE const*>(&*value),sizeof(DWORD)):RegDeleteValueW(key,name);RegCloseKey(key);return result==ERROR_SUCCESS||(!value&&result==ERROR_FILE_NOT_FOUND);}
 bool ExtrasPage::write_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring const& value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;auto result=RegSetValueExW(key,name,0,REG_SZ,reinterpret_cast<BYTE const*>(value.c_str()),static_cast<DWORD>((value.size()+1)*sizeof(wchar_t)));RegCloseKey(key);return result==ERROR_SUCCESS;}
-void ExtrasPage::show_result(bool ok,std::wstring const& text){ResultBar().Severity(ok?muxc::InfoBarSeverity::Success:muxc::InfoBarSeverity::Error);ResultBar().Message(text);ResultBar().IsOpen(true);}
+void ExtrasPage::show_result(bool ok,std::wstring const& text){ResultBar().Severity(ok?muxc::InfoBarSeverity::Success:muxc::InfoBarSeverity::Error);ResultBar().Message(text);ResultBar().IsOpen(true);winchisel::platform::boot_log(winrt::to_string(text).c_str());}
 
 void ExtrasPage::load_states(){
  loading_=true;DWORD value{};std::wstring text;
@@ -57,7 +57,7 @@ void ExtrasPage::ToggleChanged(Windows::Foundation::IInspectable const& sender,M
  else if(toggle==Teredo()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::teredo,enabled);return;}
  else if(toggle==Hpet()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::hpet,enabled);return;}
  else return;
- if(!ok){load_states();show_result(false,L"Could not apply the setting.");}else show_result(true,L"Setting applied.");
+ if(!ok){const auto error=GetLastError();load_states();show_result(false,L"Could not apply the setting. Windows error "+std::to_wstring(error)+L".");}else show_result(true,L"Setting applied.");
 }
 void ExtrasPage::set_command_busy(bool busy) {
  command_running_=busy; Loading().IsActive(busy); Items().IsHitTestVisible(!busy); PowerPlanButton().IsEnabled(!busy);
@@ -80,7 +80,7 @@ winrt::fire_and_forget ExtrasPage::run_command(CommandAction action, bool enable
  switch(action){case CommandAction::power_plan: result=winchisel::platform::apply_winchisel_power_plan(); break; case CommandAction::widgets: result=winchisel::platform::set_widgets_removed(enabled); break; case CommandAction::teredo: result=winchisel::platform::set_teredo_disabled(enabled); break; case CommandAction::hpet: result=winchisel::platform::set_hpet_disabled(enabled); break;}
  (void)queue.TryEnqueue([lifetime, action, enabled, result] {
   lifetime->set_command_busy(false);
-  if(!result){lifetime->load_states();lifetime->show_result(false,L"Could not apply the setting.");return;}
+  if(!result){lifetime->load_states();lifetime->show_result(false,L"Could not apply the setting: "+winrt::to_hstring(result.error().detail));return;}
   lifetime->loading_=true;
   if(action==CommandAction::widgets)lifetime->Widgets().IsOn(enabled); else if(action==CommandAction::teredo)lifetime->Teredo().IsOn(enabled); else if(action==CommandAction::hpet)lifetime->Hpet().IsOn(enabled); else lifetime->PowerPlanButton().Content(box_value(L"Active"));
   lifetime->loading_=false; lifetime->show_result(true,action==CommandAction::power_plan?L"Winchisel power plan applied successfully.":L"Setting applied.");

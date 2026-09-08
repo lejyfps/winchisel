@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "LatencyPage.xaml.h"
+#include "AsyncLifetime.hpp"
 #include "winchisel/platform/latency.hpp"
 
 #include <chrono>
@@ -29,6 +30,7 @@ LatencyPage::~LatencyPage() {
         timer_.Stop();
         timer_.Tick(timer_token_);
     }
+    winchisel::ui::finish_in_background(analysis_);
 }
 
 void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {

@@ -18,7 +18,7 @@
         <Grid Grid.Row="1">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="8">
-                    <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="True" />
+                    <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />
 
                     <TextBlock Text="Application" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,8,0,0" />
                     <TextBlock Text="These settings are saved automatically."

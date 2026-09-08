@@ -28,7 +28,7 @@
         </Grid>
         <Grid Grid.Row="2" RowSpacing="8">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextBlockStyle}" />
+            <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextBlockStyle}" AutomationProperties.LiveSetting="Polite" />
         <ListView x:Name="ProcessList" Grid.Row="1" SelectionMode="Single" SelectionChanged="ProcessSelectionChanged">
             <ListView.Header>
                 <Grid Padding="12,8">

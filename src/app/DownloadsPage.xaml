@@ -7,7 +7,7 @@
    <ComboBox x:Name="Filter" Grid.Column="1" SelectedIndex="0" SelectionChanged="Filter_SelectionChanged" HorizontalAlignment="Stretch"><ComboBoxItem Content="All apps"/><ComboBoxItem Content="Installed"/><ComboBoxItem Content="Not installed"/></ComboBox>
    <Button x:Name="RefreshButton" Grid.Column="2" Content="Refresh" Click="Refresh_Click"/><Button x:Name="InstallButton" Grid.Column="3" Content="Install" Style="{StaticResource AccentButtonStyle}" Click="Install_Click" IsEnabled="False"/>
   </Grid>
-  <StackPanel Grid.Row="2" Spacing="8"><ProgressBar x:Name="Loading" IsIndeterminate="True" Visibility="Collapsed"/><InfoBar x:Name="Notice" IsOpen="False" IsClosable="True"/></StackPanel>
+  <StackPanel Grid.Row="2" Spacing="8"><ProgressBar x:Name="Loading" IsIndeterminate="True" Visibility="Collapsed" AutomationProperties.Name="Download operation progress"/><InfoBar x:Name="Notice" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive"/></StackPanel>
   <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="Groups" Spacing="8"/></ScrollViewer>
  </Grid>
 </UserControl>

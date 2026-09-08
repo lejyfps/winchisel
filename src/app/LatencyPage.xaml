@@ -30,7 +30,7 @@
                        MinWidth="36" HorizontalTextAlignment="Right"
                        Style="{StaticResource CaptionTextBlockStyle}" />
         </Grid>
-        <TextBlock x:Name="Status" Grid.Row="2" Text="Ready" Style="{StaticResource CaptionTextBlockStyle}" />
+        <TextBlock x:Name="Status" Grid.Row="2" Text="Ready" Style="{StaticResource CaptionTextBlockStyle}" AutomationProperties.LiveSetting="Polite" />
         <Border Grid.Row="3" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
             <ScrollViewer>
                 <RichTextBlock x:Name="Report" TextWrapping="NoWrap" IsTextSelectionEnabled="True"

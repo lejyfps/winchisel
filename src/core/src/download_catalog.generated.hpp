@@ -126,7 +126,7 @@ inline constexpr std::array<DownloadCatalogEntry, 176> generated_download_catalo
     {"Parsec Virtual USB Driver", DownloadCategory::RemoteAccess, "Parsec.ParsecVUD", "https://parsec.app/"},
     {"InputLeap", DownloadCategory::RemoteAccess, "input-leap.input-leap", "https://github.com/input-leap/input-leap"},
     {"ImgBurn", DownloadCategory::OpticalDiscTools, "LIGHTNINGUK.ImgBurn", "https://www.imgburn.com/"},
-    {"AnyBurn", DownloadCategory::OpticalDiscTools, "PowerSoftware.AnyBurn", "http://www.anyburn.com/"},
+    {"AnyBurn", DownloadCategory::OpticalDiscTools, "PowerSoftware.AnyBurn", "https://www.anyburn.com/"},
     {"CDBurnerXP", DownloadCategory::OpticalDiscTools, "", "https://cdburnerxp.se/"},
     {"CCleaner", DownloadCategory::OtherUtilities, "Piriform.CCleaner", "https://www.ccleaner.com/"},
     {"Snappy Driver Installer Origin", DownloadCategory::OtherUtilities, "GlennDelahoy.SnappyDriverInstallerOrigin", "https://www.snappy-driver-installer.org/"},

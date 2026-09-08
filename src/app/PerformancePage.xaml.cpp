@@ -124,6 +124,7 @@ PerformancePage::PerformancePage() {
             for (std::size_t index = 0; index < gaming_toggles_.size(); ++index) {
                 auto& tweak = gaming_toggles_[index];
                 tweak.control = Controls::ToggleSwitch();
+                Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(tweak.control,tweak.title);
                 tweak.control.OnContent(box_value(L""));
                 tweak.control.OffContent(box_value(L""));
                 tweak.control.MinWidth(0);
@@ -158,6 +159,7 @@ PerformancePage::PerformancePage() {
                 FrameworkElement control{nullptr};
                 if (item.input == 0) {
                     auto toggle = Controls::ToggleSwitch();
+                    Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(item.name));
                     toggle.OnContent(box_value(L""));
                     toggle.OffContent(box_value(L""));
                     toggle.MinWidth(0);
@@ -197,7 +199,7 @@ PerformancePage::PerformancePage() {
                     auto nested=Controls::Expander();nested.Header(card);nested.HorizontalAlignment(HorizontalAlignment::Stretch);nested.HorizontalContentAlignment(HorizontalAlignment::Stretch);
                     auto child=std::ranges::find_if(winchisel::core::get_performance_catalog(),[&](auto const& candidate){return candidate.id==child_id;});
                     if(child!=winchisel::core::get_performance_catalog().end()){
-                        auto toggle=Controls::ToggleSwitch();toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle);child_card.Margin({24,8,0,0});nested.Content(child_card);
+                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle);child_card.Margin({24,8,0,0});nested.Content(child_card);
                     }
                     content.Children().Append(nested);
                 }
