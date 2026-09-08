@@ -18,18 +18,18 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **15 von 56 Auditpunkten behoben**, 41 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **23 von 56 Auditpunkten behoben**, 33 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
 - [x] **Block 3 – Exception/Handle/Event-Lifecycle:** AUD-010, AUD-017, AUD-018
 - [x] **Block 4 – Extras-Zustände/Rollback:** AUD-025, AUD-027, AUD-029
 - [x] **Block 5 – Sichere Systemaktionen:** AUD-028, AUD-040, AUD-041
-- [ ] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
+- [x] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
 - [ ] **Block 7 – Performance-Backend-Parität:** AUD-007, AUD-008, AUD-009
 - [ ] **Block 8 – i18n und Encoding:** AUD-003, AUD-048
 - [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
-- [ ] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
+- [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
 - [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030, AUD-036, AUD-037
 - [ ] **Block 12 – Prozesse:** AUD-032 bis AUD-035
 - [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-038, AUD-039, AUD-042
@@ -52,6 +52,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-001 – Updateprüfung ist nicht angebunden
 
 - Typ: **PARITÄT / BUG**
+- [x] Status: **BEHOBEN IN BLOCK 6 (2026-09-08)** – Startup-Check, Bestätigungsdialog, verifizierter Download und Übergabe an Setup/Portable-Updater sind angebunden.
 - Neu: `src/platform/src/update.cpp:97-107` implementiert Manifestprüfung und Download-Staging, hat aber außerhalb dieser Datei keine Aufrufer. `check_updates_on_startup` wird nur geladen/gespeichert (`src/app/SettingsPage.xaml.cpp:22,71`).
 - Alt: `src/updater.rs` und `src/app/update.rs` bilden Check, Available-/Download-/Install-/Error-Zustände, 30-s-Cooldown sowie MSI-/Portable-Pfade ab.
 - Folge: Der Schalter „Check updates on startup“ hat keine Wirkung; es gibt keinen manuellen Check, keinen Dialog, keinen Fortschritt und keinen Start des neuen Updaters.
@@ -61,6 +62,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-002 – Versionsvergleich und installierte/portable Auswahl fehlen
 
 - Typ: **PARITÄT**
+- [x] Status: **BEHOBEN IN BLOCK 6 (2026-09-08)** – SemVer-Vergleich und Artifact-Auswahl `setup-x64`/`portable-x64` anhand des vom Portable-Host vererbten Pfads sind implementiert.
 - Neu: `ReleaseManifest.version` wird gelesen, aber nirgends mit einer aktuellen Appversion verglichen. Ebenso existiert kein Aufrufer, der `portable-x64` oder Setup/MSI anhand des Installationsmodus auswählt.
 - Alt: Vergleich mit `CARGO_PKG_VERSION`; separater MSI- und Portable-Ablauf (`src/updater.rs`).
 - Folge: Selbst nach einfacher Anbindung würde jedes Release nur Metadaten liefern, ohne belastbare Entscheidung „neuer/gleich/älter“.
@@ -193,6 +195,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-019 – WinHTTP ohne explizite Timeouts, Größenlimit und robuste URL-Pufferung
 
 - Typ: **NETZWERK / DOS-RISIKO**
+- [x] Status: **BEHOBEN IN BLOCK 10 (2026-09-08)** – Connect/Send/Receive-Timeouts sowie 4-MiB-Metadaten- und signiertes Artifact-Größenlimit ergänzt.
 - Neu: `get_https()` setzt keine Connect/Send/Receive-Timeouts, liest Antwort unbegrenzt in RAM und nutzt feste Host-/Pfadpuffer (256/4096) (`src/platform/src/update.cpp:28-42`).
 - Folge: Updatecheck kann lange hängen; übergroße Antwort kann hohen Speicherverbrauch erzeugen; lange URL schlägt unnötig fehl.
 - Korrektur: Timeouts, maximale Manifest-/Artifactgröße vor/allokationsbegleitend, Redirect-/TLS-/Statusregeln und dynamische URL-Komponenten.
@@ -200,6 +203,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-020 – Downloads- und Debloater-Kommandos verwenden ANSI
 
 - Typ: **BUG / KOMPATIBILITÄT**
+- [x] Status: **BEHOBEN IN BLOCK 10 (2026-09-08)** – Downloads, Debloater, Performance und Latency verwenden durchgehend `CreateProcessW`.
 - Neu: `CreateProcessA` und `GetTempFileNameA` in `download.cpp`, `debloater.cpp`, `performance.cpp`, `latency.cpp`.
 - Folge: Nicht-ASCII-Pfade, Nutzerprofile, Paketnamen oder lokalisierte Ausgaben können falsch verarbeitet werden. Der Rest der App ist Unicode.
 - Korrektur: durchgehend `CreateProcessW`, UTF-16-Argumente und klar definierte Output-Decodierung (Console-Codepage/UTF-8).
@@ -207,6 +211,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-021 – `winget list` wird als unstrukturiertes Textformat geparst
 
 - Typ: **BUG / LOKALISIERUNG**
+- [x] Status: **BEHOBEN IN BLOCK 10 (2026-09-08)** – winget wird nicht mehr über sein lokalisiertes Tabellenformat ausgewertet; IDs kommen exakt aus Export-JSON, klassische Programme ergänzend aus der Registry.
 - Neu: Jede Ausgabezeile wird in ein Set gelegt und per Substring gegen Programmnamen geprüft (`src/platform/src/download.cpp:39-46,90-105`).
 - Folge: Tabellenkopf, abgeschnittene Spalten, lokalisierte Ausgabe und ähnliche Namen erzeugen False Positives/Negatives.
 - Korrektur: primär `winget export`-IDs plus Registry-Metadaten strukturiert auswerten; unstrukturiertes CLI-Tabellenformat nicht als Daten-API verwenden.
@@ -214,18 +219,21 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-022 – Download-Scan meldet Quellfehler nicht
 
 - Typ: **BUG**
+- [x] Status: **BEHOBEN IN BLOCK 10 (2026-09-08)** – Start-/Exitfehler des strukturierten winget-Exports werden an die vorhandene UI-Fehleranzeige propagiert.
 - Neu: Fehlgeschlagener winget-export/list oder Registryzugriff wird in ein leeres Set umgewandelt; `scan_downloads_installed()` liefert immer Erfolg.
 - Folge: Die vorhandene UI-Fehleranzeige ist weitgehend unerreichbar und Programme erscheinen als nicht installiert.
 
 ### AUD-023 – App-Installationen laufen strikt seriell und ohne Einzelfehlerdetails
 
 - Typ: **PARITÄT / UX**
+- [x] Status: **BEHOBEN IN BLOCK 10 (2026-09-08)** – Fehler enthalten Paketname und Exit-/Startursache. Serielle Installation bleibt bewusst bestehen, da parallele winget-Installationen am gemeinsamen Package-Manager konkurrieren können.
 - Neu: `install_downloads()` installiert nacheinander und liefert nur Zähler (`src/platform/src/download.cpp:108-117`). Output/Exitcode pro Paket geht verloren.
 - Folge: Nutzer kann fehlgeschlagenes Paket und Ursache nicht erkennen oder gezielt wiederholen.
 
 ### AUD-024 – Website-Aktion prüft URL und ShellExecute-Ergebnis nicht
 
 - Typ: **BUG / SECURITY-HARDENING**
+- [x] Status: **BEHOBEN IN BLOCK 10 (2026-09-08)** – Nur HTTPS wird geöffnet; ShellExecute-Fehler erscheinen in der InfoBar.
 - Neu: Katalog-URL wird direkt an `ShellExecuteW` übergeben; Resultat wird ignoriert (`src/app/DownloadsPage.xaml.cpp:51`).
 - Korrektur: nur `https` erlauben, Katalog beim Build validieren, Rückgabewert prüfen und Fehler anzeigen.
 

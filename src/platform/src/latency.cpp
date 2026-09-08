@@ -152,21 +152,21 @@ std::optional<std::pair<std::size_t, int>> trace_chain(std::string current,
     return std::nullopt;
 }
 
-std::string run_command(char const* command) {
+std::string run_command(wchar_t const* command) {
     SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     HANDLE read_handle{}, write_handle{};
     if (!CreatePipe(&read_handle, &write_handle, &security, 0)) return {};
     SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOA startup{};
+    STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     startup.wShowWindow = SW_HIDE;
     startup.hStdOutput = write_handle;
     startup.hStdError = write_handle;
     PROCESS_INFORMATION process{};
-    std::string mutable_command(command);
-    const BOOL started = CreateProcessA(nullptr, mutable_command.data(), nullptr, nullptr, TRUE,
+    std::wstring mutable_command(command);
+    const BOOL started = CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, TRUE,
         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
     CloseHandle(write_handle);
     if (!started) { CloseHandle(read_handle); return {}; }
@@ -192,7 +192,7 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
 }
 
 std::optional<bool> system_suspend() {
-    auto text = run_command("powercfg /query SCHEME_CURRENT SUB_USB USBSELECTIVESUSPEND");
+    auto text = run_command(L"powercfg /query SCHEME_CURRENT SUB_USB USBSELECTIVESUSPEND");
     constexpr std::string_view marker = "Current AC Power Setting Index:"; const auto pos = text.find(marker); if (pos == std::string::npos) return std::nullopt;
     auto value = text.substr(pos + marker.size()); std::istringstream stream(value); stream >> value; try { return std::stoul(value, nullptr, 16) == 1; } catch (...) { return std::nullopt; }
 }

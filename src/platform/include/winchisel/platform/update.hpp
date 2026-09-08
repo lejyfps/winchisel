@@ -36,6 +36,13 @@ winchisel::core::Result<ReleaseManifest> check_github_latest_release();
 winchisel::core::Result<std::filesystem::path> stage_release_artifact(
     ReleaseManifest const& manifest, std::string_view artifact_id);
 
+std::string current_app_version();
+bool is_newer_version(std::string_view candidate, std::string_view current);
+bool is_portable_install();
+std::string_view update_artifact_id();
+winchisel::core::Result<void> launch_staged_update(
+    std::filesystem::path const& staged, ReleaseArtifact const& artifact);
+
 inline constexpr std::string_view k_github_latest_release_api =
     "https://api.github.com/repos/lejyfps/winchisel/releases/latest";
 
