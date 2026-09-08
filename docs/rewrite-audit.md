@@ -443,7 +443,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-051 – Generierte Kataloge haben keinen nachvollziehbaren Generator im Repository
 
 - Typ: **REPRODUZIERBARKEIT**
-- Zwischenstand (2026-09-08): `tools/validate_catalogs.ps1` prüft jetzt deklarierte Counts gegen tatsächliche Einträge, eindeutige IDs, HTTPS-URLs und das Vorhandensein der Latency-Datenbank. Ein echter Generator aus einer kanonischen Quelldatei fehlt weiterhin; der Punkt bleibt deshalb offen.
+- Zwischenstand (2026-09-08): Das native C++-Tool `tools/validate_catalogs.cpp` prüft im Releaseprozess deklarierte Counts gegen tatsächliche Einträge, eindeutige IDs, HTTPS-URLs und das Vorhandensein der Latency-Datenbank. Ein echter Generator aus einer kanonischen Quelldatei fehlt weiterhin; der Punkt bleibt deshalb offen.
 - Neu: `*_catalog.generated.hpp` und `latency_database.generated.hpp` sind eingecheckt, aber kein Generator/Mappingtest ist vorhanden.
 - Folge: Änderungen am Rust-Referenzkatalog können nicht reproduzierbar neu erzeugt oder auf Verlust geprüft werden.
 - Korrektur: Generator plus Golden-Dateien/Counts/ID-Uniqueness/Backend-Coverage einchecken.
