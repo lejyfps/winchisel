@@ -111,7 +111,10 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_vie
 }
 
 winchisel::core::Result<ReleaseManifest> check_github_latest_release() {
-    auto release=get_https(k_github_latest_release_api); if(!release)return std::unexpected(release.error()); auto manifest_url=asset_url(*release,"release.json"), signature_url=asset_url(*release,"release.json.sig"); if(!manifest_url||!signature_url)return fail("Release is missing manifest assets"); auto manifest=get_https(*manifest_url), signature=get_https(*signature_url); if(!manifest)return std::unexpected(manifest.error()); if(!signature)return std::unexpected(signature.error()); return verify_release_manifest(*manifest,*signature);
+    auto release=get_https(k_github_latest_release_api); if(!release)return std::unexpected(release.error());
+    static const std::regex tag(R"json("tag_name"\s*:\s*"v([0-9]+\.[0-9]+\.[0-9]+)")json"); std::smatch match;
+    if(std::regex_search(*release,match,tag)&&!is_newer_version(match[1].str(),current_app_version()))return ReleaseManifest{.version=match[1].str()};
+    auto manifest_url=asset_url(*release,"release.json"), signature_url=asset_url(*release,"release.json.sig"); if(!manifest_url||!signature_url)return fail("Release is missing manifest assets"); auto manifest=get_https(*manifest_url), signature=get_https(*signature_url); if(!manifest)return std::unexpected(manifest.error()); if(!signature)return std::unexpected(signature.error()); return verify_release_manifest(*manifest,*signature);
 }
 
 winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseManifest const& manifest, std::string_view artifact_id) {

@@ -165,7 +165,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     co_await ui_thread;
     if (!manifest) {
         update_check_running_ = false; UpdateButton().IsEnabled(true);
-        if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update check failed", L"The latest release could not be checked.");
+        if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update check failed", L"The latest release could not be checked: " + to_hstring(manifest.error().detail));
         co_return;
     }
     if (!winchisel::platform::is_newer_version(manifest->version, winchisel::platform::current_app_version())) {
