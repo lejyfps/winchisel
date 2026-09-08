@@ -71,10 +71,10 @@ MainWindow::MainWindow() {
     apply_theme();
     auto app_window = app_window_from(*this);
     AppTitleText().Text(L"Winchisel - v" + to_hstring(winchisel::platform::current_app_version()));
-    const auto icon = asset_path(L"icon.ico");
+    const auto icon = asset_path(L"logo.ico");
     app_window.SetIcon(icon.c_str());
     app_window.SetTaskbarIcon(icon.c_str());
-    auto logo = asset_path(L"icon.png").generic_wstring();
+    auto logo = asset_path(L"logo.png").generic_wstring();
     Media::Imaging::BitmapImage logo_image;
     logo_image.UriSource(Windows::Foundation::Uri(L"file:///" + logo));
     AppTitleBarIcon().Source(logo_image);

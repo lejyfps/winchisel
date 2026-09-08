@@ -289,7 +289,7 @@
                                 <ColumnDefinition Width="48" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Image Source="ms-appx:///assets/icon.png" Width="40" Height="40" VerticalAlignment="Top" />
+                            <Image Source="ms-appx:///assets/logo.png" Width="40" Height="40" VerticalAlignment="Top" />
                             <StackPanel Grid.Column="1" Spacing="4">
                                 <TextBlock Text="Winchisel" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock x:Name="AboutVersion" Style="{StaticResource CaptionTextBlockStyle}" />
