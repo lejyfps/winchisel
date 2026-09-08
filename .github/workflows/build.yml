@@ -17,10 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install packaging tools
-        shell: cmd
-        run: choco install innosetup 7zip -y --no-progress
-
       - name: Build unsigned production package
         shell: cmd
         run: |
