@@ -1,93 +1,72 @@
-# Winchisel – Zielarchitektur (WinUI 3 / C++/WinRT)
+# Winchisel architecture
 
-Stand: Rewrite, funktional identisch zum Rust-Ist-Stand (0.1.8).
+Winchisel is an unpackaged, native Windows 11 application. Its UI uses WinUI 3 with C++/WinRT; the application deliberately relies on Windows APIs and native tools rather than a cross-platform runtime.
 
-## Compiler und Sprache
+## Technology
 
-| Entscheidung | Wert |
-|---|---|
-| Sprache | C++23 |
-| Compiler | MSVC (VS 2026, Toolset v145 / 14.44+) |
-| Flags | `/std:c++latest`, `/permissive-`, `/W4`, `/EHsc`, `/utf-8` |
-| WinRT | C++/WinRT (`Microsoft.Windows.CppWinRT`) |
-| UI | WinUI 3 über Windows App SDK **1.8** (`Microsoft.WindowsAppSDK`) |
-| Architektur | x64 zuerst; ARM64 später, gleiche Quellen |
+| Area | Choice |
+| --- | --- |
+| Language | Modern C++ |
+| UI | WinUI 3 and C++/WinRT |
+| Build | MSBuild, Visual Studio, and NuGet |
+| Target | Windows 11 build 26100+ on x64 |
+| Packaging | Inno Setup installer and a portable executable |
+| Update validation | ECDSA P-256 signed manifest plus SHA-256 artifact checks |
 
-## Build-System
+## Layers
 
-CMake 3.28+ ist das **Quell-of-Truth** für Core/Application/Platform (statische Libs, Tests).
-Die WinUI-Schicht ist ein **VCXPROJ** (MSBuild), weil der XAML/MIDL-Compiler und NuGet-Targets des Windows App SDK dort zuverlässig sind.
+Dependencies point downward only:
 
-- Generator: Visual Studio 18 2026 / MSBuild
-- Presets: `windows-x64-debug`, `windows-x64-release`
-- NuGet: PackageReference, Restore beim Build
-- Deploy: **unpackaged** (`WindowsPackageType=None`), Bootstrap des Framework-Pakets zur Laufzeit
-
-Unpackaged, nicht MSIX: die App muss elevated laufen. MSIX und `runas` vertragen sich schlecht; das entspricht dem heutigen EXE/MSI-Modell.
-
-## Schichten
-
-Abhängigkeiten nur nach unten. Keine umgekehrten Includes.
-
-```
-┌─────────────────────────────────────┐
-│  UI  (Winchisel.App)                │  WinUI 3, XAML, Pages, Dialoge, Toasts
-│  kennt: Application + Core-Typen    │
-└─────────────────┬───────────────────┘
-                  │
-┌─────────────────▼───────────────────┐
-│  Application                        │  Use-Cases, Navigation, Worker-Orchestrierung,
-│  kennt: Core + Platform-Interfaces  │  Settings-Debounce, Update-Flow
-└────────────┬────────────┬───────────┘
-             │            │
-┌────────────▼──────┐  ┌──▼──────────────────────────┐
-│  Core             │  │  Platform                   │
-│  keine WinUI,     │  │  Registry, Prozesse, netsh, │
-│  keine HWND       │  │  winget, DISM, WMI, Datei-I/O│
-│  Kataloge, Models,│  │  implementiert Ports        │
-│  i18n-Keys, JSON  │  └─────────────────────────────┘
-└───────────────────┘
+```text
+Winchisel.App          WinUI 3 pages, dialogs, window chrome, and presentation state
+        |
+Winchisel.Application  Feature workflows, navigation, settings coordination, and jobs
+        |
+Winchisel.Core         Data models, catalogs, settings schema, and pure logic
+        |
+Winchisel.Platform     Win32, registry, WMI, processes, command execution, and file I/O
 ```
 
-- **Core** kompiliert ohne Windows-UI-Header. Darf `windows.h` nicht brauchen (reine Daten + Algorithmen). JSON-Schema von `settings.json` lebt hier.
-- **Platform** kapselt alle Win32/COM/PowerShell-Aufrufe hinter schmalen Interfaces, die Application nutzt.
-- **Application** kennt keine XAML-Typen (`Microsoft.UI.Xaml.*` verboten).
-- **UI** enthält kein Registry-/Prozess-I/O.
+`Winchisel.Core` must remain independent of WinUI types. `Winchisel.Platform` owns operating-system access. UI pages initiate work and render results; they must not directly perform registry, process, or command-line I/O.
 
-## Fehlerbehandlung und Logging
+## State and background work
 
-- Core/Application: `std::expected<T, Error>` mit `Error { code, message_key, detail }`.
-- Platform: Win32/`HRESULT` → `Error`. Keine Exceptions über Schichtgrenzen, außer C++/WinRT an der UI-Grenze (`winrt::hresult_error` fangen und in Toast/Dialog übersetzen).
-- Logging: `OutputDebugStringW` + rotierende Datei unter `%APPDATA%\Winchisel\logs\` (eine Datei, max. klein). Kein Framework.
-- Ungültige `settings.json` → Defaults, kein Toast (Ist-Verhalten).
+- Persistent user settings are stored in `%APPDATA%\Winchisel\settings.json`.
+- System tweak state remains in Windows itself, primarily the registry, services, scheduled tasks, and command-line tools.
+- Page-only state such as search text, selection, expansion, and loading is kept in the respective page for the current session.
+- Long-running scans and system operations run away from the UI thread and marshal completed results back through the DispatcherQueue.
+- A feature prevents duplicate concurrent jobs while it is already loading or applying a change.
 
-## Datenmodell und Zustand
+This keeps the interface responsive without continuously polling on the UI thread.
 
-| Zustand | Ort | Lebensdauer |
-|---|---|---|
-| `settings.json` | Core-Modell, Platform I/O, Application Debounce 600 ms | Disk |
-| Tweak-Kataloge | Core, Compile-Time (wie Rust) | Binary |
-| Tweak-Ist-Werte | Windows-Registry via Platform | OS |
-| UI-Ephemeral (Suche, Expand, Selection) | jeweilige Page | Sitzung |
-| Download-Scan-Cache | Application, 600 s | Sitzung |
-| Autostart | HKCU Run, abgeglichen beim Start | OS |
+## Error handling
 
-Kein eigenes DB-Format. Kein stilles Umschreiben von Registry-Tweaks beim Start.
+Platform code translates Win32 and process errors into clear feature-level results. The UI reports actionable failures in an InfoBar, toast, or dialog instead of hiding command output. Expected operating-system differences, such as an unavailable optional Windows component, are represented as state rather than treated as an application crash.
 
-## Threading und Async
+## Updates
 
-- UI-Thread nur UI. DispatcherQueue für Marshal zurück.
-- I/O und Scans: `winrt::resume_background` / Threadpool, Completion per Event/Callback — **kein 50-ms-Polling**.
-- Lange Jobs (Repair, Latency, Restore, Downloads, Debloat-Scan): ein Job zur Zeit pro Feature; Button disable wie im Ist.
-- Settings-Save: 600 ms Debounce auf dem UI-Thread, Write im Background.
+The update service reads the latest GitHub release only as a discovery source. Before an update is accepted, Winchisel verifies all of the following:
 
-## Performance-Ziele (erste Baseline, messen nach Minimalfenster)
+1. `release.json` has a valid ECDSA P-256 signature for the public key embedded in the application.
+2. The offered version is newer than the running version.
+3. The selected artifact matches the manifest's exact byte size and SHA-256 hash.
 
-| Metrik | Ziel (x64 Release, 24H2) |
-|---|---|
-| Zeit bis erstes Fenster (nach UAC) | ≤ 1,5 s auf Referenz-Desktop |
-| Idle CPU nach Home-Load | ≈ 0 % (kein Polling) |
-| Home-Refresh | 5 s, Arbeit off-UI |
-| Arbeitsspeicher idle | unter dem Rust-Ist, nicht darüber |
+Installer builds delegate installation to the installer. Portable builds use the updater helper, which waits for the app to close, verifies the replacement, and retains a backup for recovery.
 
-Hot Paths: keine unnötigen Kopien, `std::span`/`string_view`, Move, UI-Updates gebündelt.
+## Project layout
+
+```text
+src/app/          WinUI 3 application, pages, resources, and window chrome
+src/application/  Application workflows and feature coordination
+src/core/         Models, catalogs, localization keys, and pure logic
+src/platform/     Windows API and system-integration implementations
+src/updater/      Portable update helper
+assets/           Application and installer visual assets
+installer/        Inno Setup installer definition
+tools/            Tests, release packaging, signing, and validation tools
+docs/             Public project documentation
+```
+
+## Contribution guidelines
+
+Keep new system access in `Platform`, retain existing cancellation and loading states, and make failures visible to the user. Changes to catalogs or update formats should include a matching validation or test update. Avoid introducing new dependencies when the Windows API or the C++ standard library already provides the needed capability.

@@ -18,7 +18,7 @@
             <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="2">
                 <Button x:Name="UpdateButton" Click="Update_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12" Background="Transparent"
                         ToolTipService.ToolTip="Check for updates" AutomationProperties.Name="Check for updates">
-                    <SymbolIcon Symbol="Sync" FontSize="10" />
+                    <Viewbox Width="10" Height="10"><SymbolIcon Symbol="Sync" /></Viewbox>
                 </Button>
                 <Button Click="BugReport_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12"
                         Background="Transparent" Foreground="#E81123"
@@ -29,11 +29,11 @@
                         <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#E81123" />
                         <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#E81123" />
                     </Button.Resources>
-                    <SymbolIcon Symbol="ReportHacked" FontSize="10" />
+                    <Viewbox Width="10" Height="10"><SymbolIcon Symbol="ReportHacked" /></Viewbox>
                 </Button>
                 <Button Click="Donate_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12" Background="Transparent"
                         ToolTipService.ToolTip="Donate" AutomationProperties.Name="Donate">
-                    <SymbolIcon Symbol="Like" FontSize="10" />
+                    <Viewbox Width="10" Height="10"><SymbolIcon Symbol="Like" /></Viewbox>
                 </Button>
             </StackPanel>
         </Grid>
