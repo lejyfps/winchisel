@@ -42,6 +42,7 @@ private:
     void load_privacy_selections();
     void save_privacy_selections();
     void apply_profile(bool recommended);
+    void show_write_error(std::string const& detail = {});
 
     std::vector<SecurityToggle> security_toggles_;
     std::vector<PrivacyToggle> privacy_toggles_;

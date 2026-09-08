@@ -8,6 +8,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <StackPanel>
             <TextBlock Text="Performance" Style="{StaticResource TitleTextBlockStyle}" />
@@ -29,5 +30,6 @@
                 <StackPanel x:Name="Groups" Spacing="8" />
             </Grid>
         </ScrollViewer>
+        <InfoBar x:Name="ResultBar" Grid.Row="3" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />
     </Grid>
 </UserControl>

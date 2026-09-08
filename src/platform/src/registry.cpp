@@ -1,4 +1,5 @@
 #include "winchisel/platform/registry.hpp"
+#include "winchisel/platform/system.hpp"
 
 #include <windows.h>
 
@@ -46,6 +47,7 @@ std::string to_utf8(std::wstring const& text) {
 }
 
 Error registry_error(std::string detail) {
+    boot_log(("registry operation failed: " + detail).c_str());
     return {
         .code = ErrorCode::platform,
         .message_key = "registry_operation_failed",

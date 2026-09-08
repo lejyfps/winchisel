@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "PerformancePage.xaml.h"
+#include "winchisel/platform/system.hpp"
 
 #if __has_include("PerformancePage.g.cpp")
 #include "PerformancePage.g.cpp"
@@ -17,6 +18,7 @@ using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 
 namespace winrt::Winchisel::implementation {
+void PerformancePage::show_write_error(std::string const& detail){auto message=detail.empty()?"A Windows setting could not be changed. See %APPDATA%\\Winchisel\\logs\\winchisel.log for details.":detail;ResultBar().Title(L"Could not apply setting");ResultBar().Message(to_hstring(message));ResultBar().Severity(Controls::InfoBarSeverity::Error);ResultBar().IsOpen(true);winchisel::platform::boot_log(("performance UI: "+message).c_str());}
 namespace {
 
 using Hive = winchisel::core::RegistryHive;
@@ -133,6 +135,7 @@ PerformancePage::PerformancePage() {
                 content.Children().Append(setting_card(tweak.title, tweak.description, tweak.control));
             }
             mouse_hover_time_ = Controls::ComboBox();
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(mouse_hover_time_,L"Mouse Hover Time");
             for (auto const& option : {L"1ms (Instant)", L"10ms (Very Fast)", L"50ms (Fast)", L"100ms (Moderate)", L"200ms", L"400ms (Default)"}) {
                 auto item = Controls::ComboBoxItem();
                 item.Content(box_value(option));
@@ -141,6 +144,7 @@ PerformancePage::PerformancePage() {
             mouse_hover_time_.SelectionChanged([this](auto&&, auto&&) { save_mouse_hover_time(); });
             content.Children().Append(setting_card(L"Mouse Hover Time", L"Sets how long the pointer must hover before Windows responds.", mouse_hover_time_));
             background_apps_ = Controls::ComboBox();
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(background_apps_,L"Let Apps Run in Background");
             for (auto const& option : {L"User in Control (Default)", L"Force Allow", L"Force Deny"}) {
                 auto item = Controls::ComboBoxItem();
                 item.Content(box_value(option));
@@ -172,6 +176,7 @@ PerformancePage::PerformancePage() {
                     control = toggle;
                 } else {
                     auto combo = Controls::ComboBox();
+                    Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(combo,to_hstring(item.name));
                     std::vector<std::string> options;
                     std::size_t start{};
                     while (start <= item.options.size()) {
@@ -260,7 +265,7 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
     }
     const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;});
     if(!has_registry&&!winchisel::platform::write_scheduled_task(item.id,enabled))ok=false;
-    if (!ok) load_catalog_toggles();
+    if (!ok) {show_write_error();load_catalog_toggles();}
 }
 
 void PerformancePage::load_catalog_selections() {
@@ -287,13 +292,13 @@ void PerformancePage::load_catalog_selections() {
 
 void PerformancePage::save_catalog_selection(std::size_t index) {
     if(loading_gaming_selections_||index>=catalog_selections_.size())return;auto const& item=catalog_selections_[index];auto selected=item.control.SelectedIndex();if(selected<0)return;Target destination;std::uint32_t value{};
-    if(item.id=="gaming-dns-server"){if(!winchisel::platform::write_dns_profile(selected))load_catalog_selections();return;}
+    if(item.id=="gaming-dns-server"){auto result=winchisel::platform::write_dns_profile(selected);if(!result){show_write_error(result.error().detail);load_catalog_selections();}return;}
     if(item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
     else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))return;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
     else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
     else if(auto service=service_name(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
     else return;
-    if(!winchisel::platform::write_registry_value(destination,Value{value}))load_catalog_selections();
+    if(auto result=winchisel::platform::write_registry_value(destination,Value{value});!result){show_write_error(result.error().detail);load_catalog_selections();}
 }
 
 void PerformancePage::load_gaming_toggles() {
@@ -322,6 +327,7 @@ void PerformancePage::save_gaming_toggle(std::size_t index) {
     const auto& values = tweak.control.IsOn() ? tweak.enabled_values : tweak.disabled_values;
     for (std::size_t target_index = 0; target_index < tweak.targets.size(); ++target_index) {
         if (!winchisel::platform::write_registry_value(tweak.targets[target_index], values[target_index])) {
+            show_write_error();
             load_gaming_toggles();
             return;
         }
@@ -403,6 +409,7 @@ void PerformancePage::save_mouse_hover_time() {
     if (index < 0 || index >= static_cast<std::int32_t>(values.size()) ||
         !winchisel::platform::write_registry_value(
             target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string), std::string(values[index]))) {
+        show_write_error();
         load_gaming_selections();
     }
 }
@@ -414,6 +421,7 @@ void PerformancePage::save_background_apps() {
     const auto user = target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
     const auto machine = target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
     if (!winchisel::platform::write_registry_value(user, value) || !winchisel::platform::write_registry_value(machine, value)) {
+        show_write_error();
         load_gaming_selections();
     }
 }

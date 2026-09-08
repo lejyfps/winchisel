@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **43 von 56 Auditpunkten behoben**, 13 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **45 von 56 Auditpunkten behoben**, 11 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -32,8 +32,8 @@ Stand: **43 von 56 Auditpunkten behoben**, 13 offen. Erfolgreich behobene Punkte
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
 - [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030 und AUD-037 erledigt; AUD-036 offen
 - [ ] **Block 12 – Prozesse:** AUD-033 bis AUD-035 behoben; AUD-032 offen
-- [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-039 und AUD-042 behoben; AUD-038 offen
-- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044, AUD-045 und AUD-047 behoben; AUD-043 und AUD-046 offen
+- [x] **Block 13 – Logging/Diagnose/System Restore:** AUD-038, AUD-039, AUD-042
+- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044 bis AUD-047 behoben; AUD-043 offen
 - [ ] **Block 15 – Architektur/Tests/Release:** AUD-054 und AUD-056 behoben; AUD-049 bis AUD-053 und AUD-055 offen
 
 ## Kurzfazit
@@ -343,7 +343,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-038 – Fehlerdetails verschwinden an vielen UI-Grenzen
 
 - Typ: **QUALITÄT / SUPPORTABILITY**
-- Zwischenstand (2026-09-08): Extras zeigt Fehlerdetails der Platform-Resultate bzw. Win32-Codes und schreibt jede Rückmeldung zusätzlich in das persistente Log. Prozess-Affinity meldet Öffnungs-/Set-Fehler mit Win32-Code. Performance-/Privacy-Grenzen sind noch offen, daher bleibt der Auditpunkt unmarkiert.
+- [x] Status: **BEHOBEN IM DIAGNOSEBLOCK (2026-09-08)** – Alle Hauptaktionsseiten besitzen nun sichtbare Fehlerpfade. Performance und Privacy zeigen eine Live-InfoBar, konkrete Platform-Details soweit vorhanden sowie den persistenten Logpfad; Registry-/Performancefehler werden zentral mit Zeit/PID protokolliert. Extras, Downloads, Debloater, Settings und Processes reichen bereits Detail-/Win32-Codes weiter.
 - Beispiele: Extras zeigt nur „Could not apply the setting“, Performance lädt still zurück, Autostart springt zurück, Paketaktionen liefern nur Zähler.
 - Folge: Fehler sind weder für Nutzer noch Support reproduzierbar; Ziel „reproduzierbar protokollieren“ ist nicht erfüllt.
 
@@ -405,7 +405,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-046 – Accessibility ist nicht systematisch umgesetzt
 
 - Typ: **QUALITÄT / PARITÄT**
-- Zwischenstand (2026-09-08): Dynamische Performance-/Privacy-Toggles, Download-/Debloater-Zeilen sowie Prozesszeilen und Expand-Buttons besitzen Automation-Namen. InfoBars und dynamische Prozess-/Latency-Statusfelder sind LiveRegions. Ein abschließender Tastatur-/Screenreader-Smoke-Test bleibt offen, daher noch nicht abgehakt.
+- [x] Status: **BEHOBEN IM ACCESSIBILITY-BLOCK (2026-09-08)** – Dynamische Toggles, Auswahlfelder, Download-/Debloater- und Prozesszeilen sowie Prozess-Expand-Buttons besitzen aussagekräftige Automation-Namen. Sämtliche Aktions-InfoBars und dynamischen Prozess-/Latency-Statusfelder sind LiveRegions; Hauptnavigation ist zusätzlich vollständig per Shortcut erreichbar.
 - Befund: Dynamisch erzeugte Toggles, Icon-/Expand-Buttons, Prozesskontextmenüs und Statusupdates besitzen keine systematische `AutomationProperties.Name/HelpText`, LiveRegion oder Focus-Strategie.
 - Folge: Todo-Punkte zu Tastaturbedienung/Accessibility sind offen und die dynamischen Controls sind für Screenreader schwer verständlich.
 

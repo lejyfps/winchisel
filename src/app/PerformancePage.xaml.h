@@ -55,6 +55,7 @@ private:
     void save_catalog_toggle(std::size_t index);
     void load_catalog_selections();
     void save_catalog_selection(std::size_t index);
+    void show_write_error(std::string const& detail = {});
 
     bool loading_gaming_toggles_{true};
     bool loading_gaming_selections_{true};
