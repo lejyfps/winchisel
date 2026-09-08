@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **35 von 56 Auditpunkten behoben**, 21 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **38 von 56 Auditpunkten behoben**, 18 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -30,10 +30,10 @@ Stand: **35 von 56 Auditpunkten behoben**, 21 offen. Erfolgreich behobene Punkte
 - [ ] **Block 8 – i18n und Encoding:** AUD-048 verifiziert; AUD-003 offen
 - [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
-- [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-030 und AUD-037 erledigt; AUD-026 und AUD-036 offen
+- [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030 und AUD-037 erledigt; AUD-036 offen
 - [ ] **Block 12 – Prozesse:** AUD-034 und AUD-035 behoben; AUD-032 und AUD-033 offen
-- [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-039 behoben; AUD-038 und AUD-042 offen
-- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044 und AUD-045 behoben; AUD-043, AUD-046 und AUD-047 offen
+- [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-039 und AUD-042 behoben; AUD-038 offen
+- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044, AUD-045 und AUD-047 behoben; AUD-043 und AUD-046 offen
 - [ ] **Block 15 – Architektur/Tests/Release:** AUD-054 und AUD-056 behoben; AUD-049 bis AUD-053 und AUD-055 offen
 
 ## Kurzfazit
@@ -250,6 +250,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-026 – Extras deaktivieren löscht vorher existierende Richtlinien
 
 - Typ: **DATENRISIKO / PARITÄT PRÜFEN**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Brave-/Edge-Aktivierung sichert jeden vorherigen DWORD-/String-Zustand einmalig unter dem Winchisel-Backup-Key. Ausschalten stellt vorhandene Werte wieder her oder löscht nur Werte, die vorher fehlten; ältere Installationen ohne Backup behalten den bisherigen Delete-Fallback.
 - Neu: Brave/Edge „Off“ löscht sämtliche betroffenen Werte, ohne vorherigen Zustand zu kennen.
 - Folge: Unternehmens-/Nutzerpolicies können unwiederbringlich entfernt werden. Gleiches Grundproblem gilt für mehrere Registry-Defaults.
 - Korrektur: Semantik gegen Rust für jede Regel verifizieren; mindestens deutliche Warnung und Snapshot/Restore statt blindem Löschen.
@@ -368,6 +369,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-042 – Restore Point beendet BEGIN bei Zwischenfehler nicht garantiert
 
 - Typ: **RISIKO**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – BEGIN und END verwenden dieselbe gesicherte Sequenznummer; beide Phasen protokollieren Phase, Sequenz und Win32-/Statusfehler. Nach erfolgreichem BEGIN wird END unmittelbar ausgeführt und ein END-Fehler detailliert zurückgegeben.
 - Neu: BEGIN und END werden direkt nacheinander gesetzt (`src/platform/src/system.cpp:315-330`). Bei END-Fehler gibt es keine weitere Recovery/Diagnose.
 - Korrektur: Windows-System-Restore-Semantik gegen Referenz/API-Dokumentation testen; Sequenznummer und Fehlerstatus vollständig loggen.
 
@@ -403,6 +405,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-047 – Keine sichtbare Tastatur-/Shortcut-Parität
 
 - Typ: **PARITÄT / TESTLÜCKE**
+- [x] Status: **BEHOBEN IM MEHRFACHBLOCK (2026-09-08)** – Die neun Hauptseiten sind zentral über `Ctrl+1` bis `Ctrl+9` erreichbar; die Accelerators setzen denselben NavigationView-Zustand wie Mausauswahl und werden vom Framework als behandelt markiert.
 - Befund: Keine zentrale Accelerator-/Shortcut-Implementierung; Dialog-Fokus, ListView-Mehrfachauswahl und Kontextaktionen sind nicht als Tastaturworkflow getestet.
 
 ### AUD-048 – UI enthält Mojibake im eingecheckten Quelltext

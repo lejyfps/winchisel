@@ -64,6 +64,19 @@ MainWindow::MainWindow() {
     }
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
+        const auto weak = get_weak();
+        for (std::uint32_t index = 0; index < items.Size() && index < 9; ++index) {
+            Input::KeyboardAccelerator accelerator;
+            accelerator.Modifiers(Windows::System::VirtualKeyModifiers::Control);
+            accelerator.Key(static_cast<Windows::System::VirtualKey>(static_cast<int>(Windows::System::VirtualKey::Number1) + index));
+            accelerator.Invoked([weak, index](auto const&, Input::KeyboardAcceleratorInvokedEventArgs const& args) {
+                if (auto self = weak.get(); self && index < self->Nav().MenuItems().Size()) {
+                    self->Nav().SelectedItem(self->Nav().MenuItems().GetAt(index));
+                    args.Handled(true);
+                }
+            });
+            Nav().KeyboardAccelerators().Append(accelerator);
+        }
     }
     if (ContentFrame().Content() == nullptr) {
         auto home = make<HomePage>(); pages_.emplace(L"home", home); ContentFrame().Content(home);
@@ -82,10 +95,14 @@ void MainWindow::Nav_SelectionChanged(
     const std::wstring key(tag.c_str());
     if (const auto existing = pages_.find(key); existing != pages_.end()) { ContentFrame().Content(existing->second); return; }
     FrameworkElement page{nullptr};
-    if (tag == L"home") page = make<HomePage>(); else if (tag == L"debloater") page = make<DebloaterPage>();
-    else if (tag == L"performance") page = make<PerformancePage>(); else if (tag == L"privacy_security") page = make<PrivacyPage>();
-    else if (tag == L"downloads") page = make<DownloadsPage>(); else if (tag == L"processes") page = make<ProcessesPage>();
-    else if (tag == L"latency") page = make<LatencyPage>(); else if (tag == L"extras") page = make<ExtrasPage>();
+    if (tag == L"home") page = make<HomePage>();
+    else if (tag == L"debloater") page = make<DebloaterPage>();
+    else if (tag == L"performance") page = make<PerformancePage>();
+    else if (tag == L"privacy_security") page = make<PrivacyPage>();
+    else if (tag == L"downloads") page = make<DownloadsPage>();
+    else if (tag == L"processes") page = make<ProcessesPage>();
+    else if (tag == L"latency") page = make<LatencyPage>();
+    else if (tag == L"extras") page = make<ExtrasPage>();
     else if (tag == L"settings") page = make<SettingsPage>();
     if (page) { pages_.emplace(key, page); ContentFrame().Content(page); }
 }

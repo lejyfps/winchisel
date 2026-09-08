@@ -335,13 +335,21 @@ winchisel::core::Result<void> create_restore_point() {
     wcsncpy_s(point.szDescription, L"Winchisel Restore Point", _TRUNCATE);
     STATEMGRSTATUS status{};
     if (!SRSetRestorePointW(&point, &status) || status.nStatus != ERROR_SUCCESS) {
-        return fail("restore_point_failed", std::to_string(status.nStatus ? status.nStatus : GetLastError()));
+        const auto error = status.nStatus ? status.nStatus : GetLastError();
+        boot_log(("restore-point BEGIN failed error=" + std::to_string(error)).c_str());
+        return fail("restore_point_failed", "BEGIN error=" + std::to_string(error));
     }
+    const auto sequence = status.llSequenceNumber;
+    boot_log(("restore-point BEGIN sequence=" + std::to_string(sequence)).c_str());
     point.dwEventType = END_SYSTEM_CHANGE;
-    point.llSequenceNumber = status.llSequenceNumber;
+    point.llSequenceNumber = sequence;
+    status = {};
     if (!SRSetRestorePointW(&point, &status) || status.nStatus != ERROR_SUCCESS) {
-        return fail("restore_point_failed", std::to_string(status.nStatus ? status.nStatus : GetLastError()));
+        const auto error = status.nStatus ? status.nStatus : GetLastError();
+        boot_log(("restore-point END failed sequence=" + std::to_string(sequence) + " error=" + std::to_string(error)).c_str());
+        return fail("restore_point_failed", "END sequence=" + std::to_string(sequence) + " error=" + std::to_string(error));
     }
+    boot_log(("restore-point END sequence=" + std::to_string(sequence) + " status=0").c_str());
     return {};
 }
 
