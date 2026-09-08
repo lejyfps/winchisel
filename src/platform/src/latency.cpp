@@ -178,6 +178,11 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
         return SetupDiGetDeviceRegistryPropertyW(devices, &info, key, &type, reinterpret_cast<BYTE*>(value.data()), sizeof(value), &bytes)
             ? std::wstring(value.data()) : std::wstring{};
     };
+    auto node_property = [](DEVINST node, DEVPROPKEY const& key) {
+        std::array<wchar_t, 512> value{}; ULONG bytes = sizeof(value); DEVPROPTYPE type{};
+        return CM_Get_DevNode_PropertyW(node, &key, &type, reinterpret_cast<PBYTE>(value.data()), &bytes, 0) == CR_SUCCESS
+            ? std::wstring(value.data()) : std::wstring{};
+    };
     for (DWORD index{};; ++index) {
         SP_DEVINFO_DATA info{sizeof(info)};
         if (!SetupDiEnumDeviceInfo(devices, index, &info)) break;
@@ -199,12 +204,9 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
             DEVINST parent{};
             if (CM_Get_Parent(&parent, current, 0) != CR_SUCCESS) break;
             if (upper.contains(L"ROOT_HUB")) { controller_id = instance_id(parent); break; }
-            std::array<wchar_t, 512> name{}; ULONG bytes = sizeof(name); DEVPROPTYPE type{};
-            if (CM_Get_DevNode_PropertyW(current, &DEVPKEY_Device_FriendlyName, &type,
-                    reinterpret_cast<PBYTE>(name.data()), &bytes, 0) == CR_SUCCESS) {
-                auto label = std::wstring(name.data());
-                if (label.contains(L"Hub") && !label.contains(L"Root")) ++hubs;
-            }
+            auto label = node_property(current, DEVPKEY_Device_FriendlyName);
+            if (label.empty()) label = node_property(current, DEVPKEY_Device_DeviceDesc);
+            if (label.contains(L"Hub") && !label.contains(L"Root")) ++hubs;
             current = parent;
         }
         if (controller_id.empty()) continue;
@@ -216,7 +218,8 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
         auto vid = extract_hex(ascii_id, "VID_").value_or("????");
         auto pid = extract_hex(ascii_id, "PID_").value_or("????");
         if (!seen.insert(vid + ':' + pid).second) continue;
-        auto name = property(info, SPDRP_FRIENDLYNAME);
+        auto name = node_property(info.DevInst, DEVPKEY_Device_BusReportedDeviceDesc);
+        if (name.empty()) name = property(info, SPDRP_FRIENDLYNAME);
         if (name.empty()) name = property(info, SPDRP_DEVICEDESC);
         const auto controller_index = static_cast<std::size_t>(controller - controllers.begin());
         result.push_back({utf8(name), std::move(vid), std::move(pid), controller->chip_level + hubs, hubs, controller_index});
