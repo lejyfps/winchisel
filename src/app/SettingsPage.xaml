@@ -54,6 +54,9 @@
                                 <ComboBoxItem Content="Čeština" />
                                 <ComboBoxItem Content="Bahasa Indonesia" />
                                 <ComboBoxItem Content="Tiếng Việt" />
+                                <ComboBoxItem Content="العربية" />
+                                <ComboBoxItem Content="繁體中文" />
+                                <ComboBoxItem Content="ไทย" />
                             </ComboBox>
                         </Grid>
                     </Border>

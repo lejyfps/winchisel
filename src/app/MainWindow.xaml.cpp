@@ -292,6 +292,10 @@ FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
 }
 
 void MainWindow::localize_nav() {
+    const auto direction = winchisel::core::ui_language() == winchisel::core::Language::arabic
+        ? FlowDirection::RightToLeft : FlowDirection::LeftToRight;
+    Nav().FlowDirection(direction);
+    ContentFrame().FlowDirection(direction);
     auto label = [](winrt::hstring const& tag) -> std::wstring {
         if (tag == L"debloater") return winchisel::core::loc(L"Debloater");
         if (tag == L"performance") return winchisel::core::loc(L"Performance");

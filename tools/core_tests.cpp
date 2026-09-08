@@ -35,6 +35,9 @@ int main() {
     expect(language_from_string("cs") == Language::czech, "czech language");
     expect(language_from_string("id") == Language::indonesian, "indonesian language");
     expect(language_from_string("vi") == Language::vietnamese, "vietnamese language");
+    expect(language_from_string("ar") == Language::arabic, "arabic language");
+    expect(language_from_string("zh-TW") == Language::traditional_chinese, "traditional chinese language");
+    expect(language_from_string("th") == Language::thai, "thai language");
     expect(parsed.show_console, "show_console true");
     expect(!parsed.check_updates_on_startup, "updates false");
     expect(parsed.autostart_enabled, "autostart true");
@@ -63,6 +66,9 @@ int main() {
     set_ui_language(Language::czech); expect(loc(L"Settings") == L"Nastavení", "czech settings label");
     set_ui_language(Language::indonesian); expect(loc(L"Settings") == L"Pengaturan", "indonesian settings label");
     set_ui_language(Language::vietnamese); expect(loc(L"Settings") == L"Cài đặt", "vietnamese settings label");
+    set_ui_language(Language::arabic); expect(loc(L"Settings") == L"الإعدادات", "arabic settings label");
+    set_ui_language(Language::traditional_chinese); expect(loc(L"Settings") == L"設定", "traditional chinese settings label");
+    set_ui_language(Language::thai); expect(loc(L"Settings") == L"การตั้งค่า", "thai settings label");
 
     auto json = serialize_settings_json(parsed);
     expect(json.find("German") != std::string::npos, "serialize language");
