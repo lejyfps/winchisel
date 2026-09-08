@@ -69,6 +69,7 @@ MainWindow::MainWindow() {
     SetTitleBar(AppTitleBar());
     apply_theme();
     auto app_window = app_window_from(*this);
+    AppTitleText().Text(L"Winchisel - v" + to_hstring(winchisel::platform::current_app_version()));
     const auto icon = asset_path(L"icon.ico");
     app_window.SetIcon(icon.c_str());
     app_window.SetTaskbarIcon(icon.c_str());
@@ -101,7 +102,13 @@ MainWindow::MainWindow() {
         ToastBar().Title(hstring{title});
         ToastBar().Message(hstring{message});
         ToastBar().IsOpen(true);
+        toast_timer_.Stop();
+        toast_timer_.Start();
     };
+    toast_timer_ = DispatcherQueue().CreateTimer();
+    toast_timer_.Interval(std::chrono::seconds(3));
+    toast_timer_.IsRepeating(false);
+    toast_timer_.Tick([weak = get_weak()](auto&&, auto&&) { if (auto self = weak.get()) self->ToastBar().IsOpen(false); });
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
         const auto weak = get_weak();
@@ -163,9 +170,11 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     }
     if (!winchisel::platform::is_newer_version(manifest->version, winchisel::platform::current_app_version())) {
         update_check_running_ = false; UpdateButton().IsEnabled(true);
-        if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"You already have the latest version.");
+        winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
+    AppTitleText().Text(L"Winchisel - v" + to_hstring(winchisel::platform::current_app_version()) +
+        L" (Update available: v" + to_hstring(manifest->version) + L")");
     const auto artifact_id = winchisel::platform::update_artifact_id();
     const auto artifact = std::ranges::find_if(manifest->artifacts, [artifact_id](auto const& item) { return item.id == artifact_id; });
     if (artifact == manifest->artifacts.end()) {
@@ -200,16 +209,19 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
 
 void MainWindow::apply_theme() {
     const auto theme = winchisel::application::Session::instance().settings().theme;
-    Nav().RequestedTheme(theme == winchisel::core::Theme::light ? ElementTheme::Light
+    RootLayout().RequestedTheme(theme == winchisel::core::Theme::light ? ElementTheme::Light
         : theme == winchisel::core::Theme::dark ? ElementTheme::Dark : ElementTheme::Default);
     apply_titlebar_theme();
 }
 
 void MainWindow::apply_titlebar_theme() {
-    const bool dark = Nav().ActualTheme() == ElementTheme::Dark;
+    const bool dark = RootLayout().ActualTheme() == ElementTheme::Dark;
     auto titlebar = app_window_from(*this).TitleBar();
-    titlebar.BackgroundColor(Windows::UI::Colors::Transparent());
-    titlebar.ButtonBackgroundColor(Windows::UI::Colors::Transparent());
+    const auto background = Windows::UI::ColorHelper::FromArgb(255, dark ? 32 : 243, dark ? 32 : 243, dark ? 32 : 243);
+    titlebar.BackgroundColor(background);
+    titlebar.ButtonBackgroundColor(background);
+    titlebar.ButtonHoverBackgroundColor(Windows::UI::ColorHelper::FromArgb(255, dark ? 50 : 229, dark ? 50 : 229, dark ? 50 : 229));
+    titlebar.ButtonPressedBackgroundColor(Windows::UI::ColorHelper::FromArgb(255, dark ? 60 : 218, dark ? 60 : 218, dark ? 60 : 218));
     titlebar.ForegroundColor(dark ? Windows::UI::Colors::White() : Windows::UI::Colors::Black());
     titlebar.ButtonForegroundColor(dark ? Windows::UI::Colors::White() : Windows::UI::Colors::Black());
     titlebar.InactiveForegroundColor(Windows::UI::Colors::Gray());
@@ -259,13 +271,15 @@ void MainWindow::localize_nav() {
         if (tag == L"settings") return winchisel::core::loc(L"Settings");
         return winchisel::core::loc(L"Home");
     };
-    if (auto items = Nav().MenuItems()) {
+    auto localize_items = [&](auto const& items) {
         for (std::uint32_t index = 0; index < items.Size(); ++index) {
             if (auto item = items.GetAt(index).try_as<Controls::NavigationViewItem>()) {
                 item.Content(box_value(hstring{label(winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home"))}));
             }
         }
-    }
+    };
+    localize_items(Nav().MenuItems());
+    localize_items(Nav().FooterMenuItems());
 }
 
 void MainWindow::reload_language() {

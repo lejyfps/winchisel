@@ -392,12 +392,12 @@
                     </Border>
                 </StackPanel>
             </ScrollViewer>
-            <ProgressRing x:Name="Loading"
-                          IsActive="False"
-                          Width="48"
-                          Height="48"
-                          HorizontalAlignment="Center"
-                          VerticalAlignment="Center" />
+            <ProgressBar x:Name="Loading"
+                         IsIndeterminate="True"
+                         Visibility="Collapsed"
+                         HorizontalAlignment="Stretch"
+                         VerticalAlignment="Top"
+                         AutomationProperties.Name="Extras operation progress" />
         </Grid>
     </Grid>
 </UserControl>

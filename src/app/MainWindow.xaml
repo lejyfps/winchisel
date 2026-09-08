@@ -4,29 +4,36 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Winchisel">
 
-    <Grid>
+    <Grid x:Name="RootLayout">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="8">
                 <Image x:Name="AppTitleBarIcon" Width="24" Height="24" Stretch="Uniform" />
-                <TextBlock Text="Winchisel" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBlock x:Name="AppTitleText" Text="Winchisel" VerticalAlignment="Center"
+                           FontFamily="Segoe UI Variable Text" FontSize="12" />
             </StackPanel>
             <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="2">
-                <Button x:Name="UpdateButton" Click="Update_Click" Width="36" Height="32" Padding="0" CornerRadius="4" BorderThickness="0"
+                <Button x:Name="UpdateButton" Click="Update_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12" Background="Transparent"
                         ToolTipService.ToolTip="Check for updates" AutomationProperties.Name="Check for updates">
-                    <SymbolIcon Symbol="Sync" />
+                    <SymbolIcon Symbol="Sync" FontSize="10" />
                 </Button>
-                <Button Click="BugReport_Click" Width="36" Height="32" Padding="0" CornerRadius="4" BorderThickness="0"
-                        Background="#C42B1C" Foreground="White"
+                <Button Click="BugReport_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12"
+                        Background="Transparent" Foreground="#E81123"
                         ToolTipService.ToolTip="Report a bug" AutomationProperties.Name="Report a bug">
-                    <SymbolIcon Symbol="ReportHacked" />
+                    <Button.Resources>
+                        <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#22E81123" />
+                        <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#33E81123" />
+                        <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#E81123" />
+                        <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#E81123" />
+                    </Button.Resources>
+                    <SymbolIcon Symbol="ReportHacked" FontSize="10" />
                 </Button>
-                <Button Click="Donate_Click" Width="36" Height="32" Padding="0" CornerRadius="4" BorderThickness="0"
+                <Button Click="Donate_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12" Background="Transparent"
                         ToolTipService.ToolTip="Donate" AutomationProperties.Name="Donate">
-                    <SymbolIcon Symbol="Like" />
+                    <SymbolIcon Symbol="Like" FontSize="10" />
                 </Button>
             </StackPanel>
         </Grid>
@@ -71,10 +78,12 @@
             <NavigationViewItem Content="Extras" Tag="extras">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="More" /></NavigationViewItem.Icon>
             </NavigationViewItem>
+        </NavigationView.MenuItems>
+        <NavigationView.FooterMenuItems>
             <NavigationViewItem Content="Settings" Tag="settings">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></NavigationViewItem.Icon>
             </NavigationViewItem>
-        </NavigationView.MenuItems>
+        </NavigationView.FooterMenuItems>
         <Grid>
             <Frame x:Name="ContentFrame" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" />
             <InfoBar x:Name="ToastBar"

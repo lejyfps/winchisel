@@ -131,7 +131,7 @@ void SettingsPage::poll_worker() {
 }
 
 void SettingsPage::set_busy(bool busy) {
-    Loading().IsActive(busy && action_ == Action::cleanup);
+    Loading().Visibility(busy && action_ == Action::cleanup ? Visibility::Visible : Visibility::Collapsed);
     RestoreButton().IsEnabled(!busy);
     RepairButton().IsEnabled(!busy);
     CleanupButton().IsEnabled(!busy);

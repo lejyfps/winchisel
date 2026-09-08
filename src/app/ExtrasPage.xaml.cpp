@@ -23,7 +23,7 @@ bool ExtrasPage::read_dword(HKEY root,wchar_t const* path,wchar_t const* name,DW
 bool ExtrasPage::read_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring& value){DWORD size{};if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,nullptr,&size)!=ERROR_SUCCESS)return false;value.resize(size/sizeof(wchar_t));if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,value.data(),&size)!=ERROR_SUCCESS)return false;if(!value.empty()&&!value.back())value.pop_back();return true;}
 bool ExtrasPage::write_dword(HKEY root,wchar_t const* path,wchar_t const* name,std::optional<DWORD> value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;LSTATUS result=value?RegSetValueExW(key,name,0,REG_DWORD,reinterpret_cast<BYTE const*>(&*value),sizeof(DWORD)):RegDeleteValueW(key,name);RegCloseKey(key);return result==ERROR_SUCCESS||(!value&&result==ERROR_FILE_NOT_FOUND);}
 bool ExtrasPage::write_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring const& value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;auto result=RegSetValueExW(key,name,0,REG_SZ,reinterpret_cast<BYTE const*>(value.c_str()),static_cast<DWORD>((value.size()+1)*sizeof(wchar_t)));RegCloseKey(key);return result==ERROR_SUCCESS;}
-void ExtrasPage::show_result(bool ok,std::wstring const& text){ResultBar().Severity(ok?muxc::InfoBarSeverity::Success:muxc::InfoBarSeverity::Error);ResultBar().Message(text);ResultBar().IsOpen(true);winchisel::platform::boot_log(winrt::to_string(text).c_str());}
+void ExtrasPage::show_result(bool ok,std::wstring const& text){ResultBar().Title(ok?L"Applied":L"Could not apply setting");ResultBar().Severity(ok?muxc::InfoBarSeverity::Success:muxc::InfoBarSeverity::Error);ResultBar().Message(text);ResultBar().IsOpen(true);winchisel::platform::boot_log(winrt::to_string(text).c_str());}
 
 void ExtrasPage::load_states(){
  loading_=true;DWORD value{};std::wstring text;
@@ -60,14 +60,14 @@ void ExtrasPage::ToggleChanged(Windows::Foundation::IInspectable const& sender,M
  if(!ok){const auto error=GetLastError();load_states();show_result(false,L"Could not apply the setting. Windows error "+std::to_wstring(error)+L".");}else show_result(true,L"Setting applied.");
 }
 void ExtrasPage::set_command_busy(bool busy) {
- command_running_=busy; Loading().IsActive(busy); Items().IsHitTestVisible(!busy); PowerPlanButton().IsEnabled(!busy);
+ command_running_=busy; Loading().Visibility(busy?Microsoft::UI::Xaml::Visibility::Visible:Microsoft::UI::Xaml::Visibility::Collapsed); Items().IsHitTestVisible(!busy); PowerPlanButton().IsEnabled(!busy);
 }
 
 winrt::fire_and_forget ExtrasPage::load_command_states() {
- auto lifetime=get_strong(); if(command_running_) co_return; command_running_=true; Loading().IsActive(true); Items().IsHitTestVisible(false); auto queue=DispatcherQueue();
+ auto lifetime=get_strong(); if(command_running_) co_return; command_running_=true; Loading().Visibility(Microsoft::UI::Xaml::Visibility::Visible); Items().IsHitTestVisible(false); auto queue=DispatcherQueue();
  co_await winrt::resume_background(); const auto state=winchisel::platform::read_extras_command_state();
  (void)queue.TryEnqueue([lifetime, state] {
-  lifetime->command_running_=false; lifetime->Loading().IsActive(false); lifetime->Items().IsHitTestVisible(true);
+  lifetime->command_running_=false; lifetime->Loading().Visibility(Microsoft::UI::Xaml::Visibility::Collapsed); lifetime->Items().IsHitTestVisible(true);
   lifetime->loading_=true; lifetime->Widgets().IsOn(state.widgets_removed); lifetime->Hpet().IsOn(state.hpet_disabled);
   if(state.power_plan_active) lifetime->PowerPlanButton().Content(box_value(L"Active")); lifetime->loading_=false;
  });

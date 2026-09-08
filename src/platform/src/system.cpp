@@ -13,6 +13,7 @@
 #include <vector>
 #include <regex>
 #include <chrono>
+#include <cctype>
 #include <iomanip>
 #include <mutex>
 
@@ -224,6 +225,24 @@ winchisel::core::Result<void> fail(char const*, std::string detail) {
     return std::unexpected(winchisel::core::Error{.detail = std::move(detail)});
 }
 
+std::string command_error(std::string_view action, detail::ProcessWaitResult waited, std::string output) {
+    while (!output.empty() && std::isspace(static_cast<unsigned char>(output.back()))) output.pop_back();
+    while (!output.empty() && std::isspace(static_cast<unsigned char>(output.front()))) output.erase(output.begin());
+    std::string utf8;
+    if (!output.empty()) {
+        const int wide_size = MultiByteToWideChar(CP_OEMCP, 0, output.data(), static_cast<int>(output.size()), nullptr, 0);
+        std::wstring wide(static_cast<std::size_t>(wide_size), L'\0');
+        MultiByteToWideChar(CP_OEMCP, 0, output.data(), static_cast<int>(output.size()), wide.data(), wide_size);
+        const int utf8_size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), wide_size, nullptr, 0, nullptr, nullptr);
+        utf8.resize(static_cast<std::size_t>(utf8_size));
+        WideCharToMultiByte(CP_UTF8, 0, wide.data(), wide_size, utf8.data(), utf8_size, nullptr, nullptr);
+    }
+    std::string message(action);
+    message += waited.timed_out ? " timed out" : " failed with exit code " + std::to_string(waited.exit_code);
+    if (!utf8.empty()) message += ": " + utf8;
+    return message;
+}
+
 void emit_lines(std::string& pending, ProtectionProgress const& progress) {
     while (true) {
         auto pos = pending.find_first_of("\r\n");
@@ -421,13 +440,14 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
 
     auto [waited, output] = detail::run_captured(L"powercfg.exe /import \"" + temp.wstring() + L"\"");
     std::filesystem::remove(temp, ec);
-    if (waited.exit_code != 0) return fail("power_plan_failed", waited.timed_out ? "powercfg /import timed out" : "powercfg /import exited with " + std::to_string(waited.exit_code));
+    if (waited.exit_code != 0) return fail("power_plan_failed", command_error("powercfg /import", waited, std::move(output)));
 
     static const std::regex guid_pattern(R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
     std::smatch match;
-    if (!std::regex_search(output, match, guid_pattern)) return fail("power_plan_failed", "Unable to read imported power plan GUID");
+    if (!std::regex_search(output, match, guid_pattern)) return fail("power_plan_failed", "powercfg /import succeeded, but returned no power plan GUID. Output: " + output);
     const auto guid = match[1].str();
-    if (auto activated = run_hidden(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()), "power_plan_failed"); !activated) return activated;
+    auto [activated, activation_output] = detail::run_captured(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()));
+    if (activated.exit_code != 0) return fail("power_plan_failed", command_error("powercfg /setactive", activated, std::move(activation_output)));
     HKEY key{};
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Winchisel", 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
         const std::wstring value(guid.begin(), guid.end());

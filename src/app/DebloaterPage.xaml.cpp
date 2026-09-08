@@ -52,7 +52,7 @@ DebloaterPage::~DebloaterPage() {
 void DebloaterPage::start_scan(bool clear_notice) {
     if (operation_ != Operation::none) return;
     operation_ = Operation::scan;
-    Loading().IsActive(true);
+    Loading().Visibility(Visibility::Visible);
     Items().IsEnabled(false);
     InstallButton().IsEnabled(false);
     RemoveButton().IsEnabled(false);
@@ -67,7 +67,7 @@ void DebloaterPage::poll_worker() {
     if (operation_ == Operation::scan) {
         if (!scan_worker_.valid() || scan_worker_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = scan_worker_.get();
-        Loading().IsActive(false);
+        Loading().Visibility(Visibility::Collapsed);
         Items().IsEnabled(true);
         operation_ = Operation::none;
         if (result) {
@@ -84,7 +84,7 @@ void DebloaterPage::poll_worker() {
         const bool installed_action = operation_ == Operation::install;
         auto result = action_worker_.get();
         operation_ = Operation::none;
-        Loading().IsActive(false);
+        Loading().Visibility(Visibility::Collapsed);
         Items().IsEnabled(true);
         Notice().Title(installed_action ? L"Installation complete" : L"Removal complete");
         if (result) {
@@ -190,7 +190,7 @@ void DebloaterPage::start_action(bool install) {
     }
     if (selected.empty()) return;
     operation_ = install ? Operation::install : Operation::remove;
-    Loading().IsActive(true); Items().IsEnabled(false); InstallButton().IsEnabled(false); RemoveButton().IsEnabled(false); Notice().IsOpen(false);
+    Loading().Visibility(Visibility::Visible); Items().IsEnabled(false); InstallButton().IsEnabled(false); RemoveButton().IsEnabled(false); Notice().IsOpen(false);
     action_worker_ = std::async(std::launch::async, [selected = std::move(selected), install] {
         return winchisel::platform::apply_debloater_action(selected, install);
     });

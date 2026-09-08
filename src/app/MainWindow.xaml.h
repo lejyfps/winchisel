@@ -25,6 +25,7 @@ private:
     void update_titlebar_inset();
     winrt::fire_and_forget check_for_updates(bool manual);
     bool update_check_running_{};
+    winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer_{nullptr};
     winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);
 };
 
