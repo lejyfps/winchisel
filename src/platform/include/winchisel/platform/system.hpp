@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace winchisel::platform {
@@ -51,7 +52,7 @@ winchisel::core::Result<void> set_hpet_disabled(bool enabled);
 struct ExtrasCommandState {
     bool power_plan_active{};
     bool widgets_removed{};
-    bool hpet_disabled{};
+    std::optional<bool> hpet_disabled;
 };
 ExtrasCommandState read_extras_command_state();
 

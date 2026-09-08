@@ -110,7 +110,16 @@ void DebloaterPage::poll_worker() {
         Items().IsEnabled(true);
         Notice().Title(installed_action ? L"Installation complete" : L"Removal complete");
         if (result) {
-            Notice().Message(to_hstring(std::to_string(result->succeeded) + " succeeded, " + std::to_string(result->failed) + " failed."));
+            auto message = std::to_string(result->succeeded) + " succeeded, " + std::to_string(result->failed) + " failed.";
+            if (result->reboot_required) message += " A restart is required.";
+            if (!result->failure_details.empty()) {
+                message += " ";
+                for (std::size_t i{}; i < result->failure_details.size(); ++i) {
+                    if (i) message += " | ";
+                    message += result->failure_details[i];
+                }
+            }
+            Notice().Message(to_hstring(message));
             Notice().Severity(result->failed == 0 ? Controls::InfoBarSeverity::Success : Controls::InfoBarSeverity::Warning);
         } else {
             Notice().Message(to_hstring(result.error().detail));
@@ -186,12 +195,21 @@ void DebloaterPage::render_items() {
 }
 
 void DebloaterPage::update_actions() {
-    const auto count = Items().SelectedItems().Size();
-    const bool enabled = count > 0 && operation_ == Operation::none;
-    InstallButton().IsEnabled(enabled);
-    RemoveButton().IsEnabled(enabled);
-    InstallButton().Content(box_value(count ? L"Install (" + to_hstring(count) + L")" : L"Install"));
-    RemoveButton().Content(box_value(count ? L"Remove (" + to_hstring(count) + L")" : L"Remove"));
+    std::uint32_t installable{};
+    std::uint32_t removable{};
+    for (auto const& value : Items().SelectedItems()) {
+        if (auto row = value.try_as<Controls::ListViewItem>()) {
+            const auto index = unbox_value<std::uint64_t>(row.Tag());
+            if (index >= catalog_.size()) continue;
+            if (catalog_[static_cast<std::size_t>(index)].can_reinstall) ++installable;
+            ++removable;
+        }
+    }
+    const bool idle = operation_ == Operation::none;
+    InstallButton().IsEnabled(idle && installable > 0);
+    RemoveButton().IsEnabled(idle && removable > 0);
+    InstallButton().Content(box_value(installable ? L"Install (" + to_hstring(installable) + L")" : L"Install"));
+    RemoveButton().Content(box_value(removable ? L"Remove (" + to_hstring(removable) + L")" : L"Remove"));
 }
 
 fire_and_forget DebloaterPage::confirm_action(bool install) {
@@ -208,7 +226,7 @@ fire_and_forget DebloaterPage::confirm_action(bool install) {
     Controls::ContentDialog dialog;
     dialog.XamlRoot(XamlRoot());
     dialog.Title(box_value(install ? L"Install selected items?" : L"Remove selected items?"));
-    dialog.Content(box_value(to_hstring(std::to_string(count) + (install ? " selected items will be installed." : " selected items will be removed."))));
+    dialog.Content(box_value(to_hstring(std::to_string(count) + (install ? " selected items will be installed for the current user. Store listings may open when no local payload remains." : " selected AppX packages will be removed for the current user."))));
     dialog.PrimaryButtonText(install ? L"Install" : L"Remove");
     dialog.CloseButtonText(L"Cancel");
     dialog.DefaultButton(Controls::ContentDialogButton::Close);
@@ -231,7 +249,7 @@ void DebloaterPage::start_action(bool install) {
     for (auto const& value : Items().SelectedItems()) {
         if (auto row = value.try_as<Controls::ListViewItem>()) {
             const auto index = unbox_value<std::uint64_t>(row.Tag());
-            if (index < catalog_.size()) selected.push_back(&catalog_[static_cast<std::size_t>(index)]);
+            if (index < catalog_.size() && (!install || catalog_[static_cast<std::size_t>(index)].can_reinstall)) selected.push_back(&catalog_[static_cast<std::size_t>(index)]);
         }
     }
     if (selected.empty()) return;

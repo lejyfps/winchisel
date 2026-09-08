@@ -41,8 +41,11 @@ winchisel::core::Result<std::string> get_https(std::string_view url, std::uint64
     HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",target.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
     static constexpr wchar_t headers[] = L"Accept: application/vnd.github+json\r\n";
     const bool sent=request&&WinHttpSendRequest(request,headers,static_cast<DWORD>(std::size(headers)-1),WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
-    std::string output; bool too_large{}; for(DWORD available{}; sent&&status==200&&WinHttpQueryDataAvailable(request,&available)&&available;){if(output.size()>maximum_size||available>maximum_size-output.size()){too_large=true;break;}const auto at=output.size();output.resize(at+available);DWORD read{};if(!WinHttpReadData(request,output.data()+at,available,&read)){output.clear();break;}output.resize(at+read);} if(request)WinHttpCloseHandle(request);if(connection)WinHttpCloseHandle(connection);WinHttpCloseHandle(session);
+    std::string output; bool too_large{}; bool transport{}; const auto deadline=GetTickCount64()+120'000;
+    if(sent&&status==200){for(;;){if(GetTickCount64()>deadline){transport=true;break;}DWORD available{};if(!WinHttpQueryDataAvailable(request,&available)){transport=true;break;}if(!available)break;if(output.size()>maximum_size||available>maximum_size-output.size()){too_large=true;break;}const auto at=output.size();output.resize(at+available);DWORD read{};if(!WinHttpReadData(request,output.data()+at,available,&read)){transport=true;output.resize(at);break;}output.resize(at+read);}}
+    if(request)WinHttpCloseHandle(request);if(connection)WinHttpCloseHandle(connection);WinHttpCloseHandle(session);
     if(too_large)return std::unexpected(winchisel::core::Error{.detail="Response exceeded declared size limit"});
+    if(transport)return std::unexpected(winchisel::core::Error{.detail="HTTPS transfer failed"});
     if(!sent||status!=200) return std::unexpected(winchisel::core::Error{.detail="GitHub returned HTTP "+std::to_string(status)}); return output;
 }
 
@@ -152,20 +155,28 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
     std::array<char, 65536> buffer{};
     std::uint64_t total{};
     bool failed{};
-    for(DWORD available{}; WinHttpQueryDataAvailable(request,&available)&&available;){
+    bool transport{};
+    const auto deadline=GetTickCount64()+120'000;
+    for(;;){
+        if(GetTickCount64()>deadline){transport=true;break;}
+        DWORD available{};
+        if(!WinHttpQueryDataAvailable(request,&available)){transport=true;break;}
+        if(!available)break;
         while(available){
             const DWORD chunk=static_cast<DWORD>(std::min<std::uint64_t>(available, buffer.size()));
             if(total+chunk>expected_size){ failed=true; break; }
             DWORD read{};
-            if(!WinHttpReadData(request,buffer.data(),chunk,&read)||!read){ failed=true; break; }
+            if(!WinHttpReadData(request,buffer.data(),chunk,&read)){transport=true;break;}
+            if(!read){transport=true;break;}
             if(!hasher.update(buffer.data(), read) || !output.write(buffer.data(), static_cast<std::streamsize>(read))){ failed=true; break; }
             total+=read; available-=read;
         }
-        if(failed) break;
+        if(failed||transport) break;
     }
     output.close();
     close();
     auto remove_partial=[&]{ std::error_code error; std::filesystem::remove(destination, error); };
+    if(transport){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail="HTTPS transfer failed"}); }
     if(failed||!output||total!=expected_size){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail=failed&&total+1>expected_size?"Response exceeded declared size limit":"Unexpected download size"}); }
     const auto digest=hasher.finish();
     if(digest!=expected_sha256){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail="SHA-256 mismatch"}); }

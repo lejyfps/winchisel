@@ -19,6 +19,9 @@ int main() {
 
     expect(parse_settings_json("{").language == Language::english, "invalid json uses defaults");
     expect(!parse_settings_json(R"({"show_console": trueXYZ})").show_console, "fragment json rejected");
+    expect(!parse_settings_json(R"({"nested":{"show_console":true},"show_console":false})").show_console, "nested key ignored");
+    expect(parse_settings_json(R"({"language":"\u0047erman"})").language == Language::german, "unicode escape language");
+    expect(parse_settings_json(std::string(70000, 'x')).show_console == settings_defaults().show_console, "oversized json rejected");
     auto parsed = parse_settings_json(R"({"language":"German","theme":"Dark","show_console":true,"check_updates_on_startup":false,"autostart_enabled":true})");
     expect(parsed.language == Language::german, "german language");
     expect(language_from_string("Spanish") == Language::spanish, "spanish language");

@@ -7,6 +7,7 @@
 #include <initguid.h>
 #include <devpkey.h>
 #include <setupapi.h>
+#include <powrprof.h>
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -18,6 +19,7 @@
 #include <unordered_set>
 #pragma comment(lib, "cfgmgr32.lib")
 #pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "powrprof.lib")
 
 namespace winchisel::platform {
 namespace {
@@ -28,7 +30,7 @@ struct Controller {
     std::string msi_status{"Unknown"};
     std::optional<bool> selective_suspend;
 };
-struct Device { std::string name, vid, pid; int chip_count{}, hub_count{}; std::size_t controller{}; };
+struct Device { std::string name, vid, pid, instance; int chip_count{}, hub_count{}; std::size_t controller{}; };
 struct UsbNode { std::string device_key, instance, parent_prefix, name; std::vector<std::string> compatible_ids; };
 
 struct RegKey {
@@ -217,21 +219,27 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
         auto ascii_id = utf8(id);
         auto vid = extract_hex(ascii_id, "VID_").value_or("????");
         auto pid = extract_hex(ascii_id, "PID_").value_or("????");
-        if (!seen.insert(vid + ':' + pid).second) continue;
+        if (!seen.insert(ascii_id).second) continue;
         auto name = node_property(info.DevInst, DEVPKEY_Device_BusReportedDeviceDesc);
         if (name.empty()) name = property(info, SPDRP_FRIENDLYNAME);
         if (name.empty()) name = property(info, SPDRP_DEVICEDESC);
         const auto controller_index = static_cast<std::size_t>(controller - controllers.begin());
-        result.push_back({utf8(name), std::move(vid), std::move(pid), controller->chip_level + hubs, hubs, controller_index});
+        result.push_back({utf8(name), std::move(vid), std::move(pid), ascii_id, controller->chip_level + hubs, hubs, controller_index});
     }
     SetupDiDestroyDeviceInfoList(devices);
     return result;
 }
 
 std::optional<bool> system_suspend() {
-    auto text = run_command(L"powercfg /query SCHEME_CURRENT SUB_USB USBSELECTIVESUSPEND");
-    constexpr std::string_view marker = "Current AC Power Setting Index:"; const auto pos = text.find(marker); if (pos == std::string::npos) return std::nullopt;
-    auto value = text.substr(pos + marker.size()); std::istringstream stream(value); stream >> value; try { return std::stoul(value, nullptr, 16) == 1; } catch (...) { return std::nullopt; }
+    GUID usb_subgroup{0x2a737441, 0x1930, 0x4402, {0x8d, 0x77, 0xb2, 0xbe, 0xbb, 0xa3, 0x08, 0xa3}};
+    GUID usb_suspend{0x48e6b7a6, 0x50f5, 0x4782, {0xa5, 0xd4, 0x53, 0xbb, 0x8f, 0x07, 0xe2, 0x26}};
+    GUID* scheme{};
+    if (PowerGetActiveScheme(nullptr, &scheme) != ERROR_SUCCESS || !scheme) return std::nullopt;
+    DWORD value{};
+    const auto status = PowerReadACValueIndex(nullptr, scheme, &usb_subgroup, &usb_suspend, &value);
+    LocalFree(scheme);
+    if (status != ERROR_SUCCESS) return std::nullopt;
+    return value != 0;
 }
 
 void add(std::vector<LatencyLine>& lines, std::string text = {}, LatencyColor color = LatencyColor::normal, bool bold = false) { lines.push_back({std::move(text), color, bold}); }
@@ -247,14 +255,14 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
     notify(35, "Scanning USB registry tree..."); const auto nodes = scan_usb_tree();
     notify(55, "Finding input devices..."); auto devices = pnp_devices(controllers);
 
-    std::unordered_set<std::string> seen; for (auto const& device : devices) seen.insert(device.vid + ':' + device.pid);
+    std::unordered_set<std::string> seen; for (auto const& device : devices) if (!device.instance.empty()) seen.insert(device.instance);
     std::unordered_map<std::string, std::size_t> prefixes, instances, buses;
     for (std::size_t i{}; i < nodes.size(); ++i) { if (!nodes[i].parent_prefix.empty()) prefixes[nodes[i].parent_prefix] = i; instances[nodes[i].instance] = i; }
     for (std::size_t i{}; i < controllers.size(); ++i) buses[controllers[i].bus_prefix] = i;
     notify(82, "Verifying fallback USB tree...");
     for (auto const& node : nodes) {
         const bool hid = std::ranges::any_of(node.compatible_ids, [](auto const& id) { return lower(id).find("class_03") != std::string::npos; }); if (!hid) continue;
-        auto base = node.device_key; if (auto mi = base.find("&MI_"); mi != std::string::npos) base.resize(mi); if (!seen.insert(base).second) continue;
+        auto base = node.device_key; if (auto mi = base.find("&MI_"); mi != std::string::npos) base.resize(mi); if (!seen.insert(node.instance.empty() ? base : node.instance).second) continue;
         const bool composite_interface = node.device_key.find("&MI_") != std::string::npos;
         const auto trace_instance = composite_interface ? strip_last(node.instance).value_or(node.instance) : node.instance;
         auto trace = trace_chain(trace_instance, prefixes, instances, nodes, buses); if (!trace) continue;
@@ -265,7 +273,7 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
                     return candidate.device_key.find("&MI_") == std::string::npos && candidate.device_key.starts_with(base) && candidate.instance == composite_instance;
                 }); parent != nodes.end()) name = parent->name;
         }
-        const auto [controller, hubs] = *trace; devices.push_back({std::move(name), "????", "????", controllers[controller].chip_level + hubs, hubs, controller});
+        const auto [controller, hubs] = *trace; devices.push_back({std::move(name), "????", "????", node.instance, controllers[controller].chip_level + hubs, hubs, controller});
     }
 
     notify(95, "Building report..."); LatencyAnalysis result; auto& out = result.lines;

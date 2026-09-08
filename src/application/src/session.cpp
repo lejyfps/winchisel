@@ -39,17 +39,20 @@ bool Session::bootstrap() {
 }
 
 winchisel::core::Result<void> Session::set_settings(winchisel::core::Settings settings) {
-    if (settings.autostart_enabled != settings_.autostart_enabled) {
+    const auto previous = settings_;
+    if (auto saved = winchisel::platform::save_settings(settings); !saved) return saved;
+    if (settings.autostart_enabled != previous.autostart_enabled) {
         if (auto result = winchisel::platform::set_autostart_enabled(settings.autostart_enabled); !result) {
+            (void)winchisel::platform::save_settings(previous);
             return std::unexpected(result.error());
         }
     }
-    if (settings.show_console != settings_.show_console) {
+    if (settings.show_console != previous.show_console) {
         winchisel::platform::set_console_visible(settings.show_console);
     }
     settings_ = std::move(settings);
     winchisel::core::set_ui_language(settings_.language);
-    return winchisel::platform::save_settings(settings_);
+    return {};
 }
 
 }  // namespace winchisel::application

@@ -6,8 +6,10 @@
 #include <shlobj.h>
 #include <SrRestorePtApi.h>
 
+#include <algorithm>
 #include <fstream>
 #include <array>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -94,6 +96,44 @@ bool restart_elevated() {
     return rc > 32;
 }
 
+std::optional<std::wstring> autostart_host() {
+    const auto size = GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", nullptr, 0);
+    if (size > 1) {
+        std::wstring host(size, L'\0');
+        if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), size)) {
+            if (!host.empty() && host.back() == L'\0') host.pop_back();
+            if (!host.empty()) return host;
+        }
+    }
+    int count{};
+    auto arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (!arguments) return std::nullopt;
+    std::optional<std::wstring> host;
+    for (int index = 1; index + 1 < count; ++index) {
+        if (std::wstring_view(arguments[index]) == L"--portable-host") {
+            host = arguments[index + 1];
+            break;
+        }
+    }
+    LocalFree(arguments);
+    return host;
+}
+
+std::wstring autostart_command() {
+    const auto host = autostart_host();
+    const auto path = host ? *host : exe_path().wstring();
+    return L"\"" + path + L"\"";
+}
+
+bool command_matches_autostart(std::wstring value) {
+    while (!value.empty() && value.front() == L'"') value.erase(value.begin());
+    if (!value.empty() && value.back() == L'"') value.pop_back();
+    const auto stored = std::filesystem::path(value).lexically_normal();
+    if (stored == exe_path().lexically_normal()) return true;
+    if (auto host = autostart_host()) return stored == std::filesystem::path(*host).lexically_normal();
+    return false;
+}
+
 bool is_autostart_enabled() {
     HKEY key{};
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &key) != ERROR_SUCCESS) {
@@ -112,7 +152,7 @@ bool is_autostart_enabled() {
     if (status != ERROR_SUCCESS) {
         return false;
     }
-    return std::filesystem::path(value.data()).lexically_normal() == exe_path().lexically_normal();
+    return command_matches_autostart(value.data());
 }
 
 winchisel::core::Result<void> set_autostart_enabled(bool enabled) {
@@ -126,8 +166,8 @@ winchisel::core::Result<void> set_autostart_enabled(bool enabled) {
 
     LONG status{};
     if (enabled) {
-        const auto path = exe_path().wstring();
-        status = path.empty()
+        const auto path = autostart_command();
+        status = path.size() <= 2
             ? ERROR_FILE_NOT_FOUND
             : RegSetValueExW(key, L"Winchisel", 0, REG_SZ, reinterpret_cast<const BYTE*>(path.c_str()),
                               static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t)));
@@ -193,6 +233,11 @@ winchisel::core::Result<winchisel::core::Settings> load_settings() {
     const auto path = settings_path();
     std::error_code ec;
     if (!std::filesystem::exists(path, ec)) {
+        return winchisel::core::settings_defaults();
+    }
+    std::error_code size_error;
+    const auto size = std::filesystem::file_size(path, size_error);
+    if (size_error || size > 65536) {
         return winchisel::core::settings_defaults();
     }
     std::ifstream in(path, std::ios::binary);
@@ -535,15 +580,16 @@ winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
 }
 
 winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
-    if (enabled) return run_hidden(L"bcdedit.exe /set useplatformclock false", "hpet_failed");
-    // Absence of the value is the Windows-managed default. bcdedit returns a
-    // non-zero code when it is already absent, which is also the desired state.
-    auto result = run_hidden(L"bcdedit.exe /deletevalue useplatformclock", "hpet_failed");
-    if (!result) {
-        const auto state = read_extras_command_state();
-        if (!state.hpet_disabled) return {};
+    auto result = enabled
+        ? run_hidden(L"bcdedit.exe /set useplatformclock false", "hpet_failed")
+        : run_hidden(L"bcdedit.exe /deletevalue useplatformclock", "hpet_failed");
+    const auto state = read_extras_command_state();
+    if (!state.hpet_disabled) return std::unexpected(winchisel::core::Error{.detail = "HPET state could not be verified"});
+    if (*state.hpet_disabled != enabled) {
+        if (!result) return result;
+        return std::unexpected(winchisel::core::Error{.detail = "HPET state did not change"});
     }
-    return result;
+    return {};
 }
 
 ExtrasCommandState read_extras_command_state() {
@@ -578,8 +624,15 @@ ExtrasCommandState read_extras_command_state() {
     }
     const auto [hpet_code, hpet] = capture(L"bcdedit.exe /enum {current}");
     if (hpet_code == 0) {
-        const std::regex hpet_pattern(R"(useplatformclock\s+(false|no|0))", std::regex::icase);
-        state.hpet_disabled = std::regex_search(hpet, hpet_pattern);
+        const std::regex hpet_pattern(R"(useplatformclock\s+(\S+))", std::regex::icase);
+        std::smatch match;
+        if (std::regex_search(hpet, match, hpet_pattern)) {
+            auto value = match[1].str();
+            std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            state.hpet_disabled = value == "false" || value == "no" || value == "0" || value == "nein" || value == "aus";
+        } else {
+            state.hpet_disabled = false;
+        }
     }
     return state;
 }

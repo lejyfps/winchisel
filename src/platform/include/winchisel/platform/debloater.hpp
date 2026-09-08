@@ -4,6 +4,7 @@
 #include "winchisel/core/error.hpp"
 
 #include <span>
+#include <string>
 #include <vector>
 
 namespace winchisel::platform {
@@ -11,7 +12,12 @@ namespace winchisel::platform {
 winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
     std::span<winchisel::core::DebloatCatalogEntry const> catalog);
 
-struct DebloatActionResult { std::size_t succeeded{}; std::size_t failed{}; };
+struct DebloatActionResult {
+    std::size_t succeeded{};
+    std::size_t failed{};
+    bool reboot_required{};
+    std::vector<std::string> failure_details;
+};
 winchisel::core::Result<DebloatActionResult> apply_debloater_action(
     std::span<winchisel::core::DebloatCatalogEntry const* const> items, bool install);
 

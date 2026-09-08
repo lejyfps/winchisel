@@ -1,15 +1,19 @@
 #include "winchisel/core/settings.hpp"
 
 #include <cctype>
+#include <optional>
 #include <sstream>
 
 namespace winchisel::core {
 namespace {
 
+constexpr std::size_t k_max_settings_bytes = 65536;
+constexpr int k_max_json_depth = 8;
+
 class JsonValidator {
 public:
     explicit JsonValidator(std::string_view text) : text_(text) {}
-    bool valid() { skip(); return value() && (skip(), position_ == text_.size()); }
+    bool valid() { skip(); return value(0) && (skip(), position_ == text_.size()); }
 private:
     void skip() { while (position_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[position_]))) ++position_; }
     bool take(char c) { skip(); if (position_ >= text_.size() || text_[position_] != c) return false; ++position_; return true; }
@@ -42,17 +46,20 @@ private:
         if (position_ < text_.size() && (text_[position_] == 'e' || text_[position_] == 'E')) { ++position_; if (position_ < text_.size() && (text_[position_] == '+' || text_[position_] == '-')) ++position_; const auto digits = position_; while (position_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[position_]))) ++position_; if (digits == position_) return false; }
         return position_ > begin;
     }
-    bool array() {
+    bool array(int depth) {
+        if (depth > k_max_json_depth) return false;
         if (!take('[')) return false; skip(); if (take(']')) return true;
-        do { if (!value()) return false; skip(); if (take(']')) return true; } while (take(',')); return false;
+        do { if (!value(depth + 1)) return false; skip(); if (take(']')) return true; } while (take(',')); return false;
     }
-    bool object() {
+    bool object(int depth) {
+        if (depth > k_max_json_depth) return false;
         if (!take('{')) return false; skip(); if (take('}')) return true;
-        do { if (!string() || !take(':') || !value()) return false; skip(); if (take('}')) return true; } while (take(',')); return false;
+        do { if (!string() || !take(':') || !value(depth + 1)) return false; skip(); if (take('}')) return true; } while (take(',')); return false;
     }
-    bool value() {
+    bool value(int depth) {
+        if (depth > k_max_json_depth) return false;
         skip(); if (position_ >= text_.size()) return false;
-        if (text_[position_] == '{') return object(); if (text_[position_] == '[') return array(); if (text_[position_] == '"') return string();
+        if (text_[position_] == '{') return object(depth); if (text_[position_] == '[') return array(depth); if (text_[position_] == '"') return string();
         return literal("true") || literal("false") || literal("null") || number();
     }
     std::string_view text_; std::size_t position_{};
@@ -68,46 +75,127 @@ std::string_view trim(std::string_view s) {
     return s;
 }
 
-bool extract_bool(std::string_view json, std::string_view key, bool fallback) {
-    const std::string needle = "\"" + std::string(key) + "\"";
-    const auto pos = json.find(needle);
-    if (pos == std::string_view::npos) {
-        return fallback;
+std::optional<std::string> unescape_json_string(std::string_view body) {
+    std::string out;
+    for (std::size_t i{}; i < body.size(); ++i) {
+        if (body[i] != '\\') { out.push_back(body[i]); continue; }
+        if (i + 1 >= body.size()) return std::nullopt;
+        const char e = body[++i];
+        switch (e) {
+        case '"': case '\\': case '/': out.push_back(e); break;
+        case 'b': out.push_back('\b'); break;
+        case 'f': out.push_back('\f'); break;
+        case 'n': out.push_back('\n'); break;
+        case 'r': out.push_back('\r'); break;
+        case 't': out.push_back('\t'); break;
+        case 'u': {
+            if (i + 4 >= body.size()) return std::nullopt;
+            unsigned code{};
+            for (int n{}; n < 4; ++n) {
+                const auto c = static_cast<unsigned char>(body[++i]);
+                code <<= 4;
+                if (c >= '0' && c <= '9') code += c - '0';
+                else if (c >= 'a' && c <= 'f') code += 10 + c - 'a';
+                else if (c >= 'A' && c <= 'F') code += 10 + c - 'A';
+                else return std::nullopt;
+            }
+            if (code < 0x80) out.push_back(static_cast<char>(code));
+            else if (code < 0x800) { out.push_back(static_cast<char>(0xC0 | (code >> 6))); out.push_back(static_cast<char>(0x80 | (code & 0x3F))); }
+            else { out.push_back(static_cast<char>(0xE0 | (code >> 12))); out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (code & 0x3F))); }
+            break;
+        }
+        default: return std::nullopt;
+        }
     }
-    const auto colon = json.find(':', pos + needle.size());
-    if (colon == std::string_view::npos) {
-        return fallback;
-    }
-    auto rest = trim(json.substr(colon + 1));
-    if (rest.starts_with("true")) {
-        return true;
-    }
-    if (rest.starts_with("false")) {
-        return false;
-    }
-    return fallback;
+    return out;
 }
 
-std::string extract_string(std::string_view json, std::string_view key, std::string_view fallback) {
-    const std::string needle = "\"" + std::string(key) + "\"";
-    const auto pos = json.find(needle);
-    if (pos == std::string_view::npos) {
-        return std::string(fallback);
+bool parse_root_object(std::string_view json, Settings& settings) {
+    auto text = trim(json);
+    if (text.empty() || text.front() != '{') return false;
+    text.remove_prefix(1);
+    while (true) {
+        text = trim(text);
+        if (text.empty()) return false;
+        if (text.front() == '}') return true;
+        if (text.front() != '"') return false;
+        text.remove_prefix(1);
+        std::size_t key_end{};
+        bool escaped{};
+        for (; key_end < text.size(); ++key_end) {
+            if (escaped) { escaped = false; continue; }
+            if (text[key_end] == '\\') { escaped = true; continue; }
+            if (text[key_end] == '"') break;
+        }
+        if (key_end >= text.size()) return false;
+        auto key = unescape_json_string(text.substr(0, key_end));
+        if (!key) return false;
+        text.remove_prefix(key_end + 1);
+        text = trim(text);
+        if (text.empty() || text.front() != ':') return false;
+        text.remove_prefix(1);
+        text = trim(text);
+        if (text.empty()) return false;
+        if (*key == "show_console" || *key == "check_updates_on_startup" || *key == "autostart_enabled") {
+            bool value{};
+            if (text.starts_with("true")) { value = true; text.remove_prefix(4); }
+            else if (text.starts_with("false")) { value = false; text.remove_prefix(5); }
+            else return false;
+            if (*key == "show_console") settings.show_console = value;
+            else if (*key == "check_updates_on_startup") settings.check_updates_on_startup = value;
+            else settings.autostart_enabled = value;
+        } else if (*key == "language" || *key == "theme") {
+            if (text.front() != '"') return false;
+            text.remove_prefix(1);
+            std::size_t end{}; bool esc{};
+            for (; end < text.size(); ++end) {
+                if (esc) { esc = false; continue; }
+                if (text[end] == '\\') { esc = true; continue; }
+                if (text[end] == '"') break;
+            }
+            if (end >= text.size()) return false;
+            auto value = unescape_json_string(text.substr(0, end));
+            if (!value) return false;
+            if (*key == "language") settings.language = language_from_string(*value);
+            else settings.theme = theme_from_string(*value);
+            text.remove_prefix(end + 1);
+        } else {
+            if (text.front() == '{') {
+                int depth = 1; text.remove_prefix(1);
+                while (!text.empty() && depth) {
+                    if (text.front() == '{') ++depth;
+                    else if (text.front() == '}') --depth;
+                    else if (text.front() == '"') {
+                        text.remove_prefix(1);
+                        bool esc{};
+                        while (!text.empty()) {
+                            const char c = text.front(); text.remove_prefix(1);
+                            if (esc) { esc = false; continue; }
+                            if (c == '\\') { esc = true; continue; }
+                            if (c == '"') break;
+                        }
+                        continue;
+                    }
+                    if (!text.empty()) text.remove_prefix(1);
+                }
+            } else if (text.front() == '"') {
+                text.remove_prefix(1);
+                bool esc{};
+                while (!text.empty()) {
+                    const char c = text.front(); text.remove_prefix(1);
+                    if (esc) { esc = false; continue; }
+                    if (c == '\\') { esc = true; continue; }
+                    if (c == '"') break;
+                }
+            } else {
+                while (!text.empty() && text.front() != ',' && text.front() != '}') text.remove_prefix(1);
+            }
+        }
+        text = trim(text);
+        if (!text.empty() && text.front() == ',') { text.remove_prefix(1); continue; }
+        if (!text.empty() && text.front() == '}') return true;
+        return false;
     }
-    const auto colon = json.find(':', pos + needle.size());
-    if (colon == std::string_view::npos) {
-        return std::string(fallback);
-    }
-    auto rest = trim(json.substr(colon + 1));
-    if (rest.empty() || rest.front() != '"') {
-        return std::string(fallback);
-    }
-    rest.remove_prefix(1);
-    const auto end = rest.find('"');
-    if (end == std::string_view::npos) {
-        return std::string(fallback);
-    }
-    return std::string(rest.substr(0, end));
 }
 
 }  // namespace
@@ -187,14 +275,10 @@ std::string_view theme_to_string(Theme theme) {
 
 Settings parse_settings_json(std::string_view json) {
     Settings s = settings_defaults();
-    if (trim(json).empty() || !JsonValidator(json).valid()) {
+    if (json.size() > k_max_settings_bytes || trim(json).empty() || !JsonValidator(json).valid()) {
         return s;
     }
-    s.check_updates_on_startup = extract_bool(json, "check_updates_on_startup", s.check_updates_on_startup);
-    s.show_console = extract_bool(json, "show_console", s.show_console);
-    s.autostart_enabled = extract_bool(json, "autostart_enabled", s.autostart_enabled);
-    s.language = language_from_string(extract_string(json, "language", language_to_string(s.language)));
-    s.theme = theme_from_string(extract_string(json, "theme", theme_to_string(s.theme)));
+    if (!parse_root_object(json, s)) return settings_defaults();
     return s;
 }
 
