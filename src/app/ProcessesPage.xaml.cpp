@@ -44,24 +44,25 @@ void ProcessesPage::SortStatus(Windows::Foundation::IInspectable const&,mux::Rou
 void ProcessesPage::set_sort(SortColumn column){if(sort_column_==column)ascending_=!ascending_;else{sort_column_=column;ascending_=true;}render_processes();}
 
 winrt::fire_and_forget ProcessesPage::load_processes(){
-    if(scan_running_)co_return;scan_running_=true;auto weak=get_weak();auto queue=DispatcherQueue();auto previous_times=previous_process_times_;auto previous_system=previous_system_time_;
+    if(scan_running_)co_return;scan_running_=true;auto weak=get_weak();auto queue=DispatcherQueue();auto previous_times=previous_process_times_;auto previous_created=previous_process_created_;auto previous_system=previous_system_time_;
     co_await winrt::resume_background();
     std::vector<ProcessRow> rows;auto current_system=system_cpu_time();auto system_delta=current_system>previous_system?current_system-previous_system:0;
     std::unordered_map<std::uint32_t,std::uint64_t> current_times;
+    std::unordered_map<std::uint32_t,std::uint64_t> current_created;
     HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);if(snapshot==INVALID_HANDLE_VALUE){(void)queue.TryEnqueue([weak]{if(auto self=weak.get()){self->scan_running_=false;self->StatusText().Text(L"Process scan failed.");}});co_return;}
     PROCESSENTRY32W entry{};entry.dwSize=sizeof(entry);
     if(Process32FirstW(snapshot,&entry))do{
         ProcessRow row{};row.pid=entry.th32ProcessID;row.parent=entry.th32ParentProcessID;row.name=entry.szExeFile;row.priority=L"Unavailable";row.affinity=L"Unavailable";row.status=L"Running";
         HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,row.pid);
         if(process){
-            FILETIME created{},exited{},kernel{},user{};if(GetProcessTimes(process,&created,&exited,&kernel,&user)){auto value=file_time(kernel)+file_time(user);current_times[row.pid]=value;if(auto old=previous_times.find(row.pid);old!=previous_times.end()&&system_delta&&value>=old->second)row.cpu=100.0*static_cast<double>(value-old->second)/static_cast<double>(system_delta);}
+            FILETIME created{},exited{},kernel{},user{};if(GetProcessTimes(process,&created,&exited,&kernel,&user)){auto value=file_time(kernel)+file_time(user),created_value=file_time(created);current_times[row.pid]=value;current_created[row.pid]=created_value;if(auto old=previous_times.find(row.pid);old!=previous_times.end()&&previous_created[row.pid]==created_value&&system_delta&&value>=old->second)row.cpu=100.0*static_cast<double>(value-old->second)/static_cast<double>(system_delta);}
             switch(GetPriorityClass(process)){case IDLE_PRIORITY_CLASS:row.priority=L"Idle";break;case BELOW_NORMAL_PRIORITY_CLASS:row.priority=L"Below normal";break;case NORMAL_PRIORITY_CLASS:row.priority=L"Normal";break;case ABOVE_NORMAL_PRIORITY_CLASS:row.priority=L"Above normal";break;case HIGH_PRIORITY_CLASS:row.priority=L"High";break;case REALTIME_PRIORITY_CLASS:row.priority=L"Realtime";break;default:break;}
             DWORD_PTR process_mask{},system_mask{};if(GetProcessAffinityMask(process,&process_mask,&system_mask))row.affinity=affinity_label(process_mask,system_mask);
             DWORD size=32768;row.path.resize(size);if(QueryFullProcessImageNameW(process,0,row.path.data(),&size))row.path.resize(size);else row.path.clear();CloseHandle(process);
         }
         rows.push_back(std::move(row));
     }while(Process32NextW(snapshot,&entry));CloseHandle(snapshot);
-    (void)queue.TryEnqueue([weak,rows=std::move(rows),current_times=std::move(current_times),current_system]()mutable{if(auto self=weak.get()){self->scan_running_=false;self->rows_=std::move(rows);self->previous_process_times_=std::move(current_times);self->previous_system_time_=current_system;std::unordered_set<std::uint32_t> live;for(auto const& row:self->rows_)live.insert(row.pid);for(auto it=self->expanded_.begin();it!=self->expanded_.end();)if(!live.contains(*it))it=self->expanded_.erase(it);else++it;self->render_processes();}});
+    (void)queue.TryEnqueue([weak,rows=std::move(rows),current_times=std::move(current_times),current_created=std::move(current_created),current_system]()mutable{if(auto self=weak.get()){self->scan_running_=false;self->rows_=std::move(rows);self->previous_process_times_=std::move(current_times);self->previous_process_created_=std::move(current_created);self->previous_system_time_=current_system;std::unordered_set<std::uint32_t> live;for(auto const& row:self->rows_)live.insert(row.pid);for(auto it=self->expanded_.begin();it!=self->expanded_.end();)if(!live.contains(*it))it=self->expanded_.erase(it);else++it;self->render_processes();}});
 }
 
 void ProcessesPage::render_processes(){

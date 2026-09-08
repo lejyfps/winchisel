@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **45 von 56 Auditpunkten behoben**, 11 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **46 von 56 Auditpunkten behoben**, 10 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -30,7 +30,7 @@ Stand: **45 von 56 Auditpunkten behoben**, 11 offen. Erfolgreich behobene Punkte
 - [ ] **Block 8 – i18n und Encoding:** AUD-048 verifiziert; AUD-003 offen
 - [x] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
-- [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030 und AUD-037 erledigt; AUD-036 offen
+- [x] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030, AUD-036, AUD-037
 - [ ] **Block 12 – Prozesse:** AUD-033 bis AUD-035 behoben; AUD-032 offen
 - [x] **Block 13 – Logging/Diagnose/System Restore:** AUD-038, AUD-039, AUD-042
 - [ ] **Block 14 – UI-Parität und Accessibility:** AUD-044 bis AUD-047 behoben; AUD-043 offen
@@ -119,6 +119,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-009 – Kein Rollback bei Multi-Registry-Tweaks und Profilen
 
 - Typ: **BUG / DATENRISIKO**
+- Zwischenstand (2026-09-08): Der Platform-Layer bietet jetzt `write_registry_values_atomic`: Er liest alle Vorwerte, schreibt die Gruppe und rollt bei Teilfehlern rückwärts zurück. Performance-/Security-Multi-Targets, UAC, PowerShell-Scope und Background-Apps nutzen den Pfad. Profilweite Kombinationen mit Scheduled Tasks bleiben noch offen, daher ist der Punkt nicht abgehakt.
 - Neu: Multi-Target-Toggles, Privacy-Regeln, Browserregeln und Quick Actions schreiben nacheinander. Bei Fehler wird nur neu geladen; bereits erfolgreiche Schreibvorgänge bleiben bestehen (u. a. `PerformancePage.xaml.cpp`, `PrivacyPage.xaml.cpp`, `ExtrasPage.xaml.cpp:35-45`).
 - Folge: Ein einzelner Toggle kann einen nicht definierten Mischzustand erzeugen. „Defaults“ oder „Recommended“ können halb angewandt sein, während die UI lediglich einen Fehler/Re-Load zeigt.
 - Korrektur: Vorherwerte erfassen, atomare Action mit Rollback bzw. detailliertes Teilresultat; Profile mit Zusammenfassung und Wiederholbarkeit.
@@ -299,6 +300,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-032 – Prozess-CPU-Wert ist gegenüber Rust zu verifizieren
 
 - Typ: **PARITÄT / TESTLÜCKE**
+- Zwischenstand (2026-09-08): CPU-Snapshots speichern jetzt zusätzlich die Prozess-Erstellungszeit. Bei PID-Reuse wird kein Delta zwischen zwei verschiedenen Prozessen berechnet. Prozentdefinition und dynamischer Vergleich mit `sysinfo::Process::cpu_usage()` bleiben für den abschließenden Testlauf offen.
 - Neu berechnet CPU aus Prozess-/Systemzeit-Snapshots in eigener Logik; Rust nutzt sein bestehendes Modell samt Active/User-Filter und Labelcache (`src/app/processes.rs`).
 - Erforderlich: Auf 1/64+ logischen CPUs, kurzlebigen Prozessen, PID-Reuse und suspendierten Prozessen vergleichen; Prozentdefinition (Gesamtsystem vs. ein Kern) festschreiben.
 
@@ -329,6 +331,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-036 – Privacy-Sonderzustände und Profile brauchen vollständigen Referenztest
 
 - Typ: **PARITÄT / TESTLÜCKE**
+- [x] Status: **BEHOBEN NACH RUST-REFERENZABGLEICH (2026-09-08)** – UAC-Indizes/-Werte, Smart App Control (Recommended `0`, Default `2`), PowerShell (`RemoteSigned`/`Restricted`) und Ads (`1`/`2`) entsprechen `privacy_security.rs`. Der zuvor invertierte Quick-Profile-Pfad setzt Toggles nun wie Rust für Recommended auf Off/Deny und für Defaults auf On/Allow; Multi-Scope-Auswahlen schreiben atomar.
 - Neu: UAC, Smart App Control, PowerShell Policy und Ads-Modus sind separate UI-Sonderfälle neben generierten Registry-Regeln (`src/app/PrivacyPage.xaml.cpp`).
 - Risiko: Einzelregel-UI, abhängige Regeln und Quick Profiles können unterschiedliche Wahrheitsdefinitionen verwenden; Smart App Control ist nicht beliebig reversibel.
 - Korrektur: pro Rust-ID Golden-Test für Read, Enable, Disable, Recommended, Default und Mixed State. Irreversible/OS-gesteuerte Optionen ausdrücklich warnen.

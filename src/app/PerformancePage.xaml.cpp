@@ -325,12 +325,12 @@ void PerformancePage::save_gaming_toggle(std::size_t index) {
     }
     const auto& tweak = gaming_toggles_[index];
     const auto& values = tweak.control.IsOn() ? tweak.enabled_values : tweak.disabled_values;
+    std::vector<std::pair<Target,Value>> changes;
     for (std::size_t target_index = 0; target_index < tweak.targets.size(); ++target_index) {
-        if (!winchisel::platform::write_registry_value(tweak.targets[target_index], values[target_index])) {
-            show_write_error();
-            load_gaming_toggles();
-            return;
-        }
+        changes.emplace_back(tweak.targets[target_index],values[target_index]);
+    }
+    if(auto result=winchisel::platform::write_registry_values_atomic(changes);!result){
+        show_write_error(result.error().detail);load_gaming_toggles();return;
     }
 }
 
@@ -420,8 +420,8 @@ void PerformancePage::save_background_apps() {
     const Value value = index == 1 ? Value{std::uint32_t{1}} : index == 2 ? Value{std::uint32_t{2}} : Value{std::monostate{}};
     const auto user = target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
     const auto machine = target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
-    if (!winchisel::platform::write_registry_value(user, value) || !winchisel::platform::write_registry_value(machine, value)) {
-        show_write_error();
+    if (auto result=winchisel::platform::write_registry_values_atomic({{user,value},{machine,value}});!result) {
+        show_write_error(result.error().detail);
         load_gaming_selections();
     }
 }

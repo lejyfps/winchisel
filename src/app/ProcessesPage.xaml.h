@@ -24,6 +24,7 @@ private:
     struct ProcessRow { std::uint32_t pid{}; std::uint32_t parent{}; std::size_t depth{}; bool has_children{}; double cpu{}; std::wstring name,path,priority,affinity,status; };
     std::vector<ProcessRow> rows_;
     std::unordered_map<std::uint32_t, std::uint64_t> previous_process_times_;
+    std::unordered_map<std::uint32_t, std::uint64_t> previous_process_created_;
     std::uint64_t previous_system_time_{};
     std::unordered_set<std::uint32_t> expanded_;
     SortColumn sort_column_{SortColumn::name};

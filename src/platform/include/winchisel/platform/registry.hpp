@@ -2,6 +2,8 @@
 
 #include "winchisel/core/error.hpp"
 #include "winchisel/core/registry.hpp"
+#include <utility>
+#include <vector>
 
 namespace winchisel::platform {
 
@@ -11,5 +13,7 @@ winchisel::core::Result<winchisel::core::RegistryValue> read_registry_value(
 winchisel::core::Result<void> write_registry_value(
     winchisel::core::RegistryTarget const& target,
     winchisel::core::RegistryValue const& value);
+winchisel::core::Result<void> write_registry_values_atomic(
+    std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& changes);
 
 }  // namespace winchisel::platform

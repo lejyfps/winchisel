@@ -171,4 +171,28 @@ winchisel::core::Result<void> write_registry_value(RegistryTarget const& target,
     return {};
 }
 
+winchisel::core::Result<void> write_registry_values_atomic(
+    std::vector<std::pair<RegistryTarget, RegistryValue>> const& changes) {
+    std::vector<RegistryValue> previous;
+    previous.reserve(changes.size());
+    for (auto const& [target, _] : changes) {
+        auto value = read_registry_value(target);
+        if (!value) return std::unexpected(value.error());
+        previous.push_back(std::move(*value));
+    }
+    for (std::size_t index{}; index < changes.size(); ++index) {
+        auto result = write_registry_value(changes[index].first, changes[index].second);
+        if (result) continue;
+        auto original_error = result.error();
+        bool rollback_ok = true;
+        while (index > 0) {
+            --index;
+            rollback_ok = static_cast<bool>(write_registry_value(changes[index].first, previous[index])) && rollback_ok;
+        }
+        if (!rollback_ok) original_error.detail += "; rollback incomplete";
+        return std::unexpected(std::move(original_error));
+    }
+    return {};
+}
+
 }  // namespace winchisel::platform

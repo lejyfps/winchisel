@@ -236,12 +236,12 @@ void PrivacyPage::save_security_toggle(std::size_t index) {
     if (loading_security_ || index >= security_toggles_.size()) return;
     const auto& tweak = security_toggles_[index];
     const auto& values = tweak.control.IsOn() ? tweak.enabled_values : tweak.disabled_values;
+    std::vector<std::pair<Target,Value>> changes;
     for (std::size_t target_index = 0; target_index < tweak.targets.size(); ++target_index) {
-        if (!winchisel::platform::write_registry_value(tweak.targets[target_index], values[target_index])) {
-            show_write_error();
-            load_security();
-            return;
-        }
+        changes.emplace_back(tweak.targets[target_index],values[target_index]);
+    }
+    if(auto result=winchisel::platform::write_registry_values_atomic(changes);!result){
+        show_write_error(result.error().detail);load_security();return;
     }
 }
 
@@ -270,18 +270,17 @@ void PrivacyPage::save_uac_level() {
     const auto key = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
     const auto prompt = target(Hive::local_machine, key, "ConsentPromptBehaviorAdmin", Type::dword);
     const auto secure = target(Hive::local_machine, key, "PromptOnSecureDesktop", Type::dword);
-    if (!winchisel::platform::write_registry_value(prompt, values[selected].first) ||
-        !winchisel::platform::write_registry_value(secure, values[selected].second)) {
-        show_write_error();
+    if (auto result=winchisel::platform::write_registry_values_atomic({{prompt,values[selected].first},{secure,values[selected].second}});!result) {
+        show_write_error(result.error().detail);
         load_uac_level();
     }
 }
 
 void PrivacyPage::load_privacy_selections(){loading_uac_=true;if(smart_app_control_){auto value=winchisel::platform::read_registry_value(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword));if(value)if(auto current=std::get_if<std::uint32_t>(&*value))smart_app_control_.SelectedIndex(static_cast<int>(std::min(*current,2u)));}if(powershell_policy_){auto destination=target(Hive::current_user,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string);auto value=winchisel::platform::read_registry_value(destination);std::array<std::string_view,5> options{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};int selected=0;if(value)if(auto current=std::get_if<std::string>(&*value))for(std::size_t i{};i<options.size();++i)if(*current==options[i])selected=static_cast<int>(i);powershell_policy_.SelectedIndex(selected);}if(ads_mode_){auto value=winchisel::platform::read_registry_value(target(Hive::current_user,"Software\\Winhance\\Settings","AdsPromotionalContentMode",Type::dword));if(value)if(auto current=std::get_if<std::uint32_t>(&*value))ads_mode_.SelectedIndex(static_cast<int>(std::min(*current,2u)));}loading_uac_=false;}
 
-void PrivacyPage::save_privacy_selections(){if(loading_uac_)return;bool ok=true;if(smart_app_control_&&smart_app_control_.SelectedIndex()>=0)ok=ok&&static_cast<bool>(winchisel::platform::write_registry_value(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword),static_cast<std::uint32_t>(smart_app_control_.SelectedIndex())));if(powershell_policy_&&powershell_policy_.SelectedIndex()>=0){constexpr std::array values{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};auto selected=powershell_policy_.SelectedIndex();for(auto hive:{Hive::current_user,Hive::local_machine})ok=ok&&static_cast<bool>(winchisel::platform::write_registry_value(target(hive,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string),std::string(values[selected])));}if(ads_mode_&&ads_mode_.SelectedIndex()>=0)ok=ok&&static_cast<bool>(winchisel::platform::write_registry_value(target(Hive::current_user,"Software\\Winhance\\Settings","AdsPromotionalContentMode",Type::dword),static_cast<std::uint32_t>(ads_mode_.SelectedIndex())));if(!ok){show_write_error();load_privacy_selections();}}
+void PrivacyPage::save_privacy_selections(){if(loading_uac_)return;std::vector<std::pair<Target,Value>> changes;if(smart_app_control_&&smart_app_control_.SelectedIndex()>=0)changes.emplace_back(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword),static_cast<std::uint32_t>(smart_app_control_.SelectedIndex()));if(powershell_policy_&&powershell_policy_.SelectedIndex()>=0){constexpr std::array values{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};auto selected=powershell_policy_.SelectedIndex();for(auto hive:{Hive::current_user,Hive::local_machine})changes.emplace_back(target(hive,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string),std::string(values[selected]));}if(ads_mode_&&ads_mode_.SelectedIndex()>=0)changes.emplace_back(target(Hive::current_user,"Software\\Winhance\\Settings","AdsPromotionalContentMode",Type::dword),static_cast<std::uint32_t>(ads_mode_.SelectedIndex()));if(auto result=winchisel::platform::write_registry_values_atomic(changes);!result){show_write_error(result.error().detail);load_privacy_selections();}}
 
-void PrivacyPage::apply_profile(bool recommended){for(auto& toggle:security_toggles_)toggle.control.IsOn(recommended);for(auto& toggle:privacy_toggles_)toggle.control.IsOn(recommended);uac_level_.SelectedIndex(recommended?4:2);if(smart_app_control_)smart_app_control_.SelectedIndex(recommended?0:2);if(powershell_policy_)powershell_policy_.SelectedIndex(recommended?2:0);if(ads_mode_)ads_mode_.SelectedIndex(recommended?1:2);}
+void PrivacyPage::apply_profile(bool recommended){for(auto& toggle:security_toggles_)toggle.control.IsOn(!recommended);for(auto& toggle:privacy_toggles_)toggle.control.IsOn(!recommended);uac_level_.SelectedIndex(recommended?4:2);if(smart_app_control_)smart_app_control_.SelectedIndex(recommended?0:2);if(powershell_policy_)powershell_policy_.SelectedIndex(recommended?2:0);if(ads_mode_)ads_mode_.SelectedIndex(recommended?1:2);}
 void PrivacyPage::Recommended_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(true);}
 void PrivacyPage::Defaults_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(false);}
 
