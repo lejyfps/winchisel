@@ -4,8 +4,35 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Winchisel">
 
-    <NavigationView
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="8">
+                <Image x:Name="AppTitleBarIcon" Width="24" Height="24" Stretch="Uniform" />
+                <TextBlock Text="Winchisel" VerticalAlignment="Center" FontWeight="SemiBold" />
+            </StackPanel>
+            <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="UpdateButton" Click="Update_Click" Width="46" Height="48" Padding="0" CornerRadius="0" BorderThickness="0"
+                        ToolTipService.ToolTip="Check for updates" AutomationProperties.Name="Check for updates">
+                    <SymbolIcon Symbol="Sync" />
+                </Button>
+                <Button Click="BugReport_Click" Width="46" Height="48" Padding="0" CornerRadius="0" BorderThickness="0"
+                        Background="#C42B1C" Foreground="White"
+                        ToolTipService.ToolTip="Report a bug" AutomationProperties.Name="Report a bug">
+                    <SymbolIcon Symbol="ReportHacked" />
+                </Button>
+                <Button Click="Donate_Click" Width="46" Height="48" Padding="0" CornerRadius="0" BorderThickness="0"
+                        ToolTipService.ToolTip="Donate" AutomationProperties.Name="Donate">
+                    <SymbolIcon Symbol="Like" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    <NavigationView Grid.Row="1"
         x:Name="Nav"
+        KeyboardAcceleratorPlacementMode="Hidden"
         IsBackButtonVisible="Collapsed"
         IsSettingsVisible="False"
         OpenPaneLength="240"
@@ -59,4 +86,5 @@
                      AutomationProperties.LiveSetting="Assertive" />
         </Grid>
     </NavigationView>
+    </Grid>
 </Window>
