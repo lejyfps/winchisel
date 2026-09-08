@@ -23,6 +23,7 @@ LatencyPage::LatencyPage() {
     timer_token_ = timer_.Tick([weak](auto&&, auto&&) {
         if (auto page = weak.get()) page->poll_analysis();
     });
+    render_message(L"Click 'Analyze USB Latency' to begin analysis.");
 }
 
 LatencyPage::~LatencyPage() {

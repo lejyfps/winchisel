@@ -188,7 +188,7 @@ PerformancePage::PerformancePage() {
                         if (end == item.options.size()) break;
                         start = end + 1;
                     }
-                    combo.SelectedIndex(combo.Items().Size() ? 0 : -1);
+                    combo.SelectedIndex(-1);
                     const auto selection_index=catalog_selections_.size();
                     combo.IsEnabled(true);
                     catalog_selections_.push_back({std::string(item.id),std::move(options),combo});
@@ -290,7 +290,7 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
 void PerformancePage::load_catalog_selections() {
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
-        if(item.id=="gaming-dns-server"){auto profile=winchisel::platform::read_dns_profile();if(profile)item.control.SelectedIndex(*profile);continue;}
+        if(item.id=="gaming-dns-server"){auto profile=winchisel::platform::read_dns_profile();item.control.SelectedIndex(profile&&*profile<static_cast<int>(item.options.size())?*profile:-1);continue;}
         std::uint32_t value{}; bool found{};
         Target destination;
         if (item.id=="gaming-win32-priority") destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);
@@ -300,10 +300,10 @@ void PerformancePage::load_catalog_selections() {
         else continue;
         auto current=winchisel::platform::read_registry_value(destination);if(current)if(auto dword=std::get_if<std::uint32_t>(&*current)){value=*dword;found=true;}if(!found)continue;
         int selected=0;
-        if(item.id=="gaming-win32-priority")selected=value==24?1:0;
-        else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};for(std::size_t i{};i<values.size();++i)if(values[i]==value)selected=static_cast<int>(i);}
+        if(item.id=="gaming-win32-priority")selected=value==24?1:value==38?0:-1;
+        else if(item.id=="gaming-performance-svchost-split-threshold"){selected=10;constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};for(std::size_t i{};i<values.size();++i)if(values[i]==value)selected=static_cast<int>(i);}
         else if(item.id=="visual-effects-mode")selected=static_cast<int>(std::min(value,3u));
-        else for(std::size_t i{};i<item.options.size();++i){auto option=lower(item.options[i]);if((value==4&&option.find("disabled")!=std::string::npos)||(value==3&&option.find("manual")!=std::string::npos)||(value==2&&option.find("automatic")!=std::string::npos)){selected=static_cast<int>(i);break;}}
+        else {selected=-1;for(std::size_t i{};i<item.options.size();++i){auto option=lower(item.options[i]);if((value==4&&option.find("disabled")!=std::string::npos)||(value==3&&option.find("manual")!=std::string::npos)||(value==2&&option.find("automatic")!=std::string::npos)){selected=static_cast<int>(i);break;}}}
         item.control.SelectedIndex(selected);
     }
     loading_gaming_selections_ = false;
