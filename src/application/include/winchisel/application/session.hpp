@@ -12,7 +12,7 @@ public:
     bool bootstrap();
 
     const winchisel::core::Settings& settings() const { return settings_; }
-    void set_settings(winchisel::core::Settings settings);
+    winchisel::core::Result<void> set_settings(winchisel::core::Settings settings);
 
     winchisel::core::Screen current_screen() const { return screen_; }
     void set_screen(winchisel::core::Screen screen) { screen_ = screen; }

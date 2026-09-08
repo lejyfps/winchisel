@@ -16,6 +16,26 @@ Dieses Dokument ist die Arbeitsliste für den schrittweisen Abgleich. Es untersc
 
 Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbst geschriebenen C++-/Header-/XAML-/IDL-/Installer-/Release-Dateien und der gesamten `todo.md`, ergänzt um gezielte Vergleiche mit allen Rust-Modulen. Generierte WinRT-/XAML-Dateien, Binärdateien und NuGet-Inhalte wurden nicht als eigener Anwendungscode bewertet. Der Debug-x64-Build wurde erfolgreich ausgeführt. Destruktive Tweaks, Updateinstallation, Deinstallation und Systemreparatur wurden aus Sicherheitsgründen nicht live ausgeführt; diese Punkte benötigen später VM-Tests.
 
+## Fortschritt
+
+Stand: **15 von 56 Auditpunkten behoben**, 41 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+
+- [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
+- [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
+- [x] **Block 3 – Exception/Handle/Event-Lifecycle:** AUD-010, AUD-017, AUD-018
+- [x] **Block 4 – Extras-Zustände/Rollback:** AUD-025, AUD-027, AUD-029
+- [x] **Block 5 – Sichere Systemaktionen:** AUD-028, AUD-040, AUD-041
+- [ ] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
+- [ ] **Block 7 – Performance-Backend-Parität:** AUD-007, AUD-008, AUD-009
+- [ ] **Block 8 – i18n und Encoding:** AUD-003, AUD-048
+- [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
+- [ ] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
+- [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030, AUD-036, AUD-037
+- [ ] **Block 12 – Prozesse:** AUD-032 bis AUD-035
+- [ ] **Block 13 – Logging/Diagnose/System Restore:** AUD-038, AUD-039, AUD-042
+- [ ] **Block 14 – UI-Parität und Accessibility:** AUD-043 bis AUD-047
+- [ ] **Block 15 – Architektur/Tests/Release:** AUD-049 bis AUD-056
+
 ## Kurzfazit
 
 Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen vorhanden. Er ist aber noch **nicht funktionsidentisch** zum Rust-Stand und nicht releasefertig. Mehrere Aussagen in `todo.md` sind zu optimistisch. Die größten Blocker sind:
@@ -56,7 +76,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-004 – AppX-Debloater führt andere Aktionen als Rust aus
 
 - Typ: **PARITÄT / BUG**
-- Status: **BEHOBEN IN BLOCK 1 (2026-09-08)** – AppX-Aktionen verwenden wieder die Rust-Semantik mit Aliasen, AllUsers und Manifestregistrierung; dynamischer VM-Test bleibt ausstehend.
+- [x] Status: **BEHOBEN IN BLOCK 1 (2026-09-08)** – AppX-Aktionen verwenden wieder die Rust-Semantik mit Aliasen, AllUsers und Manifestregistrierung; dynamischer VM-Test bleibt ausstehend.
 - Neu: `src/platform/src/debloater.cpp:87` ruft `winget install/uninstall --name <package_name> --exact` auf.
 - Alt: `src/app/debloater.rs:183-220` registriert vorhandene AppX-Manifeste mit `Add-AppxPackage` bzw. entfernt alle passenden All-Users-Pakete mit `Get-AppxPackage ... -AllUsers | Remove-AppxPackage`; Aliase werden berücksichtigt.
 - Folge: Package-Family-Namen sind keine verlässlichen winget-Anzeigenamen. Install/Remove kann fehlschlagen, das falsche Paket treffen oder All-Users-Zustand ignorieren. Reinstall-Hinweise/Store-IDs des Katalogs werden nicht zur Aktion genutzt.
@@ -65,7 +85,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-005 – AppX-Ist-Zustand hat eine andere Semantik
 
 - Typ: **PARITÄT / BUG**
-- Status: **BEHOBEN IN BLOCK 1 (2026-09-08)** – Scan verwendet wieder `Get-AppxPackage` für den aktuellen Nutzer.
+- [x] Status: **BEHOBEN IN BLOCK 1 (2026-09-08)** – Scan verwendet wieder `Get-AppxPackage` für den aktuellen Nutzer.
 - Neu: `src/platform/src/debloater.cpp:60-66` durchsucht den maschinenweiten StateRepository-Cache.
 - Alt: `Get-AppxPackage` listet die tatsächlich für den aktuellen Nutzer registrierten Pakete (`src/app/debloater.rs:647-649`).
 - Folge: Provisionierte, gecachte, für andere Nutzer vorhandene oder nicht mehr registrierte Pakete können fälschlich als installiert erscheinen; umgekehrt können Zugriffsfehler alle Apps als nicht installiert darstellen.
@@ -73,7 +93,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-006 – Debloater-Scan kann niemals einen Fehler melden
 
 - Typ: **BUG**
-- Status: **BEHOBEN IN BLOCK 1 (2026-09-08)** – Start- und Exitfehler aller drei parallelen PowerShell-Scans werden als Fehler an die UI propagiert.
+- [x] Status: **BEHOBEN IN BLOCK 1 (2026-09-08)** – Start- und Exitfehler aller drei parallelen PowerShell-Scans werden als Fehler an die UI propagiert.
 - Neu: Fehlercodes der drei Scanprozesse werden in leere Sets umgewandelt (`lines()`); `scan_debloater_installed()` gibt trotzdem immer einen erfolgreichen `Result<vector<bool>>` zurück (`src/platform/src/debloater.cpp:69-78`). Die UI besitzt zwar „Scan failed“, dieser Pfad ist praktisch unerreichbar.
 - Folge: Fehlendes DISM, Zugriff verweigert oder Prozessstartfehler zeigt irreführend „alles nicht installiert“.
 - Korrektur: Exitcode, Startfehler und Parsefehler je Quelle typisiert propagieren; Teilresultate als „unbekannt“ statt `false` modellieren.
@@ -102,6 +122,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-010 – UnhandledException wird pauschal als behandelt markiert
 
 - Typ: **BUG / RISIKO**
+- [x] Status: **BEHOBEN IN BLOCK 3 (2026-09-08)** – Unbekannte UI-Ausnahmen werden geloggt/gemeldet, aber nicht mehr als sicher fortsetzbar markiert.
 - Neu: `src/app/App.xaml.cpp:10-20` zeigt eine MessageBox und setzt `e.Handled(true)` für jede XAML-UnhandledException.
 - Folge: Die App läuft nach beliebigen, möglicherweise zustandszerstörenden Ausnahmen weiter. Folgefehler und stille Datenkorruption sind wahrscheinlicher; Crashdiagnose wird erschwert.
 - Korrektur: Nur klar erwartete, recoverable Ausnahmen behandeln; sonst strukturiert loggen und geordnet beenden/Crashdump ermöglichen.
@@ -111,6 +132,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-011 – Settings-Parser validiert kein JSON
 
 - Typ: **PARITÄT / BUG**
+- [x] Status: **BEHOBEN IN BLOCK 2 (2026-09-08)** – Das gesamte Dokument wird vor der kompatiblen Feldauswertung syntaktisch als JSON validiert; beschädigte Dateien fallen vollständig auf Defaults zurück.
 - Neu: `src/core/src/settings.cpp:15-65` sucht Schlüssel per Stringsuche und akzeptiert Fragmente wie `"show_console": trueXYZ`, Duplikate und syntaktisch ungültiges JSON.
 - Alt: `serde_json::from_str`; ungültige Datei führt vollständig zu Defaults.
 - Folge: Beschädigte Settings werden teilweise übernommen statt definiert verworfen. Schlüsseltexte innerhalb anderer Strings können fehlinterpretiert werden.
@@ -119,6 +141,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-012 – Settings werden nicht atomar geschrieben und Fehler verschwinden
 
 - Typ: **BUG / DATENRISIKO**
+- [x] Status: **BEHOBEN IN BLOCK 2 (2026-09-08)** – Schreiben erfolgt über `.tmp` plus atomaren, write-through Replace; Fehler werden an die Settings-Seite gereicht.
 - Neu: `src/platform/src/system.cpp:173-184` öffnet die Zieldatei direkt mit `trunc`; `Session::set_settings` und Bootstrap ignorieren Fehler (`src/application/src/session.cpp:25,38`).
 - Folge: Crash/Stromausfall kann eine leere/halbe Datei hinterlassen; UI behauptet implizit erfolgreiches Autosave. Dies widerspricht dem Logging-/Fehlerkonzept in `todo.md`.
 - Korrektur: Neben-Datei schreiben, flush/close prüfen, atomar ersetzen; Fehler in der Settings-UI anzeigen und protokollieren.
@@ -126,6 +149,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-013 – Autostart-Fehler wird dem Nutzer nicht erklärt
 
 - Typ: **PARITÄT / UX-BUG**
+- [x] Status: **BEHOBEN IN BLOCK 2 (2026-09-08)** – Registry-/Speicherfehler setzen die Controls zurück und öffnen eine Fehler-InfoBar.
 - Neu: Bei Registryfehler setzt `Session::set_settings` den bool zurück, verwirft aber Fehlerdetail und zeigt keinen Toast (`src/application/src/session.cpp:29-34`).
 - Folge: Toggle springt scheinbar grundlos zurück.
 
@@ -154,6 +178,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-017 – Timer-Event in Latency wird nicht deregistriert
 
 - Typ: **MEMORY/LIFECYCLE-RISIKO**
+- [x] Status: **BEHOBEN IN BLOCK 3 (2026-09-08)** – Weak Capture, gespeicherter Event-Token und explizite Deregistrierung ergänzt.
 - Neu: `LatencyPage` registriert `timer_.Tick([this]...)` ohne Token und stoppt im Destruktor nur den Timer (`src/app/LatencyPage.xaml.cpp:19-25`).
 - Folge: Gegenüber den anderen Pages ist der Handler-Lifecycle nicht explizit gelöst; je nach Event-Ownership drohen Referenz-/Callback-Probleme.
 - Korrektur: Token speichern und im Destruktor entfernen; vorzugsweise Weak-Reference capturen.
@@ -161,6 +186,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-018 – Crypto-Handles lecken auf frühem Fehlerpfad
 
 - Typ: **MEM-LEAK / HANDLE-LEAK**
+- [x] Status: **BEHOBEN IN BLOCK 3 (2026-09-08)** – Algorithmus-/Key-Handles werden auch bei Import-/Property-Fehlern freigegeben.
 - Neu: `verify_signature()` (`src/platform/src/update.cpp:58-75`) kehrt sofort zurück, wenn `BCryptImportKeyPair` nach erfolgreichem `BCryptOpenAlgorithmProvider` fehlschlägt. `algorithm` wird dann nicht geschlossen; analoge Property-/Create-Fehler sind nur teilweise geprüft.
 - Korrektur: RAII-Wrapper für `BCRYPT_ALG_HANDLE`, `BCRYPT_KEY_HANDLE`, `BCRYPT_HASH_HANDLE`; jeden NTSTATUS prüfen.
 
@@ -206,6 +232,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-025 – Extras: Browserzustand und geschriebene Regelmenge sind inkonsistent
 
 - Typ: **BUG**
+- [x] Status: **BEHOBEN IN BLOCK 4 (2026-09-08)** – Brave und Edge prüfen nun dieselbe vollständige Regelmenge, die beim Aktivieren geschrieben wird.
 - Neu: Brave wird beim Laden nur anhand von 5 Regeln als aktiv erkannt, beim Schreiben werden 12 Regeln verändert (`src/app/ExtrasPage.xaml.cpp:23-24,43`). Edge-Zustand prüft weder EdgeUpdate-Regel noch Extension-Blocklist, obwohl diese geschrieben werden.
 - Folge: UI kann „aktiv“ zeigen, obwohl nur ein Teilprofil vorliegt; beim Deaktivieren werden vorhandene, eventuell vom Admin gesetzte Policies gelöscht.
 - Korrektur: exakt gleiche vollständige Regelmenge lesen/schreiben; Fremdwerte sichern bzw. Ownership definieren.
@@ -220,18 +247,21 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-027 – Teredo-Operation ist nicht atomar
 
 - Typ: **BUG**
+- [x] Status: **BEHOBEN IN BLOCK 4 (2026-09-08)** – Der vorherige `DisabledComponents`-Wert wird bei einem nachfolgenden netsh-Fehler zurückgeschrieben.
 - Neu: Erst wird `DisabledComponents` geändert, anschließend `netsh` ausgeführt (`src/platform/src/system.cpp:436-447`). Scheitert `netsh`, bleibt Registry geändert, UI zeigt Fehler.
 - Korrektur: Vorwert sichern und bei Folgefehler rückrollen; Neustartanforderung ausweisen.
 
 ### AUD-028 – HPET „Default“ erzwingt `useplatformclock true`
 
 - Typ: **PARITÄT / SYSTEMRISIKO**
+- [x] Status: **BEHOBEN IN BLOCK 5 (2026-09-08)** – Deaktivieren des Tweaks entfernt den BCD-Wert und überlässt die Clock-Auswahl wieder Windows.
 - Neu und Alt verwenden zwar on/off, aber ein echtes Windows-Default wäre in vielen Installationen das Entfernen des BCD-Eintrags (`bcdedit /deletevalue useplatformclock`) statt `true` (`src/platform/src/system.cpp:449-451`).
 - Folge: „Disable aus“ ist nicht zwingend „Windows-Standard“. Dies war wahrscheinlich bereits ein Altverhalten und muss bewusst entschieden, nicht als Default bezeichnet werden.
 
 ### AUD-029 – Widgets-Ist-Zustand prüft nur, ob ein allgemeiner Repository-Key geöffnet werden kann
 
 - Typ: **BUG**
+- [x] Status: **BEHOBEN IN BLOCK 4 (2026-09-08)** – Der Package-Cache wird explizit nach `MicrosoftWindows.Client.WebExperience` durchsucht.
 - Neu: `read_extras_command_state()` setzt `widgets_removed=true`, wenn der allgemeine Package-Data-Key nicht geöffnet werden kann (`src/platform/src/system.cpp:480-483`). Es wird nicht nach dem Windows Web Experience Pack gesucht.
 - Folge: Registry-Berechtigungsfehler oder beschädigter Repositoryzugriff wird als „Widgets entfernt“ angezeigt; bei zugänglichem Key praktisch immer „nicht entfernt“.
 
@@ -306,6 +336,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-040 – Temp-Cleanup verschluckt alle Einzel- und Enumerationsfehler
 
 - Typ: **BUG / UX**
+- [x] Status: **BEHOBEN IN BLOCK 5 (2026-09-08)** – Lösch-/Enumerationsfehler werden gesammelt und als Partial Failure gemeldet; Permission-Denied wird kontrolliert behandelt.
 - Neu: `remove_temp_files()` löscht rekursiv, löscht `error_code` nach jedem Eintrag und gibt am Ende immer Erfolg zurück (`src/platform/src/system.cpp:352-373`).
 - Folge: „Erfolg“ trotz zahlreicher nicht gelöschter Dateien; Junction/Reparse-Point-Verhalten ist nicht explizit abgesichert.
 - Korrektur: Reparse Points nicht traversieren, erlaubte Roots kanonisch prüfen, Fehler zählen/anzeigen und Partial Success modellieren.
@@ -313,6 +344,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-041 – Disk Cleanup ist funktional erweitert, aber nicht als Abweichung dokumentiert
 
 - Typ: **PARITÄT / PRODUKTENTSCHEIDUNG**
+- [x] Status: **BEHOBEN IN BLOCK 5 (2026-09-08)** – Das versteckte DISM `/ResetBase` wurde entfernt; die Aktion entspricht wieder dem Rust-Workflow.
 - Neu: Nach `cleanmgr /VERYLOWDISK` läuft zusätzlich DISM `/StartComponentCleanup /ResetBase` (`src/platform/src/system.cpp:345-350`).
 - Alt/Todo: Disk Cleanup startet `cleanmgr`.
 - Folge: `/ResetBase` ist wesentlich invasiver und verhindert die Deinstallation bereits installierter Updates. Das ist keine harmlose Rewrite-Äquivalenz.

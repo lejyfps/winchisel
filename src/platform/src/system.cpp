@@ -172,15 +172,27 @@ winchisel::core::Result<winchisel::core::Settings> load_settings() {
 
 winchisel::core::Result<void> save_settings(const winchisel::core::Settings& settings) {
     const auto path = settings_path();
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    const auto temporary = path.wstring() + L".tmp";
+    std::ofstream out(std::filesystem::path(temporary), std::ios::binary | std::ios::trunc);
     if (!out) {
         return std::unexpected(winchisel::core::Error{
             .code = winchisel::core::ErrorCode::io,
             .message_key = "settings_save_failed",
-            .detail = path.string(),
+            .detail = std::filesystem::path(temporary).string(),
         });
     }
     out << winchisel::core::serialize_settings_json(settings);
+    out.flush();
+    out.close();
+    if (!out || !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const auto error = GetLastError();
+        DeleteFileW(temporary.c_str());
+        return std::unexpected(winchisel::core::Error{
+            .code = winchisel::core::ErrorCode::io,
+            .message_key = "settings_save_failed",
+            .detail = std::to_string(error),
+        });
+    }
     return {};
 }
 
@@ -343,10 +355,10 @@ winchisel::core::Result<void> run_system_repair(ProtectionProgress const& progre
 }
 
 winchisel::core::Result<void> run_disk_cleanup() {
-    if (auto result = run_hidden(L"cleanmgr.exe /d C: /VERYLOWDISK", "settings_disk_cleanup_failed"); !result) {
-        return result;
-    }
-    return run_hidden(L"dism.exe /online /Cleanup-Image /StartComponentCleanup /ResetBase", "settings_disk_cleanup_failed");
+    // Keep this action equivalent to the Rust version. Component-store
+    // /ResetBase is destructive (installed updates can no longer be removed)
+    // and must never be hidden behind ordinary disk cleanup.
+    return run_hidden(L"cleanmgr.exe /d C: /VERYLOWDISK", "settings_disk_cleanup_failed");
 }
 
 winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progress) {
@@ -361,14 +373,38 @@ winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progre
     const auto windows_length = GetWindowsDirectoryW(windows.data(), static_cast<UINT>(windows.size()));
     if (windows_length && windows_length < windows.size()) roots[1] = std::filesystem::path(windows.data()) / L"Temp";
     std::error_code ec;
+    std::size_t removed{};
+    std::vector<std::string> failures;
     for (auto const& root : roots) {
-        if (root.empty() || !std::filesystem::exists(root, ec)) continue;
-        for (std::filesystem::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        if (root.empty()) continue;
+        if (!std::filesystem::exists(root, ec)) { ec.clear(); continue; }
+        std::filesystem::directory_iterator it(root,
+            std::filesystem::directory_options::skip_permission_denied, ec), end;
+        if (ec) { failures.push_back(root.string() + ": " + ec.message()); ec.clear(); continue; }
+        while (it != end) {
             const auto path = it->path();
-            std::filesystem::remove_all(path, ec);
-            if (progress && !ec) progress(false, path.filename().string());
-            ec.clear();
+            std::error_code type_error;
+            const bool reparse_point = it->is_symlink(type_error);
+            if (type_error) {
+                failures.push_back(path.string() + ": " + type_error.message());
+            } else {
+                std::filesystem::remove_all(path, ec);
+                if (!ec) {
+                    ++removed;
+                    if (progress) progress(false, path.filename().string());
+                } else {
+                    failures.push_back(path.string() + ": " + ec.message());
+                    ec.clear();
+                }
+            }
+            it.increment(ec);
+            if (ec) { failures.push_back(root.string() + ": " + ec.message()); ec.clear(); break; }
         }
+    }
+    if (!failures.empty()) {
+        std::string detail = std::to_string(removed) + " entries removed; " +
+            std::to_string(failures.size()) + " failed. First error: " + failures.front();
+        return fail("settings_temp_files_failed", std::move(detail));
     }
     return {};
 }
@@ -443,11 +479,30 @@ winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
     status = RegSetValueExW(key, L"DisabledComponents", 0, REG_DWORD, reinterpret_cast<BYTE const*>(&next), sizeof(next));
     RegCloseKey(key);
     if (status != ERROR_SUCCESS) return fail("teredo_failed", "Unable to update DisabledComponents: " + std::to_string(status));
-    return run_hidden(enabled ? L"netsh.exe interface teredo set state disabled" : L"netsh.exe interface teredo set state default", "teredo_failed");
+    auto command = run_hidden(enabled ? L"netsh.exe interface teredo set state disabled" : L"netsh.exe interface teredo set state default", "teredo_failed");
+    if (!command) {
+        HKEY rollback_key{};
+        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters", 0,
+                nullptr, 0, KEY_WRITE, nullptr, &rollback_key, nullptr) == ERROR_SUCCESS) {
+            RegSetValueExW(rollback_key, L"DisabledComponents", 0, REG_DWORD,
+                reinterpret_cast<BYTE const*>(&current), sizeof(current));
+            RegCloseKey(rollback_key);
+        }
+        return command;
+    }
+    return {};
 }
 
 winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
-    return run_hidden(enabled ? L"bcdedit.exe /set useplatformclock false" : L"bcdedit.exe /set useplatformclock true", "hpet_failed");
+    if (enabled) return run_hidden(L"bcdedit.exe /set useplatformclock false", "hpet_failed");
+    // Absence of the value is the Windows-managed default. bcdedit returns a
+    // non-zero code when it is already absent, which is also the desired state.
+    auto result = run_hidden(L"bcdedit.exe /deletevalue useplatformclock", "hpet_failed");
+    if (!result) {
+        const auto state = read_extras_command_state();
+        if (!state.hpet_disabled) return {};
+    }
+    return result;
 }
 
 ExtrasCommandState read_extras_command_state() {
@@ -481,8 +536,22 @@ ExtrasCommandState read_extras_command_state() {
     const auto [power_code, power] = capture(L"powercfg.exe /list");
     state.power_plan_active = power_code == 0 && power.find("(Winchisel)") != std::string::npos && power.find('*') != std::string::npos;
     HKEY widgets{};
-    state.widgets_removed = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Data", 0, KEY_READ, &widgets) != ERROR_SUCCESS;
-    if (widgets) RegCloseKey(widgets);
+    state.widgets_removed = true;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Data", 0, KEY_READ, &widgets) == ERROR_SUCCESS) {
+        for (DWORD index{};; ++index) {
+            std::array<wchar_t, 512> name{}; DWORD length = static_cast<DWORD>(name.size());
+            const auto status = RegEnumKeyExW(widgets, index, name.data(), &length, nullptr, nullptr, nullptr, nullptr);
+            if (status == ERROR_NO_MORE_ITEMS) break;
+            if (status == ERROR_SUCCESS) {
+                std::wstring package(name.data(), length);
+                std::ranges::transform(package, package.begin(), towlower);
+                if (package.find(L"microsoftwindows.client.webexperience") != std::wstring::npos) {
+                    state.widgets_removed = false; break;
+                }
+            }
+        }
+        RegCloseKey(widgets);
+    }
     const auto [hpet_code, hpet] = capture(L"bcdedit.exe /enum {current}");
     if (hpet_code == 0) {
         const std::regex hpet_pattern(R"(useplatformclock\s+(false|no|0))", std::regex::icase);

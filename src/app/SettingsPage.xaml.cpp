@@ -71,7 +71,16 @@ void SettingsPage::save_settings() {
     settings.check_updates_on_startup = CheckUpdates().IsOn();
     settings.show_console = ShowConsole().IsOn();
     settings.autostart_enabled = Autostart().IsOn();
-    winchisel::application::Session::instance().set_settings(settings);
+    if (auto result = winchisel::application::Session::instance().set_settings(settings); !result) {
+        loading_ = true;
+        const auto& current = winchisel::application::Session::instance().settings();
+        Language().SelectedIndex(current.language == winchisel::core::Language::german ? 1 : 0);
+        CheckUpdates().IsOn(current.check_updates_on_startup);
+        ShowConsole().IsOn(current.show_console);
+        Autostart().IsOn(current.autostart_enabled);
+        loading_ = false;
+        show_result(false, L"Settings could not be saved: " + to_hstring(result.error().detail));
+    }
 }
 
 void SettingsPage::Restore_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::restore); }

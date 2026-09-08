@@ -18,11 +18,17 @@ LatencyPage::LatencyPage() {
     InitializeComponent();
     timer_ = Microsoft::UI::Xaml::DispatcherTimer();
     timer_.Interval(std::chrono::milliseconds(120));
-    timer_.Tick([this](auto&&, auto&&) { poll_analysis(); });
+    auto weak = get_weak();
+    timer_token_ = timer_.Tick([weak](auto&&, auto&&) {
+        if (auto page = weak.get()) page->poll_analysis();
+    });
 }
 
 LatencyPage::~LatencyPage() {
-    timer_.Stop();
+    if (timer_) {
+        timer_.Stop();
+        timer_.Tick(timer_token_);
+    }
 }
 
 void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {

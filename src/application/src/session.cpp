@@ -34,17 +34,17 @@ bool Session::bootstrap() {
     return true;
 }
 
-void Session::set_settings(winchisel::core::Settings settings) {
+winchisel::core::Result<void> Session::set_settings(winchisel::core::Settings settings) {
     if (settings.autostart_enabled != settings_.autostart_enabled) {
         if (auto result = winchisel::platform::set_autostart_enabled(settings.autostart_enabled); !result) {
-            settings.autostart_enabled = settings_.autostart_enabled;
+            return std::unexpected(result.error());
         }
     }
     if (settings.show_console != settings_.show_console) {
         winchisel::platform::set_console_visible(settings.show_console);
     }
     settings_ = std::move(settings);
-    (void)winchisel::platform::save_settings(settings_);
+    return winchisel::platform::save_settings(settings_);
 }
 
 }  // namespace winchisel::application

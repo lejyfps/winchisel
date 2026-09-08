@@ -6,6 +6,58 @@
 namespace winchisel::core {
 namespace {
 
+class JsonValidator {
+public:
+    explicit JsonValidator(std::string_view text) : text_(text) {}
+    bool valid() { skip(); return value() && (skip(), position_ == text_.size()); }
+private:
+    void skip() { while (position_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[position_]))) ++position_; }
+    bool take(char c) { skip(); if (position_ >= text_.size() || text_[position_] != c) return false; ++position_; return true; }
+    bool string() {
+        if (!take('"')) return false;
+        while (position_ < text_.size()) {
+            const unsigned char c = static_cast<unsigned char>(text_[position_++]);
+            if (c == '"') return true;
+            if (c < 0x20) return false;
+            if (c == '\\') {
+                if (position_ >= text_.size()) return false;
+                const char escaped = text_[position_++];
+                if (std::string_view{"\"\\/bfnrt"}.find(escaped) != std::string_view::npos) continue;
+                if (escaped != 'u' || position_ + 4 > text_.size()) return false;
+                for (int i = 0; i < 4; ++i) if (!std::isxdigit(static_cast<unsigned char>(text_[position_++]))) return false;
+            }
+        }
+        return false;
+    }
+    bool literal(std::string_view token) {
+        skip(); if (!text_.substr(position_).starts_with(token)) return false; position_ += token.size(); return true;
+    }
+    bool number() {
+        skip(); const auto begin = position_;
+        if (position_ < text_.size() && text_[position_] == '-') ++position_;
+        if (position_ >= text_.size()) return false;
+        if (text_[position_] == '0') ++position_;
+        else { if (!std::isdigit(static_cast<unsigned char>(text_[position_]))) return false; while (position_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[position_]))) ++position_; }
+        if (position_ < text_.size() && text_[position_] == '.') { ++position_; const auto digits = position_; while (position_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[position_]))) ++position_; if (digits == position_) return false; }
+        if (position_ < text_.size() && (text_[position_] == 'e' || text_[position_] == 'E')) { ++position_; if (position_ < text_.size() && (text_[position_] == '+' || text_[position_] == '-')) ++position_; const auto digits = position_; while (position_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[position_]))) ++position_; if (digits == position_) return false; }
+        return position_ > begin;
+    }
+    bool array() {
+        if (!take('[')) return false; skip(); if (take(']')) return true;
+        do { if (!value()) return false; skip(); if (take(']')) return true; } while (take(',')); return false;
+    }
+    bool object() {
+        if (!take('{')) return false; skip(); if (take('}')) return true;
+        do { if (!string() || !take(':') || !value()) return false; skip(); if (take('}')) return true; } while (take(',')); return false;
+    }
+    bool value() {
+        skip(); if (position_ >= text_.size()) return false;
+        if (text_[position_] == '{') return object(); if (text_[position_] == '[') return array(); if (text_[position_] == '"') return string();
+        return literal("true") || literal("false") || literal("null") || number();
+    }
+    std::string_view text_; std::size_t position_{};
+};
+
 std::string_view trim(std::string_view s) {
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) {
         s.remove_prefix(1);
@@ -83,7 +135,7 @@ std::string_view language_to_string(Language language) {
 
 Settings parse_settings_json(std::string_view json) {
     Settings s = settings_defaults();
-    if (trim(json).empty()) {
+    if (trim(json).empty() || !JsonValidator(json).valid()) {
         return s;
     }
     s.check_updates_on_startup = extract_bool(json, "check_updates_on_startup", s.check_updates_on_startup);

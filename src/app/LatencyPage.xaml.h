@@ -21,6 +21,7 @@ private:
     std::future<winchisel::core::Result<winchisel::platform::LatencyAnalysis>> analysis_;
     std::optional<winchisel::core::Result<winchisel::platform::LatencyAnalysis>> pending_result_;
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};
+    winrt::event_token timer_token_{};
     int progress_{};
     int target_progress_{};
     int progress_tick_{};

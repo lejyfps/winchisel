@@ -15,7 +15,10 @@ App::App() {
             winchisel::platform::show_error_message(e.Message().c_str());
         } catch (...) {
         }
-        e.Handled(true);
+        // Unknown UI exceptions may leave application state inconsistent. Log
+        // and report them, but let WinUI terminate instead of continuing in a
+        // potentially corrupted state.
+        e.Handled(false);
     });
     InitializeComponent();
 }
