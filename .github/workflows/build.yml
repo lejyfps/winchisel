@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   production-package:
@@ -56,17 +56,3 @@ jobs:
           name: Winchisel-${{ github.ref_name }}
           path: release-output/
           if-no-files-found: error
-
-      - name: Publish GitHub release
-        if: github.ref_type == 'tag'
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $version = $env:GITHUB_REF_NAME.Substring(1)
-          $dir = "release-output/$version"
-          gh release create $env:GITHUB_REF_NAME --verify-tag --generate-notes `
-            "$dir/Winchisel-Setup-x64.exe" `
-            "$dir/Winchisel-Portable-x64.exe" `
-            "$dir/release.json" `
-            "$dir/release.json.sig"

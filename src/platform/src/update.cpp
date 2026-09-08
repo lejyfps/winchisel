@@ -69,7 +69,7 @@ bool verify_signature(std::string_view json, std::string_view signature_text) {
         std::byte{0xFA}, std::byte{0x38}, std::byte{0x05}, std::byte{0xB1}, std::byte{0x61}, std::byte{0x7F}, std::byte{0xB7}, std::byte{0xD4}, std::byte{0x21}, std::byte{0xF5}, std::byte{0x5C}, std::byte{0xEB},
     };
     const auto signature = decode_base64(signature_text); if (signature.empty()) return false;
-    BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_KEY_HANDLE key{}; BCRYPT_HASH_HANDLE hash{};
+    BCRYPT_ALG_HANDLE algorithm{}, hash_algorithm{}; BCRYPT_KEY_HANDLE key{}; BCRYPT_HASH_HANDLE hash{};
     if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_ECDSA_P256_ALGORITHM, nullptr, 0) < 0) return false;
     if (BCryptImportKeyPair(algorithm, nullptr, BCRYPT_ECCPUBLIC_BLOB, &key,
             reinterpret_cast<BYTE*>(const_cast<std::byte*>(public_key.data())),
@@ -78,15 +78,17 @@ bool verify_signature(std::string_view json, std::string_view signature_text) {
         return false;
     }
     DWORD object_size{}, result{};
-    if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size),
+    if (BCryptOpenAlgorithmProvider(&hash_algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0 ||
+        BCryptGetProperty(hash_algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size),
             sizeof(object_size), &result, 0) < 0 || object_size == 0) {
         BCryptDestroyKey(key);
+        if (hash_algorithm) BCryptCloseAlgorithmProvider(hash_algorithm, 0);
         BCryptCloseAlgorithmProvider(algorithm, 0);
         return false;
     }
     std::vector<std::byte> object(object_size), digest(32);
-    const bool ok = BCryptCreateHash(algorithm, &hash, reinterpret_cast<BYTE*>(object.data()), object_size, nullptr, 0, 0) >= 0 && BCryptHashData(hash, reinterpret_cast<BYTE*>(const_cast<char*>(json.data())), static_cast<ULONG>(json.size()), 0) >= 0 && BCryptFinishHash(hash, reinterpret_cast<BYTE*>(digest.data()), static_cast<ULONG>(digest.size()), 0) >= 0 && BCryptVerifySignature(key, nullptr, reinterpret_cast<BYTE*>(digest.data()), static_cast<ULONG>(digest.size()), reinterpret_cast<BYTE*>(const_cast<std::byte*>(signature.data())), static_cast<ULONG>(signature.size()), 0) >= 0;
-    if (hash) BCryptDestroyHash(hash); if (key) BCryptDestroyKey(key); if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0); return ok;
+    const bool ok = BCryptCreateHash(hash_algorithm, &hash, reinterpret_cast<BYTE*>(object.data()), object_size, nullptr, 0, 0) >= 0 && BCryptHashData(hash, reinterpret_cast<BYTE*>(const_cast<char*>(json.data())), static_cast<ULONG>(json.size()), 0) >= 0 && BCryptFinishHash(hash, reinterpret_cast<BYTE*>(digest.data()), static_cast<ULONG>(digest.size()), 0) >= 0 && BCryptVerifySignature(key, nullptr, reinterpret_cast<BYTE*>(digest.data()), static_cast<ULONG>(digest.size()), reinterpret_cast<BYTE*>(const_cast<std::byte*>(signature.data())), static_cast<ULONG>(signature.size()), 0) >= 0;
+    if (hash) BCryptDestroyHash(hash); if (hash_algorithm) BCryptCloseAlgorithmProvider(hash_algorithm, 0); if (key) BCryptDestroyKey(key); if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0); return ok;
 }
 
 std::string sha256_hex(std::span<std::byte const> value) {

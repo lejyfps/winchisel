@@ -23,4 +23,5 @@ CMakeUserPresets.json
 /release-keys/
 /release-output/
 /LOCAL_RELEASE.md
+/LOCAL_RELEASE.cmd
 /release_signer.obj
