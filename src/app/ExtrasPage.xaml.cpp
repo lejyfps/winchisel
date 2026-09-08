@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "ExtrasPage.xaml.h"
 #include "winchisel/platform/system.hpp"
 
@@ -64,27 +65,49 @@ void ExtrasPage::set_command_busy(bool busy) {
 }
 
 winrt::fire_and_forget ExtrasPage::load_command_states() {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
  auto lifetime=get_strong(); if(command_running_) co_return; command_running_=true; Loading().Visibility(Microsoft::UI::Xaml::Visibility::Visible); Items().IsHitTestVisible(false); auto queue=DispatcherQueue();
  co_await winrt::resume_background(); const auto state=winchisel::platform::read_extras_command_state();
- (void)queue.TryEnqueue([lifetime, state] {
+ (void)winchisel::ui::enqueue_safe(queue, [lifetime, state] {
   lifetime->command_running_=false; lifetime->Loading().Visibility(Microsoft::UI::Xaml::Visibility::Collapsed); lifetime->Items().IsHitTestVisible(true);
   lifetime->loading_=true; lifetime->Widgets().IsOn(state.widgets_removed); lifetime->Hpet().IsOn(state.hpet_disabled);
   if(state.power_plan_active) lifetime->PowerPlanButton().Content(box_value(L"Active")); lifetime->loading_=false;
  });
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->set_command_busy(false); self->show_result(false,std::wstring(text)); }
+        });
+    }
 }
 
 winrt::fire_and_forget ExtrasPage::run_command(CommandAction action, bool enabled) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
  auto lifetime=get_strong(); if(command_running_) co_return; set_command_busy(true); ResultBar().IsOpen(false); auto queue=DispatcherQueue();
  co_await winrt::resume_background();
  winchisel::core::Result<void> result{};
  switch(action){case CommandAction::power_plan: result=winchisel::platform::apply_winchisel_power_plan(); break; case CommandAction::widgets: result=winchisel::platform::set_widgets_removed(enabled); break; case CommandAction::teredo: result=winchisel::platform::set_teredo_disabled(enabled); break; case CommandAction::hpet: result=winchisel::platform::set_hpet_disabled(enabled); break;}
- (void)queue.TryEnqueue([lifetime, action, enabled, result] {
+ (void)winchisel::ui::enqueue_safe(queue, [lifetime, action, enabled, result] {
   lifetime->set_command_busy(false);
   if(!result){lifetime->load_states();lifetime->show_result(false,std::wstring(L"Could not apply the setting: ")+std::wstring(winrt::to_hstring(result.error().detail)));return;}
   lifetime->loading_=true;
   if(action==CommandAction::widgets)lifetime->Widgets().IsOn(enabled); else if(action==CommandAction::teredo)lifetime->Teredo().IsOn(enabled); else if(action==CommandAction::hpet)lifetime->Hpet().IsOn(enabled); else lifetime->PowerPlanButton().Content(box_value(L"Active"));
   lifetime->loading_=false; lifetime->show_result(true,action==CommandAction::power_plan?L"Winchisel power plan applied successfully.":L"Setting applied.");
  });
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->set_command_busy(false); self->show_result(false,std::wstring(text)); }
+        });
+    }
 }
 void ExtrasPage::PowerPlanClick(Windows::Foundation::IInspectable const&,Microsoft::UI::Xaml::RoutedEventArgs const&){run_command(CommandAction::power_plan);}
 }

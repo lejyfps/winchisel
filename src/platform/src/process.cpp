@@ -68,4 +68,35 @@ std::optional<std::uint32_t> read_ifeo_dword(std::wstring const& image, std::wst
     return std::nullopt;
 }
 
+constexpr int k_process_io_priority = 33;
+using NtQueryInformationProcessFn = LONG(NTAPI*)(HANDLE, int, PVOID, ULONG, PULONG);
+using NtSetInformationProcessFn = LONG(NTAPI*)(HANDLE, int, PVOID, ULONG);
+
+FARPROC ntdll_proc(char const* name) {
+    auto ntdll = GetModuleHandleW(L"ntdll.dll");
+    return ntdll ? GetProcAddress(ntdll, name) : nullptr;
+}
+
+std::optional<std::uint32_t> read_process_io_priority(std::uint32_t pid) {
+    auto fn = reinterpret_cast<NtQueryInformationProcessFn>(ntdll_proc("NtQueryInformationProcess"));
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    std::uint32_t value{};
+    const bool ok = fn && process && fn(process, k_process_io_priority, &value, sizeof(value), nullptr) >= 0;
+    if (process) CloseHandle(process);
+    if (ok) return value;
+    return std::nullopt;
+}
+
+winchisel::core::Result<void> set_process_io_priority(std::uint32_t pid, std::uint32_t value) {
+    auto fn = reinterpret_cast<NtSetInformationProcessFn>(ntdll_proc("NtSetInformationProcess"));
+    HANDLE process = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    const DWORD open_error = process ? ERROR_SUCCESS : GetLastError();
+    const LONG status = (fn && process) ? fn(process, k_process_io_priority, &value, sizeof(value)) : static_cast<LONG>(0xC0000001);
+    if (process) CloseHandle(process);
+    if (!fn) return std::unexpected(win32_error("NtSetInformationProcess unavailable"));
+    if (!process) return std::unexpected(win32_error(std::to_string(open_error)));
+    if (status < 0) return std::unexpected(win32_error(std::to_string(static_cast<unsigned long>(status))));
+    return {};
+}
+
 }  // namespace winchisel::platform

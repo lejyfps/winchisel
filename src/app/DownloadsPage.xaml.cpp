@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "DownloadsPage.xaml.h"
 #include "AsyncLifetime.hpp"
 #include "winchisel/platform/shell.hpp"
@@ -19,10 +20,26 @@ DownloadsPage::DownloadsPage() {
 }
 DownloadsPage::~DownloadsPage() { timer_.Stop(); timer_.Tick(timer_token_);search_timer_.Stop();search_timer_.Tick(search_timer_token_); winchisel::ui::finish_in_background(scan_worker_); winchisel::ui::finish_in_background(install_worker_); }
 void DownloadsPage::start_scan(bool force, bool clear_notice) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
  if(operation_!=Operation::none)return; operation_=Operation::scan; Loading().Visibility(Visibility::Visible); Groups().IsHitTestVisible(false); Groups().Opacity(0.6); RefreshButton().IsEnabled(false); InstallButton().IsEnabled(false); if(clear_notice)Notice().IsOpen(false);
  scan_worker_=std::async(std::launch::async,[catalog=catalog_,force]{return winchisel::platform::scan_downloads_installed(catalog,force);}); timer_.Start();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
+    }
 }
 void DownloadsPage::poll_worker() {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
  if(operation_==Operation::scan) {
   if(!scan_worker_.valid()||scan_worker_.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
   auto result=scan_worker_.get(); operation_=Operation::none; Loading().Visibility(Visibility::Collapsed); Groups().IsHitTestVisible(true); Groups().Opacity(1.0); RefreshButton().IsEnabled(true);
@@ -32,6 +49,12 @@ void DownloadsPage::poll_worker() {
   auto result=install_worker_.get(); operation_=Operation::none; Loading().Visibility(Visibility::Collapsed); Groups().IsHitTestVisible(true); Groups().Opacity(1.0); RefreshButton().IsEnabled(true); Notice().Title(L"Installation complete");
   if(result){auto message=std::to_string(result->succeeded)+" succeeded, "+std::to_string(result->failed)+" failed.";if(!result->failure_details.empty()){message+=" ";for(std::size_t index{};index<result->failure_details.size();++index){if(index)message+=" | ";message+=result->failure_details[index];}}Notice().Message(to_hstring(message));Notice().Severity(result->failed?Controls::InfoBarSeverity::Warning:Controls::InfoBarSeverity::Success);}else{Notice().Message(to_hstring(result.error().detail));Notice().Severity(Controls::InfoBarSeverity::Error);} Notice().IsOpen(true); update_actions(); start_scan(false,false);
  } else timer_.Stop();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
+    }
 }
 void DownloadsPage::render_items() {
  Groups().Children().Clear(); category_lists_.clear(); auto query=lower(to_string(Search().Text())); auto filter=Filter().SelectedIndex(); auto resources=Application::Current().Resources(); auto success=resources.Lookup(box_value(L"SystemFillColorSuccessBrush")).try_as<Media::Brush>(); auto secondary=resources.Lookup(box_value(L"TextFillColorSecondaryBrush")).try_as<Media::Brush>(); std::size_t visible{};
@@ -46,8 +69,32 @@ void DownloadsPage::render_items() {
  if(!visible){Notice().Title(L"No matching apps");Notice().Message(L"Change the search or installed-state filter.");Notice().Severity(Controls::InfoBarSeverity::Informational);Notice().IsOpen(true);} update_actions();
 }
 void DownloadsPage::update_actions(){std::uint32_t count{};for(auto const& list:category_lists_)for(auto const& value:list.SelectedItems())if(auto row=value.try_as<Controls::ListViewItem>()){auto index=unbox_value<std::uint64_t>(row.Tag());if(index<catalog_.size()&&!catalog_[index].winget_ids.empty())++count;}InstallButton().IsEnabled(count&&operation_==Operation::none);InstallButton().Content(box_value(count?L"Install ("+to_hstring(count)+L")":L"Install"));}
-fire_and_forget DownloadsPage::confirm_install(){auto lifetime=get_strong();std::uint32_t count{};for(auto const& list:category_lists_)for(auto const& value:list.SelectedItems())if(auto row=value.try_as<Controls::ListViewItem>()){auto index=unbox_value<std::uint64_t>(row.Tag());if(index<catalog_.size()&&!catalog_[index].winget_ids.empty())++count;}if(!count)co_return;Controls::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(box_value(L"Install selected apps?"));dialog.Content(box_value(to_hstring(std::to_string(count)+" selected apps will be installed with winget.")));dialog.PrimaryButtonText(L"Install");dialog.CloseButtonText(L"Cancel");dialog.DefaultButton(Controls::ContentDialogButton::Close);if(co_await dialog.ShowAsync()==Controls::ContentDialogResult::Primary)start_install();}
-void DownloadsPage::start_install(){std::vector<winchisel::core::DownloadCatalogEntry const*> selected;for(auto const& list:category_lists_)for(auto const& value:list.SelectedItems())if(auto row=value.try_as<Controls::ListViewItem>()){auto index=unbox_value<std::uint64_t>(row.Tag());if(index<catalog_.size()&&!catalog_[index].winget_ids.empty())selected.push_back(&catalog_[index]);}if(selected.empty())return;operation_=Operation::install;Loading().Visibility(Visibility::Visible);Groups().IsHitTestVisible(false);Groups().Opacity(0.6);RefreshButton().IsEnabled(false);InstallButton().IsEnabled(false);Notice().IsOpen(false);install_worker_=std::async(std::launch::async,[selected=std::move(selected)]{return winchisel::platform::install_downloads(selected);});timer_.Start();}
+fire_and_forget DownloadsPage::confirm_install(){
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
+
+auto lifetime=get_strong();std::uint32_t count{};for(auto const& list:category_lists_)for(auto const& value:list.SelectedItems())if(auto row=value.try_as<Controls::ListViewItem>()){auto index=unbox_value<std::uint64_t>(row.Tag());if(index<catalog_.size()&&!catalog_[index].winget_ids.empty())++count;}if(!count)co_return;Controls::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(box_value(L"Install selected apps?"));dialog.Content(box_value(to_hstring(std::to_string(count)+" selected apps will be installed with winget.")));dialog.PrimaryButtonText(L"Install");dialog.CloseButtonText(L"Cancel");dialog.DefaultButton(Controls::ContentDialogButton::Close);if(co_await dialog.ShowAsync()==Controls::ContentDialogResult::Primary)start_install();
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
+    }
+}
+void DownloadsPage::start_install(){
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+std::vector<winchisel::core::DownloadCatalogEntry const*> selected;for(auto const& list:category_lists_)for(auto const& value:list.SelectedItems())if(auto row=value.try_as<Controls::ListViewItem>()){auto index=unbox_value<std::uint64_t>(row.Tag());if(index<catalog_.size()&&!catalog_[index].winget_ids.empty())selected.push_back(&catalog_[index]);}if(selected.empty())return;operation_=Operation::install;Loading().Visibility(Visibility::Visible);Groups().IsHitTestVisible(false);Groups().Opacity(0.6);RefreshButton().IsEnabled(false);InstallButton().IsEnabled(false);Notice().IsOpen(false);install_worker_=std::async(std::launch::async,[selected=std::move(selected)]{return winchisel::platform::install_downloads(selected);});timer_.Start();
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
+    }
+}
 void DownloadsPage::Refresh_Click(IInspectable const&,RoutedEventArgs const&){if(ui_ready_)start_scan(true);} void DownloadsPage::Install_Click(IInspectable const&,RoutedEventArgs const&){if(ui_ready_)confirm_install();} void DownloadsPage::Search_TextChanged(IInspectable const&,Controls::AutoSuggestBoxTextChangedEventArgs const&){if(ui_ready_&&operation_==Operation::none){search_timer_.Stop();search_timer_.Start();}} void DownloadsPage::Filter_SelectionChanged(IInspectable const&,Controls::SelectionChangedEventArgs const&){if(ui_ready_&&operation_==Operation::none)render_items();} void DownloadsPage::Items_SelectionChanged(IInspectable const&,Controls::SelectionChangedEventArgs const&){if(ui_ready_)update_actions();}
 void DownloadsPage::Website_Click(IInspectable const& sender,RoutedEventArgs const&){if(auto button=sender.try_as<Controls::HyperlinkButton>()){auto url=unbox_value<hstring>(button.Tag());if(auto result=winchisel::platform::open_https_url(std::wstring(url));!result){Notice().Title(L"Could not open website");Notice().Message(to_hstring(result.error().detail));Notice().Severity(Controls::InfoBarSeverity::Error);Notice().IsOpen(true);}}}
 }  // namespace winrt::Winchisel::implementation

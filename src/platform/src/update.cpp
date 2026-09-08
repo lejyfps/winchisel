@@ -6,6 +6,7 @@
 #include <winhttp.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +14,7 @@
 #include <regex>
 #include <span>
 #include <sstream>
+#include <vector>
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -90,11 +92,84 @@ bool verify_signature(std::string_view json, std::string_view signature_text) {
     if (hash) BCryptDestroyHash(hash); if (hash_algorithm) BCryptCloseAlgorithmProvider(hash_algorithm, 0); if (key) BCryptDestroyKey(key); if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0); return ok;
 }
 
+std::string to_hex(std::span<std::byte const> digest) {
+    static constexpr char hex[]="0123456789abcdef"; std::string result_hex; result_hex.reserve(digest.size()*2);
+    for (auto byte : digest) { const auto v=static_cast<unsigned>(byte); result_hex.push_back(hex[v>>4]); result_hex.push_back(hex[v&15]); }
+    return result_hex;
+}
+
+struct Sha256 {
+    BCRYPT_ALG_HANDLE algorithm{};
+    BCRYPT_HASH_HANDLE hash{};
+    std::vector<std::byte> object;
+    bool ok{};
+    Sha256() {
+        DWORD object_size{}, result{};
+        if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return;
+        if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size), sizeof(object_size), &result, 0) < 0 || !object_size) return;
+        object.resize(object_size);
+        ok = BCryptCreateHash(algorithm, &hash, reinterpret_cast<BYTE*>(object.data()), object_size, nullptr, 0, 0) >= 0;
+    }
+    ~Sha256() {
+        if (hash) BCryptDestroyHash(hash);
+        if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
+    }
+    bool update(void const* data, ULONG size) {
+        return ok && BCryptHashData(hash, static_cast<BYTE*>(const_cast<void*>(data)), size, 0) >= 0;
+    }
+    std::string finish() {
+        std::array<std::byte, 32> digest{};
+        if (!ok || BCryptFinishHash(hash, reinterpret_cast<BYTE*>(digest.data()), static_cast<ULONG>(digest.size()), 0) < 0) return {};
+        ok = false;
+        return to_hex(digest);
+    }
+};
+
 std::string sha256_hex(std::span<std::byte const> value) {
-    BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_HASH_HANDLE hash{}; if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return {};
-    DWORD object_size{}, result{}; BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size), sizeof(object_size), &result, 0); std::vector<std::byte> object(object_size), digest(32);
-    const bool ok=BCryptCreateHash(algorithm,&hash,reinterpret_cast<BYTE*>(object.data()),object_size,nullptr,0,0)>=0&&BCryptHashData(hash,reinterpret_cast<BYTE*>(const_cast<std::byte*>(value.data())),static_cast<ULONG>(value.size()),0)>=0&&BCryptFinishHash(hash,reinterpret_cast<BYTE*>(digest.data()),static_cast<ULONG>(digest.size()),0)>=0; if(hash)BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm,0); if(!ok)return {};
-    static constexpr char hex[]="0123456789abcdef"; std::string result_hex; result_hex.reserve(64); for(auto byte:digest){const auto v=static_cast<unsigned>(byte);result_hex.push_back(hex[v>>4]);result_hex.push_back(hex[v&15]);} return result_hex;
+    Sha256 hasher;
+    if (!hasher.update(value.data(), static_cast<ULONG>(value.size()))) return {};
+    return hasher.finish();
+}
+
+winchisel::core::Result<void> download_https_file(std::string_view url, std::filesystem::path const& destination, std::uint64_t expected_size, std::string_view expected_sha256) {
+    const int count = MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), nullptr, 0);
+    std::wstring wide(count, L'\0'); MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), wide.data(), count);
+    URL_COMPONENTS parts{.dwStructSize = sizeof(parts)}; std::array<wchar_t, 256> host{}; std::array<wchar_t, 4096> path{};
+    parts.lpszHostName = host.data(); parts.dwHostNameLength = static_cast<DWORD>(host.size()); parts.lpszUrlPath = path.data(); parts.dwUrlPathLength = static_cast<DWORD>(path.size());
+    if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS) return std::unexpected(winchisel::core::Error{.detail="Invalid HTTPS URL"});
+    HINTERNET session=WinHttpOpen(L"Winchisel/1.0",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0); if(!session) return std::unexpected(winchisel::core::Error{.detail="WinHttpOpen failed"});
+    WinHttpSetTimeouts(session, 10'000, 10'000, 30'000, 30'000);
+    std::wstring target(path.data(), parts.dwUrlPathLength);
+    if (parts.lpszExtraInfo && parts.dwExtraInfoLength) target.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
+    HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",target.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
+    static constexpr wchar_t headers[] = L"Accept: application/octet-stream\r\n";
+    const bool sent=request&&WinHttpSendRequest(request,headers,static_cast<DWORD>(std::size(headers)-1),WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
+    auto close=[&]{ if(request)WinHttpCloseHandle(request); if(connection)WinHttpCloseHandle(connection); WinHttpCloseHandle(session); };
+    if(!sent||status!=200){ close(); return std::unexpected(winchisel::core::Error{.detail="GitHub returned HTTP "+std::to_string(status)}); }
+    std::ofstream output(destination, std::ios::binary|std::ios::trunc);
+    if(!output){ close(); return std::unexpected(winchisel::core::Error{.detail="Write failed"}); }
+    Sha256 hasher;
+    std::array<char, 65536> buffer{};
+    std::uint64_t total{};
+    bool failed{};
+    for(DWORD available{}; WinHttpQueryDataAvailable(request,&available)&&available;){
+        while(available){
+            const DWORD chunk=static_cast<DWORD>(std::min<std::uint64_t>(available, buffer.size()));
+            if(total+chunk>expected_size){ failed=true; break; }
+            DWORD read{};
+            if(!WinHttpReadData(request,buffer.data(),chunk,&read)||!read){ failed=true; break; }
+            if(!hasher.update(buffer.data(), read) || !output.write(buffer.data(), static_cast<std::streamsize>(read))){ failed=true; break; }
+            total+=read; available-=read;
+        }
+        if(failed) break;
+    }
+    output.close();
+    close();
+    auto remove_partial=[&]{ std::error_code error; std::filesystem::remove(destination, error); };
+    if(failed||!output||total!=expected_size){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail=failed&&total+1>expected_size?"Response exceeded declared size limit":"Unexpected download size"}); }
+    const auto digest=hasher.finish();
+    if(digest!=expected_sha256){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail="SHA-256 mismatch"}); }
+    return {};
 }
 
 std::optional<std::wstring> portable_host() {
@@ -139,10 +214,13 @@ winchisel::core::Result<ReleaseManifest> check_github_latest_release() {
 
 winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseManifest const& manifest, std::string_view artifact_id) {
     const auto artifact=std::ranges::find_if(manifest.artifacts,[artifact_id](auto const& value){return value.id==artifact_id;}); if(artifact==manifest.artifacts.end()) return std::unexpected(winchisel::core::Error{.detail=std::string(artifact_id)});
-    const auto url=std::string("https://github.com/lejyfps/winchisel/releases/download/v")+manifest.version+"/"+artifact->file_name; if(!artifact->size||artifact->size>2ULL*1024*1024*1024)return std::unexpected(winchisel::core::Error{.detail="Invalid artifact size"}); auto downloaded=get_https(url,artifact->size); if(!downloaded)return std::unexpected(downloaded.error()); if(downloaded->size()!=artifact->size)return std::unexpected(winchisel::core::Error{.detail="Unexpected download size"});
-    const auto digest=sha256_hex(std::as_bytes(std::span{downloaded->data(),downloaded->size()})); if(digest!=artifact->sha256)return std::unexpected(winchisel::core::Error{.detail="SHA-256 mismatch"});
+    const auto url=std::string("https://github.com/lejyfps/winchisel/releases/download/v")+manifest.version+"/"+artifact->file_name; if(!artifact->size||artifact->size>2ULL*1024*1024*1024)return std::unexpected(winchisel::core::Error{.detail="Invalid artifact size"});
     PWSTR raw{}; if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&raw)))return std::unexpected(winchisel::core::Error{.detail="LocalAppData unavailable"}); std::filesystem::path dir=raw;CoTaskMemFree(raw);dir/=L"Winchisel";dir/=L"updates";dir/=std::wstring(manifest.version.begin(),manifest.version.end());std::error_code error;std::filesystem::create_directories(dir,error);if(error)return std::unexpected(winchisel::core::Error{.detail=error.message()});
-    const auto final=dir/std::filesystem::path(artifact->file_name);const auto partial=final.wstring()+L".partial";std::ofstream output(std::filesystem::path(partial),std::ios::binary|std::ios::trunc);output.write(downloaded->data(),static_cast<std::streamsize>(downloaded->size()));output.close();if(!output)return std::unexpected(winchisel::core::Error{.detail="Write failed"}); if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())});return final;
+    const auto final=dir/std::filesystem::path(artifact->file_name);const auto partial=std::filesystem::path(final.wstring()+L".partial");
+    std::filesystem::remove(partial, error);
+    if (auto downloaded = download_https_file(url, partial, artifact->size, artifact->sha256); !downloaded) return std::unexpected(downloaded.error());
+    if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){ std::filesystem::remove(partial, error); return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())}); }
+    return final;
 }
 
 std::string current_app_version() {

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "SettingsPage.xaml.h"
 #include "AsyncLifetime.hpp"
 
@@ -116,6 +117,11 @@ void SettingsPage::Link_Click(IInspectable const& sender, RoutedEventArgs const&
 }
 
 void SettingsPage::start_cleanup() {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if (action_ != Action::none) {
         return;
     }
@@ -124,9 +130,20 @@ void SettingsPage::start_cleanup() {
     set_busy(true);
     worker_ = std::async(std::launch::async, [] { return winchisel::platform::run_disk_cleanup(); });
     poll_timer_.Start();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->poll_timer_.Stop(); if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
+        });
+    }
 }
 
 void SettingsPage::poll_worker() {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if (!worker_.valid() || worker_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         return;
     }
@@ -135,6 +152,12 @@ void SettingsPage::poll_worker() {
     poll_timer_.Stop();
     set_busy(false);
     show_result(static_cast<bool>(result), result ? L"Disk Cleanup finished successfully." : L"Disk Cleanup failed.");
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->poll_timer_.Stop(); if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
+        });
+    }
 }
 
 void SettingsPage::set_busy(bool busy) {
@@ -215,6 +238,13 @@ void SettingsPage::finish_dialog(winchisel::core::Result<void> const& result) {
 }
 
 fire_and_forget SettingsPage::run_dialog(Action action) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
+
+
     auto lifetime = get_strong();
     if (action_ != Action::none) {
         co_return;
@@ -282,10 +312,11 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
 
     auto queue = DispatcherQueue();
     auto weak = get_weak();
+    auto shown = action_dialog_.ShowAsync();
     worker_ = std::async(std::launch::async, [action, queue, weak] {
         auto progress = [queue, weak](bool is_stage, std::string_view text) {
             std::string copy{text};
-            (void)queue.TryEnqueue([weak, is_stage, copy = std::move(copy)] {
+            (void)winchisel::ui::enqueue_safe(queue, [weak, is_stage, copy = std::move(copy)] {
                 if (auto page = weak.get()) {
                     if (is_stage) {
                         page->set_stage(to_hstring(copy));
@@ -295,14 +326,15 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
                 }
             });
         };
-        winchisel::core::Result<void> result{};
+        auto result = winchisel::ui::result_or_error([&]() -> winchisel::core::Result<void> {
         switch (action) {
-        case Action::restore: result = winchisel::platform::create_restore_point(); break;
-        case Action::repair: result = winchisel::platform::run_system_repair(progress); break;
-        case Action::temp: result = winchisel::platform::remove_temp_files(progress); break;
-        default: break;
+        case Action::restore: return winchisel::platform::create_restore_point();
+        case Action::repair: return winchisel::platform::run_system_repair(progress);
+        case Action::temp: return winchisel::platform::remove_temp_files(progress);
+        default: return {};
         }
-        (void)queue.TryEnqueue([weak, result] {
+        });
+        (void)winchisel::ui::enqueue_safe(queue, [weak, result] {
             if (auto page = weak.get()) {
                 page->finish_dialog(result);
             }
@@ -310,12 +342,18 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
         return result;
     });
 
-    co_await action_dialog_.ShowAsync();
+    co_await shown;
     action_dialog_ = nullptr;
     dialog_ring_ = nullptr;
     dialog_stage_ = nullptr;
     dialog_log_ = nullptr;
     dialog_scroll_ = nullptr;
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->poll_timer_.Stop(); if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
+        });
+    }
 }
 
 }  // namespace winrt::Winchisel::implementation

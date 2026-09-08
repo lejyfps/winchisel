@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "HomePage.xaml.h"
 
 #if __has_include("HomePage.g.cpp")
@@ -14,12 +15,12 @@ namespace winrt::Winchisel::implementation {
 
 HomePage::HomePage() {
     InitializeComponent();
-    Refresh();
     timer_ = DispatcherTimer();
     timer_.Interval(std::chrono::seconds(5));
     auto weak = get_weak();
     timer_token_ = timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) self->Refresh(); });
-    timer_.Start();
+    Loaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { self->timer_.Start(); if (!self->refresh_running_) self->Refresh(); } });
+    Unloaded([weak](auto&&, auto&&) { if (auto self = weak.get()) self->timer_.Stop(); });
 }
 
 HomePage::~HomePage() {
@@ -30,13 +31,18 @@ HomePage::~HomePage() {
 }
 
 winrt::fire_and_forget HomePage::Refresh() {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if (refresh_running_) co_return;
     refresh_running_ = true;
     const auto weak = get_weak();
     const auto queue = DispatcherQueue();
     co_await winrt::resume_background();
     auto info = winchisel::platform::query_home_info();
-    (void)queue.TryEnqueue([weak, info = std::move(info)] {
+    (void)winchisel::ui::enqueue_safe(queue, [weak, info = std::move(info)] {
         auto self = weak.get();
         if (!self) return;
         self->refresh_running_ = false;
@@ -68,6 +74,12 @@ winrt::fire_and_forget HomePage::Refresh() {
         self->CpuThreads().Text(winrt::to_hstring(info.cpu_cores));
         self->ComputerName().Text(winrt::to_hstring(info.computer_name));
     });
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->refresh_running_=false; (void)text; }
+        });
+    }
 }
 
 }  // namespace winrt::Winchisel::implementation

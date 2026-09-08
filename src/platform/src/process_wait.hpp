@@ -50,26 +50,31 @@ ProcessWaitResult wait_process_with_pipe(HANDLE process, HANDLE pipe, DWORD time
     const auto job = attach_kill_job(process);
     const auto started = GetTickCount64();
     std::array<char, 4096> buffer{};
-    bool process_done{};
+    const auto stop = [&](DWORD code, bool timed_out) {
+        if (job) TerminateJobObject(job, code); else TerminateProcess(process, code);
+        WaitForSingleObject(process, 5000);
+        if (job) CloseHandle(job);
+        return ProcessWaitResult{code, timed_out};
+    };
     for (;;) {
+        const auto status = WaitForSingleObject(process, 0);
+        if (status == WAIT_FAILED) return stop(GetLastError(), false);
+        const bool process_done = status == WAIT_OBJECT_0;
+        if (GetTickCount64() - started >= timeout_ms) return stop(ERROR_TIMEOUT, true);
         DWORD available{};
-        if (PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr) && available) {
+        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) {
+            const auto code = GetLastError();
+            if (code != ERROR_BROKEN_PIPE) return stop(code, false);
+        }
+        if (available) {
             DWORD read{};
             const auto requested = std::min<DWORD>(available, static_cast<DWORD>(buffer.size()));
-            if (ReadFile(pipe, buffer.data(), requested, &read, nullptr) && read) consume(buffer.data(), read);
+            if (!ReadFile(pipe, buffer.data(), requested, &read, nullptr)) return stop(GetLastError(), false);
+            if (read) consume(buffer.data(), read);
             continue;
         }
-        if (!process_done && WaitForSingleObject(process, 20) == WAIT_OBJECT_0) process_done = true;
-        if (process_done) {
-            if (!available) break;
-            continue;
-        }
-        if (GetTickCount64() - started >= timeout_ms) {
-            if (job) TerminateJobObject(job, ERROR_TIMEOUT); else TerminateProcess(process, ERROR_TIMEOUT);
-            WaitForSingleObject(process, 5000);
-            if (job) CloseHandle(job);
-            return {ERROR_TIMEOUT, true};
-        }
+        if (process_done) break;
+        WaitForSingleObject(process, 20);
     }
     DWORD code{};
     const auto result = GetExitCodeProcess(process, &code) ? ProcessWaitResult{code, false}

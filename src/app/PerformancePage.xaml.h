@@ -4,8 +4,13 @@
 #include "PerformancePage.xaml.g.h"
 
 #include "winchisel/core/registry.hpp"
+#include "winchisel/core/error.hpp"
 
 #include <vector>
+#include <deque>
+#include <functional>
+#include <map>
+#include <tuple>
 
 namespace winrt::Winchisel::implementation {
 
@@ -22,6 +27,16 @@ struct PerformancePage : PerformancePageT<PerformancePage> {
         winrt::Microsoft::UI::Xaml::Controls::AutoSuggestBoxTextChangedEventArgs const&);
 
 private:
+    using RegistryKey = std::tuple<winchisel::core::RegistryHive, std::string, std::string, winchisel::core::RegistryValueType>;
+    std::map<RegistryKey, winchisel::core::Result<winchisel::core::RegistryValue>> registry_state_;
+    std::map<std::string, winchisel::core::Result<bool>> task_state_;
+    winchisel::core::Result<int> dns_state_{std::unexpected(winchisel::core::Error{"Not loaded"})};
+    std::deque<std::function<winchisel::core::Result<void>()>> pending_changes_;
+    bool work_running_{};
+    void submit(std::function<winchisel::core::Result<void>()> change);
+    winrt::fire_and_forget process_changes();
+    winchisel::core::Result<winchisel::core::RegistryValue> cached_value(winchisel::core::RegistryTarget const& target) const;
+    winchisel::core::Result<bool> cached_task(std::string const& id) const;
     struct GamingToggle {
         winrt::hstring title;
         winrt::hstring description;

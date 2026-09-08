@@ -1,5 +1,6 @@
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/settings.hpp"
+#include "winchisel/core/affinity.hpp"
 
 #include <iostream>
 #include <string>
@@ -73,5 +74,8 @@ int main() {
     auto json = serialize_settings_json(parsed);
     expect(json.find("German") != std::string::npos, "serialize language");
     expect(json.find("Dark") != std::string::npos, "serialize theme");
+    expect(affinity_mask(255, 0) == 255 && affinity_mask(255, 1) == 85 && affinity_mask(255, 2) == 170 && affinity_mask(255, 3) == 15 && affinity_mask(255, 4) == 240, "all five affinity presets");
+    expect(affinity_mask(0x95, 3) == 0x05 && affinity_mask(0x95, 4) == 0x90, "sparse affinity halves");
+    expect(affinity_mask(1, 2) == 1 && affinity_mask(0, 3) == 0, "empty affinity fallback");
     return failed ? 1 : 0;
 }

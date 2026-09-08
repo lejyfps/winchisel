@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "LatencyPage.xaml.h"
 #include "AsyncLifetime.hpp"
 #include "winchisel/platform/latency.hpp"
@@ -35,6 +36,11 @@ LatencyPage::~LatencyPage() {
 }
 
 void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if (analysis_.valid()) return;
     progress_ = 0;
     target_progress_ = 4;
@@ -51,7 +57,7 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
     analysis_ = std::async(std::launch::async, [weak, queue] {
         return winchisel::platform::analyze_usb_topology([weak, queue](int value, std::string_view status) {
             const auto status_text = to_hstring(status);
-            queue.TryEnqueue([weak, value, status_text] {
+            winchisel::ui::enqueue_safe(queue, [weak, value, status_text] {
                 if (auto page = weak.get()) {
                     page->target_progress_ = std::max(page->target_progress_, value);
                     page->Status().Text(status_text);
@@ -60,9 +66,20 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
         });
     });
     timer_.Start();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->timer_.Stop(); self->pending_result_.reset(); self->AnalyzeButton().IsEnabled(true); self->AnalyzeButton().Content(box_value(L"Analyze again")); self->render_message(text,true); }
+        });
+    }
 }
 
 void LatencyPage::poll_analysis() {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if (analysis_.valid() && analysis_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         pending_result_.emplace(analysis_.get());
         target_progress_ = 100;
@@ -90,6 +107,12 @@ void LatencyPage::poll_analysis() {
     } else {
         Status().Text(L"Analysis failed");
         render_message(to_hstring(result.error().detail), true);
+    }
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->timer_.Stop(); self->pending_result_.reset(); self->AnalyzeButton().IsEnabled(true); self->AnalyzeButton().Content(box_value(L"Analyze again")); self->render_message(text,true); }
+        });
     }
 }
 

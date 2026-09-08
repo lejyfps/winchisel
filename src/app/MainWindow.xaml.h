@@ -24,12 +24,9 @@ private:
     void apply_theme();
     void apply_titlebar_theme();
     void update_titlebar_inset();
-    void start_page_preload();
-    void preload_next(std::uint32_t generation);
     winrt::fire_and_forget check_for_updates(bool manual);
     bool update_check_running_{};
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer_{nullptr};
-    std::uint32_t preload_generation_{}, preload_index_{};
     winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);
 };
 

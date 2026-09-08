@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "PerformancePage.xaml.h"
 #include "winchisel/platform/system.hpp"
 
@@ -215,10 +216,7 @@ PerformancePage::PerformancePage() {
         Groups().Children().Append(expander);
         ++group_index;
     }
-    load_gaming_toggles();
-    load_gaming_selections();
-    load_catalog_toggles();
-    load_catalog_selections();
+    process_changes();
 }
 
 void PerformancePage::load_catalog_toggles() {
@@ -229,7 +227,7 @@ void PerformancePage::load_catalog_toggles() {
             if (rule.id != item.id) continue;
             found = true;
             auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
-            auto actual = winchisel::platform::read_registry_value(target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type));
+            auto actual = cached_value(target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type));
             bool matches{};
             if (actual) {
                 std::size_t start{};
@@ -245,12 +243,12 @@ void PerformancePage::load_catalog_toggles() {
             enabled = enabled && matches;
         }
         if (found) item.control.IsOn(enabled);
-        else if(auto state=winchisel::platform::read_scheduled_task(item.id);state)item.control.IsOn(*state);
+        else if(auto state=cached_task(item.id);state)item.control.IsOn(*state);
     }
     loading_gaming_toggles_ = false;
 }
 
-Value catalog_desired(auto const& rule, bool enabled) {
+Value catalog_desired(auto const& rule, bool enabled, auto&& read) {
     auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
     auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
     auto values = enabled ? rule.enabled_values : rule.disabled_values; auto separator = values.find('|'); auto value = values.substr(0, separator);
@@ -258,7 +256,7 @@ Value catalog_desired(auto const& rule, bool enabled) {
     if (rule.kind == 0) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{static_cast<std::uint32_t>(std::stoul(std::string(value)))};
     else if (rule.kind == 1) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{std::string(value)};
     else {
-        auto current=winchisel::platform::read_registry_value(destination);
+        auto current=read(destination);
         auto bytes=current?std::get_if<std::vector<std::uint8_t>>(&*current):nullptr;
         std::vector<std::uint8_t> data=bytes?*bytes:std::vector<std::uint8_t>{};
         if(rule.byte_index<0) return desired;
@@ -278,19 +276,17 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
         if (rule.id != item.id) continue;
         auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
         auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
-        registry.emplace_back(destination, catalog_desired(rule, enabled));
+        registry.emplace_back(destination, catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);}));
     }
     const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;});
     if(!has_registry) tasks.emplace_back(std::string(item.id), enabled);
-    if (auto result = winchisel::platform::apply_registry_and_tasks(registry, tasks); !result) {
-        show_write_error(result.error().detail); load_catalog_toggles();
-    }
+    submit([registry=std::move(registry),tasks=std::move(tasks)]{return winchisel::platform::apply_registry_and_tasks(registry,tasks);});
 }
 
 void PerformancePage::load_catalog_selections() {
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
-        if(item.id=="gaming-dns-server"){auto profile=winchisel::platform::read_dns_profile();item.control.SelectedIndex(profile&&*profile<static_cast<int>(item.options.size())?*profile:-1);continue;}
+        if(item.id=="gaming-dns-server"){auto profile=dns_state_;item.control.SelectedIndex(profile&&*profile<static_cast<int>(item.options.size())?*profile:-1);continue;}
         std::uint32_t value{}; bool found{};
         Target destination;
         if (item.id=="gaming-win32-priority") destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);
@@ -298,7 +294,7 @@ void PerformancePage::load_catalog_selections() {
         else if(item.id=="visual-effects-mode") destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);
         else if(auto service=service_name(item.id);!service.empty()) destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);
         else continue;
-        auto current=winchisel::platform::read_registry_value(destination);if(current)if(auto dword=std::get_if<std::uint32_t>(&*current)){value=*dword;found=true;}if(!found)continue;
+        auto current=cached_value(destination);if(current)if(auto dword=std::get_if<std::uint32_t>(&*current)){value=*dword;found=true;}if(!found)continue;
         int selected=0;
         if(item.id=="gaming-win32-priority")selected=value==24?1:value==38?0:-1;
         else if(item.id=="gaming-performance-svchost-split-threshold"){selected=10;constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};for(std::size_t i{};i<values.size();++i)if(values[i]==value)selected=static_cast<int>(i);}
@@ -311,13 +307,13 @@ void PerformancePage::load_catalog_selections() {
 
 void PerformancePage::save_catalog_selection(std::size_t index) {
     if(loading_gaming_selections_||index>=catalog_selections_.size())return;auto const& item=catalog_selections_[index];auto selected=item.control.SelectedIndex();if(selected<0)return;Target destination;std::uint32_t value{};
-    if(item.id=="gaming-dns-server"){auto result=winchisel::platform::write_dns_profile(selected);if(!result){show_write_error(result.error().detail);load_catalog_selections();}return;}
+    if(item.id=="gaming-dns-server"){submit([selected]{return winchisel::platform::write_dns_profile(selected);});return;}
     if(item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
     else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))return;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
     else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
     else if(auto service=service_name(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
     else return;
-    if(auto result=winchisel::platform::write_registry_value(destination,Value{value});!result){show_write_error(result.error().detail);load_catalog_selections();}
+    submit([destination,value]{return winchisel::platform::write_registry_value(destination,Value{value});});
 }
 
 void PerformancePage::load_gaming_toggles() {
@@ -326,7 +322,7 @@ void PerformancePage::load_gaming_toggles() {
         bool has_match = false;
         bool all_match = true;
         for (std::size_t index = 0; index < tweak.targets.size(); ++index) {
-            const auto actual = winchisel::platform::read_registry_value(tweak.targets[index]);
+            const auto actual = cached_value(tweak.targets[index]);
             const bool missing = actual && std::holds_alternative<std::monostate>(*actual);
             const bool matches = actual && (winchisel::core::registry_value_matches(*actual, tweak.enabled_values[index]) ||
                 (tweak.missing_counts_as_enabled && missing));
@@ -348,9 +344,7 @@ void PerformancePage::save_gaming_toggle(std::size_t index) {
     for (std::size_t target_index = 0; target_index < tweak.targets.size(); ++target_index) {
         changes.emplace_back(tweak.targets[target_index],values[target_index]);
     }
-    if(auto result=winchisel::platform::write_registry_values_atomic(changes);!result){
-        show_write_error(result.error().detail);load_gaming_toggles();return;
-    }
+    submit([changes=std::move(changes)]{return winchisel::platform::write_registry_values_atomic(changes);});
 }
 
 void PerformancePage::apply_gaming_profile(bool recommended) {
@@ -393,15 +387,11 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
             has_registry = true;
             auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
             auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
-            registry.emplace_back(destination, catalog_desired(rule, enabled));
+            registry.emplace_back(destination, catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);}));
         }
         if (!has_registry) tasks.emplace_back(item.id, enabled);
     }
-    if (auto result = winchisel::platform::apply_registry_and_tasks(registry, tasks); !result) {
-        show_write_error(result.error().detail);
-        load_catalog_toggles();
-        return;
-    }
+    submit([registry=std::move(registry),tasks=std::move(tasks)]{return winchisel::platform::apply_registry_and_tasks(registry,tasks);});
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
         if (auto value = profile_for(item.id, true); value && *value >= 0 && *value < static_cast<std::int32_t>(item.options.size())) item.control.SelectedIndex(*value);
@@ -414,7 +404,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
 
 void PerformancePage::load_gaming_selections() {
     loading_gaming_selections_ = true;
-    const auto hover = winchisel::platform::read_registry_value(
+    const auto hover = cached_value(
         target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string));
     std::int32_t hover_index = 5;
     if (hover) {
@@ -428,9 +418,9 @@ void PerformancePage::load_gaming_selections() {
     }
     mouse_hover_time_.SelectedIndex(hover_index);
 
-    const auto user_value = winchisel::platform::read_registry_value(
+    const auto user_value = cached_value(
         target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword));
-    const auto machine_value = winchisel::platform::read_registry_value(
+    const auto machine_value = cached_value(
         target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword));
     const auto* value = user_value ? std::get_if<std::uint32_t>(&*user_value) : nullptr;
     if (!value && machine_value) value = std::get_if<std::uint32_t>(&*machine_value);
@@ -442,24 +432,18 @@ void PerformancePage::save_mouse_hover_time() {
     if (loading_gaming_selections_) return;
     constexpr std::array values{"1", "10", "50", "100", "200", "400"};
     const auto index = mouse_hover_time_.SelectedIndex();
-    if (index < 0 || index >= static_cast<std::int32_t>(values.size()) ||
-        !winchisel::platform::write_registry_value(
-            target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string), std::string(values[index]))) {
-        show_write_error();
-        load_gaming_selections();
-    }
+    if(index < 0 || index >= static_cast<int>(values.size()))return;
+    const auto destination=target(Hive::current_user,"Control Panel\\Mouse","MouseHoverTime",Type::string);
+    const std::string value=values[index];
+    submit([destination,value]{return winchisel::platform::write_registry_value(destination,value);});
 }
-
 void PerformancePage::save_background_apps() {
     if (loading_gaming_selections_) return;
     const auto index = background_apps_.SelectedIndex();
     const Value value = index == 1 ? Value{std::uint32_t{1}} : index == 2 ? Value{std::uint32_t{2}} : Value{std::monostate{}};
     const auto user = target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
     const auto machine = target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
-    if (auto result=winchisel::platform::write_registry_values_atomic({{user,value},{machine,value}});!result) {
-        show_write_error(result.error().detail);
-        load_gaming_selections();
-    }
+    submit([user,machine,value]{return winchisel::platform::write_registry_values_atomic({{user,value},{machine,value}});});
 }
 
 void PerformancePage::Recommended_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
@@ -493,6 +477,79 @@ void PerformancePage::Search_TextChanged(Windows::Foundation::IInspectable const
         }
         expander.Visibility(any ? Visibility::Visible : Visibility::Collapsed);
         if (!query.empty() && any) expander.IsExpanded(true);
+    }
+}
+
+winchisel::core::Result<Value> PerformancePage::cached_value(Target const& destination) const {
+    const auto found=registry_state_.find({destination.hive,destination.key_path,destination.value_name,destination.type});
+    if(found==registry_state_.end())return std::unexpected(winchisel::core::Error{"State not loaded"});
+    return found->second;
+}
+
+winchisel::core::Result<bool> PerformancePage::cached_task(std::string const& id) const {
+    const auto found=task_state_.find(id);
+    if(found==task_state_.end())return std::unexpected(winchisel::core::Error{"Task state not loaded"});
+    return found->second;
+}
+
+void PerformancePage::submit(std::function<winchisel::core::Result<void>()> change) {
+    pending_changes_.push_back(std::move(change));
+    process_changes();
+}
+
+winrt::fire_and_forget PerformancePage::process_changes() {
+    auto lifetime=get_strong();
+    const auto queue=DispatcherQueue();
+    const auto weak=get_weak();
+    winrt::apartment_context ui;
+    if(work_running_)co_return;
+    work_running_=true;
+    try {
+        IsEnabled(false);
+        std::string failure;
+        while(!pending_changes_.empty()) {
+            auto change=std::move(pending_changes_.front());
+            pending_changes_.pop_front();
+            co_await winrt::resume_background();
+            const auto result=winchisel::ui::result_or_error(change);
+            co_await ui;
+            if(!result) { failure=result.error().detail; pending_changes_.clear(); break; }
+        }
+        // Only plain registry targets and IDs cross the worker boundary.
+        std::vector<Target> targets{
+            target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword),
+            target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword),
+            target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword),
+            target(Hive::current_user,"Control Panel\\Mouse","MouseHoverTime",Type::string),
+            target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy","LetAppsRunInBackground",Type::dword),
+            target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy","LetAppsRunInBackground",Type::dword)};
+        for(auto const& item:gaming_toggles_)targets.insert(targets.end(),item.targets.begin(),item.targets.end());
+        for(auto const& rule:winchisel::core::get_performance_registry_rules())
+            targets.push_back(target(rule.root==0?Hive::current_user:Hive::local_machine,rule.path.data(),rule.name.data(),rule.kind==0?Type::dword:rule.kind==1?Type::string:Type::binary));
+        for(auto const& item:catalog_selections_)if(auto service=service_name(item.id);!service.empty())
+            targets.push_back(target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword));
+        std::vector<std::string> task_ids;
+        for(auto const& item:catalog_toggles_)if(!std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}))task_ids.push_back(item.id);
+        co_await winrt::resume_background();
+        std::map<RegistryKey,winchisel::core::Result<Value>> registry;
+        for(auto const& destination:targets) {
+            RegistryKey key{destination.hive,destination.key_path,destination.value_name,destination.type};
+            if(!registry.contains(key))registry.emplace(std::move(key),winchisel::platform::read_registry_value(destination));
+        }
+        std::map<std::string,winchisel::core::Result<bool>> tasks;
+        for(auto const& id:task_ids)tasks.emplace(id,winchisel::platform::read_scheduled_task(id));
+        auto dns=winchisel::platform::read_dns_profile();
+        co_await ui;
+        registry_state_=std::move(registry); task_state_=std::move(tasks); dns_state_=std::move(dns);
+        load_gaming_toggles(); load_gaming_selections(); load_catalog_toggles(); load_catalog_selections();
+        work_running_=false; IsEnabled(true);
+        if(!failure.empty())show_write_error(failure);
+    } catch(...) {
+        winchisel::ui::report_async_error(queue,[weak](hstring const& text){if(auto self=weak.get()){
+            self->pending_changes_.clear(); self->work_running_=false; self->IsEnabled(true);
+            self->loading_gaming_toggles_=false; self->loading_gaming_selections_=false;
+            self->show_write_error(to_string(text));
+        }});
     }
 }
 

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "MainWindow.xaml.h"
 
 #if __has_include("MainWindow.g.cpp")
@@ -27,7 +28,6 @@
 #include <winrt/Microsoft.UI.Interop.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <algorithm>
-#include <array>
 #include <filesystem>
 
 
@@ -129,34 +129,6 @@ MainWindow::MainWindow() {
     if (ContentFrame().Content() == nullptr) {
         auto home = make_page(L"home"); pages_.emplace(L"home", home); ContentFrame().Content(home);
     }
-    start_page_preload();
-}
-
-void MainWindow::start_page_preload() {
-    preload_index_ = 0;
-    const auto generation = ++preload_generation_;
-    auto weak = get_weak();
-    DispatcherQueue().TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
-        [weak, generation] { if (auto self = weak.get()) self->preload_next(generation); });
-}
-
-void MainWindow::preload_next(std::uint32_t generation) {
-    static constexpr std::array<std::wstring_view, 8> tags{
-        L"settings", L"extras", L"latency", L"processes", L"performance", L"privacy_security", L"downloads", L"debloater"};
-    if (generation != preload_generation_) return;
-    while (preload_index_ < tags.size()) {
-        const hstring tag{tags[preload_index_++]};
-        const std::wstring key{tag};
-        if (!pages_.contains(key)) {
-            if (auto page = make_page(tag)) pages_.emplace(key, page);
-            break;
-        }
-    }
-    if (preload_index_ < tags.size()) {
-        auto weak = get_weak();
-        DispatcherQueue().TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
-            [weak, generation] { if (auto self = weak.get()) self->preload_next(generation); });
-    }
 }
 
 void MainWindow::update_titlebar_inset() {
@@ -185,6 +157,11 @@ void MainWindow::CheckForUpdates(bool manual) {
 }
 
 winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     auto lifetime = get_strong();
     update_check_running_ = true;
     UpdateButton().IsEnabled(false);
@@ -211,6 +188,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update unavailable", L"No compatible update package was found.");
         co_return;
     }
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){update_check_running_=false; UpdateButton().IsEnabled(true); co_return;}
     Controls::ContentDialog dialog;
     dialog.XamlRoot(Content().XamlRoot());
     dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
@@ -234,6 +212,12 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         winchisel::platform::show_error_message(L"The update installer could not be started."); co_return;
     }
     Close();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->update_check_running_=false; self->UpdateButton().IsEnabled(true); (void)text; }
+        });
+    }
 }
 
 void MainWindow::apply_theme() {
@@ -327,7 +311,6 @@ void MainWindow::reload_language() {
         pages_.emplace(std::wstring(tag.c_str()), page);
         ContentFrame().Content(page);
     }
-    start_page_preload();
 }
 
 }  // namespace winrt::Winchisel::implementation

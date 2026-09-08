@@ -1,6 +1,8 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "ProcessesPage.xaml.h"
 #include "winchisel/platform/process.hpp"
+#include "winchisel/core/affinity.hpp"
 #include <TlHelp32.h>
 #include <processthreadsapi.h>
 #include <algorithm>
@@ -45,13 +47,19 @@ void ProcessesPage::SortStatus(Windows::Foundation::IInspectable const&,mux::Rou
 void ProcessesPage::set_sort(SortColumn column){if(sort_column_==column)ascending_=!ascending_;else{sort_column_=column;ascending_=true;}render_processes();}
 
 winrt::fire_and_forget ProcessesPage::load_processes(){
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if(scan_running_)co_return;scan_running_=true;auto weak=get_weak();auto queue=DispatcherQueue();auto previous_times=previous_process_times_;auto previous_created=previous_process_created_;auto previous_system=previous_system_time_;std::unordered_map<std::uint32_t,std::wstring> previous_paths;for(auto const& row:rows_)previous_paths.emplace(row.pid,row.path);
     co_await winrt::resume_background();
     std::vector<ProcessRow> rows;auto current_system=system_cpu_time();auto system_delta=current_system>previous_system?current_system-previous_system:0;
     std::unordered_map<std::uint32_t,std::uint64_t> current_times;
     std::unordered_map<std::uint32_t,std::uint64_t> current_created;
-    HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);if(snapshot==INVALID_HANDLE_VALUE){(void)queue.TryEnqueue([weak]{if(auto self=weak.get()){self->scan_running_=false;self->StatusText().Text(L"Process scan failed.");}});co_return;}
+    HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);if(snapshot==INVALID_HANDLE_VALUE){(void)winchisel::ui::enqueue_safe(queue, [weak]{if(auto self=weak.get()){self->scan_running_=false;self->StatusText().Text(L"Process scan failed.");}});co_return;}
     PROCESSENTRY32W entry{};entry.dwSize=sizeof(entry);
+    std::wstring path_query(32768, L'\0');
     if(Process32FirstW(snapshot,&entry))do{
         ProcessRow row{};row.pid=entry.th32ProcessID;row.parent=entry.th32ParentProcessID;row.name=entry.szExeFile;row.priority=L"Unavailable";row.affinity=L"Unavailable";row.status=L"Running";
         HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,row.pid);
@@ -59,11 +67,17 @@ winrt::fire_and_forget ProcessesPage::load_processes(){
             FILETIME created{},exited{},kernel{},user{};if(GetProcessTimes(process,&created,&exited,&kernel,&user)){auto value=file_time(kernel)+file_time(user),created_value=file_time(created);current_times[row.pid]=value;current_created[row.pid]=created_value;if(auto old=previous_times.find(row.pid);old!=previous_times.end()&&previous_created[row.pid]==created_value&&system_delta&&value>=old->second){auto ncpus=GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);if(!ncpus)ncpus=1;row.cpu=100.0*static_cast<double>(value-old->second)/static_cast<double>(system_delta)*static_cast<double>(ncpus);} }
             switch(GetPriorityClass(process)){case IDLE_PRIORITY_CLASS:row.priority=L"Idle";break;case BELOW_NORMAL_PRIORITY_CLASS:row.priority=L"Below normal";break;case NORMAL_PRIORITY_CLASS:row.priority=L"Normal";break;case ABOVE_NORMAL_PRIORITY_CLASS:row.priority=L"Above normal";break;case HIGH_PRIORITY_CLASS:row.priority=L"High";break;case REALTIME_PRIORITY_CLASS:row.priority=L"Realtime";break;default:break;}
             DWORD_PTR process_mask{},system_mask{};if(GetProcessAffinityMask(process,&process_mask,&system_mask))row.affinity=affinity_label(process_mask,system_mask);
-            if(auto old=previous_created.find(row.pid);old!=previous_created.end()&&current_created[row.pid]==old->second){if(auto path=previous_paths.find(row.pid);path!=previous_paths.end())row.path=path->second;}if(row.path.empty()){DWORD size=32768;row.path.resize(size);if(QueryFullProcessImageNameW(process,0,row.path.data(),&size))row.path.resize(size);else row.path.clear();}CloseHandle(process);
+            if(auto old=previous_created.find(row.pid);old!=previous_created.end()&&current_created[row.pid]==old->second){if(auto path=previous_paths.find(row.pid);path!=previous_paths.end())row.path=path->second;}if(row.path.empty()){DWORD size=static_cast<DWORD>(path_query.size());if(QueryFullProcessImageNameW(process,0,path_query.data(),&size))row.path.assign(path_query.data(),size);}CloseHandle(process);
         }
         rows.push_back(std::move(row));
     }while(Process32NextW(snapshot,&entry));CloseHandle(snapshot);
-    (void)queue.TryEnqueue([weak,rows=std::move(rows),current_times=std::move(current_times),current_created=std::move(current_created),current_system]()mutable{if(auto self=weak.get()){self->scan_running_=false;self->rows_=std::move(rows);self->previous_process_times_=std::move(current_times);self->previous_process_created_=std::move(current_created);self->previous_system_time_=current_system;std::unordered_set<std::uint32_t> live;for(auto const& row:self->rows_)live.insert(row.pid);for(auto it=self->expanded_.begin();it!=self->expanded_.end();)if(!live.contains(*it))it=self->expanded_.erase(it);else++it;self->render_processes();}});
+    (void)winchisel::ui::enqueue_safe(queue, [weak,rows=std::move(rows),current_times=std::move(current_times),current_created=std::move(current_created),current_system]()mutable{if(auto self=weak.get()){self->scan_running_=false;self->rows_=std::move(rows);self->previous_process_times_=std::move(current_times);self->previous_process_created_=std::move(current_created);self->previous_system_time_=current_system;std::unordered_set<std::uint32_t> live;for(auto const& row:self->rows_)live.insert(row.pid);for(auto it=self->expanded_.begin();it!=self->expanded_.end();)if(!live.contains(*it))it=self->expanded_.erase(it);else++it;self->render_processes();}});
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->scan_running_=false; self->StatusText().Text(text); }
+        });
+    }
 }
 
 void ProcessesPage::render_processes(){
@@ -104,11 +118,11 @@ void ProcessesPage::render_processes(){
 
 bool ProcessesPage::set_priority(std::uint32_t pid,DWORD value){HANDLE process=OpenProcess(PROCESS_SET_INFORMATION|PROCESS_QUERY_LIMITED_INFORMATION,false,pid);if(!process)return false;bool ok=SetPriorityClass(process,value)!=FALSE;CloseHandle(process);if(ok){if(open_overlays_)refresh_pending_=true;else load_processes();}else StatusText().Text(L"Could not change process priority.");return ok;}
 bool ProcessesPage::set_affinity(std::uint32_t pid,DWORD_PTR mask){if(GetActiveProcessorGroupCount()>1){StatusText().Text(L"Affinity editing is unavailable on systems with multiple processor groups (>64 logical CPUs).");return false;}HANDLE process=OpenProcess(PROCESS_SET_INFORMATION|PROCESS_QUERY_LIMITED_INFORMATION,false,pid);if(!process){StatusText().Text(L"Could not open process for affinity change. Windows error "+std::to_wstring(GetLastError())+L".");return false;}DWORD_PTR current{},system{};bool ok=GetProcessAffinityMask(process,&current,&system)&&mask&&(mask&system)&&SetProcessAffinityMask(process,mask&system);const auto error=ok?ERROR_SUCCESS:GetLastError();CloseHandle(process);if(ok){if(open_overlays_)refresh_pending_=true;else load_processes();}else StatusText().Text(L"Could not change process affinity. Windows error "+std::to_wstring(error)+L".");return ok;}
-bool ProcessesPage::set_io_priority(std::uint32_t pid,std::uint32_t value){constexpr int ProcessIoPriority=33;using Fn=BOOL(WINAPI*)(HANDLE,int,LPVOID,DWORD);auto fn=reinterpret_cast<Fn>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"),"SetProcessInformation"));HANDLE process=OpenProcess(PROCESS_SET_INFORMATION|PROCESS_QUERY_LIMITED_INFORMATION,false,pid);bool ok=fn&&process&&fn(process,ProcessIoPriority,&value,sizeof(value));if(process)CloseHandle(process);if(ok){if(open_overlays_)refresh_pending_=true;else load_processes();}else StatusText().Text(L"Could not change I/O priority.");return ok;}
+bool ProcessesPage::set_io_priority(std::uint32_t pid,std::uint32_t value){auto result=winchisel::platform::set_process_io_priority(pid,value);if(result){if(open_overlays_)refresh_pending_=true;else load_processes();return true;}StatusText().Text(L"Could not change I/O priority.");return false;}
 bool ProcessesPage::set_always(std::wstring const& name,wchar_t const* value_name,DWORD value){return static_cast<bool>(winchisel::platform::set_ifeo_dword(name,value_name,value));}
 bool ProcessesPage::remove_always(std::wstring const& name,wchar_t const* value_name){return static_cast<bool>(winchisel::platform::remove_ifeo_dword(name,value_name));}
 std::optional<DWORD> ProcessesPage::read_always(std::wstring const& name,wchar_t const* value_name){if(auto value=winchisel::platform::read_ifeo_dword(name,value_name))return static_cast<DWORD>(*value);return std::nullopt;}
-std::optional<std::uint32_t> ProcessesPage::read_io_priority(std::uint32_t pid){constexpr int ProcessIoPriority=33;using Fn=LONG(NTAPI*)(HANDLE,int,PVOID,ULONG,PULONG);auto ntdll=GetModuleHandleW(L"ntdll.dll");auto fn=reinterpret_cast<Fn>(ntdll?GetProcAddress(ntdll,"NtQueryInformationProcess"):nullptr);HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);std::uint32_t value{};bool ok=fn&&process&&fn(process,ProcessIoPriority,&value,sizeof(value),nullptr)>=0;if(process)CloseHandle(process);if(ok)return value;return std::nullopt;}
+std::optional<std::uint32_t> ProcessesPage::read_io_priority(std::uint32_t pid){return winchisel::platform::read_process_io_priority(pid);}
 
 void ProcessesPage::add_process_menu(mux::FrameworkElement const& element,ProcessRow const& row){
     muxc::MenuFlyout menu;auto submenu=[&](wchar_t const* text){muxc::MenuFlyoutSubItem item;item.Text(text);menu.Items().Append(item);return item;};
@@ -119,18 +133,44 @@ void ProcessesPage::add_process_menu(mux::FrameworkElement const& element,Proces
     auto io_value=read_io_priority(pid);auto io=submenu(L"I/O priority · Current");add(io,L"Low",io_value&&*io_value==1,[this,pid](auto&&,auto&&){set_io_priority(pid,1);});add(io,L"Normal",io_value&&*io_value==2,[this,pid](auto&&,auto&&){set_io_priority(pid,2);});
     auto io_saved=read_always(name,L"IoPriority");auto io_always=submenu(L"I/O priority · Always");add(io_always,L"Default (remove saved rule)",!io_saved,[this,name](auto&&,auto&&){if(remove_always(name,L"IoPriority"))StatusText().Text(L"Permanent I/O priority rule removed.");else StatusText().Text(L"Could not remove permanent I/O priority rule.");});add(io_always,L"Low",io_saved&&*io_saved==1,[this,pid,name](auto&&,auto&&){if(set_always(name,L"IoPriority",1))set_io_priority(pid,1);else StatusText().Text(L"Could not save permanent I/O priority.");});add(io_always,L"Normal",io_saved&&*io_saved==2,[this,pid,name](auto&&,auto&&){if(set_always(name,L"IoPriority",2))set_io_priority(pid,2);else StatusText().Text(L"Could not save permanent I/O priority.");});
     auto affinity=submenu(L"Affinity");if(GetActiveProcessorGroupCount()>1){muxc::MenuFlyoutItem unavailable;unavailable.Text(L"Unavailable on systems with >64 CPUs");unavailable.IsEnabled(false);affinity.Items().Append(unavailable);element.ContextFlyout(menu);return;}add(affinity,L"Edit…",false,[this,pid,name](auto&&,auto&&){edit_affinity(pid,name);});
-    auto mode=[this,pid](int selected){HANDLE p=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);DWORD_PTR current{},system{};if(!p||!GetProcessAffinityMask(p,&current,&system)){if(p)CloseHandle(p);return;}CloseHandle(p);DWORD_PTR target{};std::vector<unsigned> cores;for(unsigned logical=0;logical<sizeof(DWORD_PTR)*8;++logical)if(system&(DWORD_PTR{1}<<logical))cores.push_back(logical);if(selected==0)target=system;else if(selected<3)for(auto logical:cores)if(logical%2==static_cast<unsigned>(selected-1))target|=DWORD_PTR{1}<<logical;else{auto split=(cores.size()+1)/2;for(std::size_t index=selected==3?0:split;index<(selected==3?split:cores.size());++index)target|=DWORD_PTR{1}<<cores[index];}set_affinity(pid,target?target:system);};
+    auto mode=[this,pid](int selected){HANDLE p=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);DWORD_PTR current{},system{};if(!p||!GetProcessAffinityMask(p,&current,&system)){if(p)CloseHandle(p);return;}CloseHandle(p);set_affinity(pid,static_cast<DWORD_PTR>(winchisel::core::affinity_mask(system,selected)));};
     add(affinity,L"All cores",row.affinity==L"All cores",[mode](auto&&,auto&&){mode(0);});add(affinity,L"Even logical CPUs",false,[mode](auto&&,auto&&){mode(1);});add(affinity,L"Odd logical CPUs",false,[mode](auto&&,auto&&){mode(2);});add(affinity,L"First half",false,[mode](auto&&,auto&&){mode(3);});add(affinity,L"Second half",false,[mode](auto&&,auto&&){mode(4);});element.ContextFlyout(menu);
 }
 
-winrt::fire_and_forget ProcessesPage::confirm_realtime(std::uint32_t pid){auto lifetime=get_strong();++open_overlays_;muxc::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(winrt::box_value(L"Realtime priority"));dialog.Content(winrt::box_value(L"Realtime priority can make Windows unresponsive. Apply it only when you understand the risk."));dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");auto result=co_await dialog.ShowAsync();if(open_overlays_)--open_overlays_;refresh_pending_=false;if(result==muxc::ContentDialogResult::Primary)set_priority(pid,REALTIME_PRIORITY_CLASS);else load_processes();}
+winrt::fire_and_forget ProcessesPage::confirm_realtime(std::uint32_t pid){
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
+
+auto lifetime=get_strong();++open_overlays_;muxc::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(winrt::box_value(L"Realtime priority"));dialog.Content(winrt::box_value(L"Realtime priority can make Windows unresponsive. Apply it only when you understand the risk."));dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");auto result=co_await dialog.ShowAsync();if(open_overlays_)--open_overlays_;refresh_pending_=false;if(result==muxc::ContentDialogResult::Primary)set_priority(pid,REALTIME_PRIORITY_CLASS);else load_processes();
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->open_overlays_=0; self->refresh_pending_=false; self->StatusText().Text(text); }
+        });
+    }
+}
 
 winrt::fire_and_forget ProcessesPage::edit_affinity(std::uint32_t pid,std::wstring name){
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
+
+
     auto lifetime=get_strong();++open_overlays_;HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);DWORD_PTR current{},system{};if(!process||!GetProcessAffinityMask(process,&current,&system)){if(process)CloseHandle(process);if(open_overlays_)--open_overlays_;StatusText().Text(L"Could not read process affinity.");co_return;}CloseHandle(process);
     auto selected=std::make_shared<DWORD_PTR>(current);auto boxes=std::make_shared<std::vector<std::pair<muxc::CheckBox,DWORD_PTR>>>();muxc::StackPanel content;content.Spacing(8);muxc::TextBlock hint;hint.Text(L"Choose at least one logical processor:");content.Children().Append(hint);muxc::Grid grid;for(int i=0;i<4;++i){muxc::ColumnDefinition column;column.Width({1,mux::GridUnitType::Star});grid.ColumnDefinitions().Append(column);}int n{};
     for(unsigned i=0;i<sizeof(DWORD_PTR)*8;++i)if(system&(DWORD_PTR{1}<<i)){muxc::CheckBox box;box.Content(winrt::box_value(L"CPU "+std::to_wstring(i)));box.IsChecked((current&(DWORD_PTR{1}<<i))!=0);auto bit=DWORD_PTR{1}<<i;box.Checked([selected,bit](auto&&,auto&&){*selected|=bit;});box.Unchecked([selected,bit](auto&&,auto&&){*selected&=~bit;});muxc::Grid::SetColumn(box,n%4);muxc::Grid::SetRow(box,n/4);if(n%4==0){muxc::RowDefinition row;row.Height(mux::GridLengthHelper::Auto());grid.RowDefinitions().Append(row);}grid.Children().Append(box);boxes->emplace_back(box,bit);++n;}content.Children().Append(grid);
     muxc::StackPanel tools;tools.Orientation(muxc::Orientation::Horizontal);tools.Spacing(8);muxc::Button invert;invert.Content(winrt::box_value(L"Invert"));invert.Click([selected,boxes,system](auto&&,auto&&){*selected=(~*selected)&system;if(!*selected)*selected=system;for(auto const& [box,bit]:*boxes)box.IsChecked((*selected&bit)!=0);});tools.Children().Append(invert);muxc::Button all;all.Content(winrt::box_value(L"All cores"));all.Click([selected,boxes,system](auto&&,auto&&){*selected=system;for(auto const& [box,bit]:*boxes)box.IsChecked(true);});tools.Children().Append(all);content.Children().Append(tools);
     muxc::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(winrt::box_value(L"Affinity — "+name+L" (PID "+std::to_wstring(pid)+L")"));dialog.Content(content);dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");auto result=co_await dialog.ShowAsync();if(open_overlays_)--open_overlays_;refresh_pending_=false;if(result==muxc::ContentDialogResult::Primary){if(!*selected)StatusText().Text(L"Select at least one CPU.");else set_affinity(pid,*selected);}else load_processes();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->open_overlays_=0; self->refresh_pending_=false; self->StatusText().Text(text); }
+        });
+    }
 }
 
 } // namespace winrt::Winchisel::implementation

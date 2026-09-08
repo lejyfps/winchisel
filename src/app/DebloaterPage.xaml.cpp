@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AsyncSupport.hpp"
 #include "DebloaterPage.xaml.h"
 #include "AsyncLifetime.hpp"
 
@@ -55,6 +56,11 @@ DebloaterPage::~DebloaterPage() {
 }
 
 void DebloaterPage::start_scan(bool clear_notice) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if (operation_ != Operation::none) return;
     operation_ = Operation::scan;
     Loading().Visibility(Visibility::Visible);
@@ -66,9 +72,20 @@ void DebloaterPage::start_scan(bool clear_notice) {
         return winchisel::platform::scan_debloater_installed(catalog);
     });
     timer_.Start();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Items().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
+    }
 }
 
 void DebloaterPage::poll_worker() {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     if (operation_ == Operation::scan) {
         if (!scan_worker_.valid() || scan_worker_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = scan_worker_.get();
@@ -105,6 +122,12 @@ void DebloaterPage::poll_worker() {
         start_scan(false);
     } else {
         timer_.Stop();
+    }
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Items().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
     }
 }
 
@@ -172,6 +195,13 @@ void DebloaterPage::update_actions() {
 }
 
 fire_and_forget DebloaterPage::confirm_action(bool install) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
+
+
     auto lifetime = get_strong();
     const auto count = Items().SelectedItems().Size();
     if (!count) co_return;
@@ -183,9 +213,20 @@ fire_and_forget DebloaterPage::confirm_action(bool install) {
     dialog.CloseButtonText(L"Cancel");
     dialog.DefaultButton(Controls::ContentDialogButton::Close);
     if (co_await dialog.ShowAsync() == Controls::ContentDialogResult::Primary) start_action(install);
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Items().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
+    }
 }
 
 void DebloaterPage::start_action(bool install) {
+    auto error_lifetime=get_strong();
+    auto error_queue=DispatcherQueue();
+    auto error_weak=get_weak();
+    try {
+
     std::vector<winchisel::core::DebloatCatalogEntry const*> selected;
     for (auto const& value : Items().SelectedItems()) {
         if (auto row = value.try_as<Controls::ListViewItem>()) {
@@ -200,6 +241,12 @@ void DebloaterPage::start_action(bool install) {
         return winchisel::platform::apply_debloater_action(selected, install);
     });
     timer_.Start();
+
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Items().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+        });
+    }
 }
 
 void DebloaterPage::Tabs_SelectionChanged(IInspectable const&, Controls::SelectorBarSelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) render_items(); }
