@@ -13,7 +13,6 @@
     </UserControl.Resources>
     <ScrollViewer Padding="24">
         <StackPanel Spacing="10">
-            <TextBlock Text="Overview" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,6" />
             <Grid ColumnSpacing="10" RowSpacing="10">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

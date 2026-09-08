@@ -21,7 +21,7 @@ namespace winrt::Winchisel::implementation {
 SettingsPage::SettingsPage() {
     InitializeComponent();
     const auto& settings = winchisel::application::Session::instance().settings();
-    Language().SelectedIndex(settings.language == winchisel::core::Language::german ? 1 : 0);
+    Language().SelectedIndex(static_cast<int>(settings.language));
     Theme().SelectedIndex(static_cast<int>(settings.theme));
     CheckUpdates().IsOn(settings.check_updates_on_startup);
     ShowConsole().IsOn(settings.show_console);
@@ -74,9 +74,7 @@ void SettingsPage::queue_save() {
 void SettingsPage::save_settings() {
     save_timer_.Stop();
     auto settings = winchisel::application::Session::instance().settings();
-    settings.language = Language().SelectedIndex() == 1
-        ? winchisel::core::Language::german
-        : winchisel::core::Language::english;
+    settings.language = static_cast<winchisel::core::Language>(std::max(Language().SelectedIndex(), 0));
     settings.theme = static_cast<winchisel::core::Theme>(std::max(Theme().SelectedIndex(), 0));
     settings.check_updates_on_startup = CheckUpdates().IsOn();
     settings.show_console = ShowConsole().IsOn();
@@ -86,7 +84,7 @@ void SettingsPage::save_settings() {
     if (auto result = winchisel::application::Session::instance().set_settings(settings); !result) {
         loading_ = true;
         const auto& current = winchisel::application::Session::instance().settings();
-        Language().SelectedIndex(current.language == winchisel::core::Language::german ? 1 : 0);
+        Language().SelectedIndex(static_cast<int>(current.language));
         Theme().SelectedIndex(static_cast<int>(current.theme));
         CheckUpdates().IsOn(current.check_updates_on_startup);
         ShowConsole().IsOn(current.show_console);

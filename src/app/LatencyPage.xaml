@@ -11,13 +11,8 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid>
-            <StackPanel>
-                <TextBlock Text="Latency" Style="{StaticResource TitleTextBlockStyle}" />
-                <TextBlock Text="Analyze USB topology for latency issues."
-                           Style="{StaticResource CaptionTextBlockStyle}" />
-            </StackPanel>
             <Button x:Name="AnalyzeButton" Content="Analyze" Style="{StaticResource AccentButtonStyle}"
-                    Click="Analyze_Click" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                    Click="Analyze_Click" HorizontalAlignment="Left" VerticalAlignment="Center" />
         </Grid>
         <Grid Grid.Row="1" ColumnSpacing="12">
             <Grid.ColumnDefinitions>

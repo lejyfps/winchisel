@@ -27,6 +27,7 @@
 #include <winrt/Microsoft.UI.Interop.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <algorithm>
+#include <array>
 #include <filesystem>
 
 
@@ -126,7 +127,35 @@ MainWindow::MainWindow() {
         }
     }
     if (ContentFrame().Content() == nullptr) {
-        auto home = make<HomePage>(); pages_.emplace(L"home", home); ContentFrame().Content(home);
+        auto home = make_page(L"home"); pages_.emplace(L"home", home); ContentFrame().Content(home);
+    }
+    start_page_preload();
+}
+
+void MainWindow::start_page_preload() {
+    preload_index_ = 0;
+    const auto generation = ++preload_generation_;
+    auto weak = get_weak();
+    DispatcherQueue().TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
+        [weak, generation] { if (auto self = weak.get()) self->preload_next(generation); });
+}
+
+void MainWindow::preload_next(std::uint32_t generation) {
+    static constexpr std::array<std::wstring_view, 8> tags{
+        L"settings", L"extras", L"latency", L"processes", L"performance", L"privacy_security", L"downloads", L"debloater"};
+    if (generation != preload_generation_) return;
+    while (preload_index_ < tags.size()) {
+        const hstring tag{tags[preload_index_++]};
+        const std::wstring key{tag};
+        if (!pages_.contains(key)) {
+            if (auto page = make_page(tag)) pages_.emplace(key, page);
+            break;
+        }
+    }
+    if (preload_index_ < tags.size()) {
+        auto weak = get_weak();
+        DispatcherQueue().TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low,
+            [weak, generation] { if (auto self = weak.get()) self->preload_next(generation); });
     }
 }
 
@@ -254,7 +283,10 @@ FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
     else if (tag == L"extras") page = make<ExtrasPage>();
     else if (tag == L"settings") page = make<SettingsPage>();
     if (page) {
-        page.Loaded([page](auto&&, auto&&) { winchisel::ui::localize_tree(page); });
+        auto first_load = std::make_shared<bool>(true);
+        page.Loaded([first_load](auto const& sender, auto&&) {
+            if (std::exchange(*first_load, false)) winchisel::ui::localize_tree(sender);
+        });
     }
     return page;
 }
@@ -291,6 +323,7 @@ void MainWindow::reload_language() {
         pages_.emplace(std::wstring(tag.c_str()), page);
         ContentFrame().Content(page);
     }
+    start_page_preload();
 }
 
 }  // namespace winrt::Winchisel::implementation

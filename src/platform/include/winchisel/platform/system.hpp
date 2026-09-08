@@ -25,6 +25,7 @@ std::filesystem::path appdata_dir();
 std::filesystem::path settings_path();
 
 winchisel::core::Result<winchisel::core::Settings> load_settings();
+winchisel::core::Language system_ui_language();
 winchisel::core::Result<void> save_settings(const winchisel::core::Settings& settings);
 
 void show_unsupported_os_message();

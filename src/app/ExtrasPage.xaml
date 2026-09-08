@@ -5,17 +5,9 @@
 
     <Grid Padding="24" RowSpacing="16">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-
-        <StackPanel>
-            <TextBlock Text="Extras" Style="{StaticResource TitleTextBlockStyle}" />
-            <TextBlock Text="Additional system, browser, networking, and power options."
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
-
-        <Grid Grid.Row="1">
+        <Grid>
             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <StackPanel x:Name="Items" Spacing="8">
                     <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />

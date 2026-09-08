@@ -5,17 +5,9 @@
 
     <Grid Padding="24" RowSpacing="16">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-
-        <StackPanel>
-            <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
-            <TextBlock Text="Keep the app behavior aligned with your workflow."
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
-
-        <Grid Grid.Row="1">
+        <Grid>
             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="8">
                     <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />
@@ -47,6 +39,10 @@
                                       SelectionChanged="Language_SelectionChanged">
                                 <ComboBoxItem Content="English" />
                                 <ComboBoxItem Content="Deutsch" />
+                                <ComboBoxItem Content="Español" />
+                                <ComboBoxItem Content="Français" />
+                                <ComboBoxItem Content="Русский" />
+                                <ComboBoxItem Content="简体中文" />
                             </ComboBox>
                         </Grid>
                     </Border>

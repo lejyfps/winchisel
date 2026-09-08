@@ -5,7 +5,6 @@
 #include "HomePage.g.cpp"
 #endif
 
-#include "Localization.hpp"
 #include "winchisel/platform/home.hpp"
 
 using namespace winrt;
@@ -15,7 +14,6 @@ namespace winrt::Winchisel::implementation {
 
 HomePage::HomePage() {
     InitializeComponent();
-    Loaded([](auto const& sender, auto const&) { winchisel::ui::localize_tree(sender); });
     Refresh();
     timer_ = DispatcherTimer();
     timer_.Interval(std::chrono::seconds(5));

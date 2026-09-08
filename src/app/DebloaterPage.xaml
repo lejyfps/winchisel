@@ -7,23 +7,15 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-
-        <StackPanel>
-            <TextBlock Text="Debloater" Style="{StaticResource TitleTextBlockStyle}" />
-            <TextBlock Text="Remove or restore Windows apps, capabilities, and optional features."
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
-
-        <SelectorBar x:Name="Tabs" Grid.Row="1" SelectionChanged="Tabs_SelectionChanged">
+        <SelectorBar x:Name="Tabs" SelectionChanged="Tabs_SelectionChanged">
             <SelectorBarItem Text="Windows Apps" IsSelected="True" />
             <SelectorBarItem Text="Capabilities" />
             <SelectorBarItem Text="Optional Features" />
         </SelectorBar>
 
-        <Grid Grid.Row="2" ColumnSpacing="8">
+        <Grid Grid.Row="1" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -42,7 +34,7 @@
             <Button x:Name="RemoveButton" Grid.Column="4" Content="Remove" IsEnabled="False" Click="Remove_Click" />
         </Grid>
 
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="2">
             <ListView x:Name="Items" SelectionMode="Multiple" SelectionChanged="Items_SelectionChanged" />
             <ProgressBar x:Name="Loading" IsIndeterminate="True" Visibility="Collapsed"
                          HorizontalAlignment="Stretch" VerticalAlignment="Top"

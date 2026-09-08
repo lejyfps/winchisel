@@ -6,16 +6,10 @@
     <Grid Padding="24" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <StackPanel>
-            <TextBlock Text="Privacy &amp; Security" Style="{StaticResource TitleTextBlockStyle}" />
-            <TextBlock Text="Harden privacy, ads, diagnostics, and app permissions."
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
-        <Grid Grid.Row="1" ColumnSpacing="8">
+        <Grid ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -25,11 +19,11 @@
             <Button Grid.Column="1" Content="Recommended" Style="{StaticResource AccentButtonStyle}" Click="Recommended_Click" />
             <Button Grid.Column="2" Content="Defaults" Click="Defaults_Click" />
         </Grid>
-        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
             <Grid>
                 <StackPanel x:Name="Groups" Spacing="8" />
             </Grid>
         </ScrollViewer>
-        <InfoBar x:Name="ResultBar" Grid.Row="3" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />
+        <InfoBar x:Name="ResultBar" Grid.Row="2" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />
     </Grid>
 </UserControl>

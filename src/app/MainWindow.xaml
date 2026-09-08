@@ -15,7 +15,7 @@
                 <TextBlock x:Name="AppTitleText" Text="Winchisel" VerticalAlignment="Center"
                            FontFamily="Segoe UI Variable Text" FontSize="12" />
             </StackPanel>
-            <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="2">
+            <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="2">
                 <Button x:Name="UpdateButton" Click="Update_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12" Background="Transparent"
                         ToolTipService.ToolTip="Check for updates" AutomationProperties.Name="Check for updates">
                     <Viewbox Width="10" Height="10"><SymbolIcon Symbol="Sync" /></Viewbox>

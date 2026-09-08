@@ -24,11 +24,13 @@ bool Session::bootstrap() {
     } else {
         winchisel::platform::boot_log("admin ok");
     }
+    const bool first_start = !std::filesystem::exists(winchisel::platform::settings_path());
     if (auto loaded = winchisel::platform::load_settings()) {
         settings_ = *loaded;
     } else {
         settings_ = winchisel::core::settings_defaults();
     }
+    if (first_start) settings_.language = winchisel::platform::system_ui_language();
     settings_.autostart_enabled = winchisel::platform::is_autostart_enabled();
     winchisel::core::set_ui_language(settings_.language);
     (void)winchisel::platform::save_settings(settings_);

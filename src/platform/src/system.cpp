@@ -152,6 +152,18 @@ std::filesystem::path settings_path() {
     return appdata_dir() / L"settings.json";
 }
 
+winchisel::core::Language system_ui_language() {
+    wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
+    if (!GetUserDefaultLocaleName(locale, LOCALE_NAME_MAX_LENGTH)) return winchisel::core::Language::english;
+    if (_wcsnicmp(locale, L"de", 2) == 0) return winchisel::core::Language::german;
+    if (_wcsnicmp(locale, L"es", 2) == 0) return winchisel::core::Language::spanish;
+    if (_wcsnicmp(locale, L"fr", 2) == 0) return winchisel::core::Language::french;
+    if (_wcsnicmp(locale, L"ru", 2) == 0) return winchisel::core::Language::russian;
+    if (_wcsicmp(locale, L"zh-CN") == 0 || _wcsicmp(locale, L"zh-SG") == 0 ||
+        _wcsnicmp(locale, L"zh-Hans", 7) == 0) return winchisel::core::Language::simplified_chinese;
+    return winchisel::core::Language::english;
+}
+
 winchisel::core::Result<winchisel::core::Settings> load_settings() {
     const auto path = settings_path();
     std::error_code ec;

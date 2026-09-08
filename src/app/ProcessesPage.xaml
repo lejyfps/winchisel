@@ -6,15 +6,9 @@
     <Grid Padding="24" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <StackPanel>
-            <TextBlock Text="Processes" Style="{StaticResource TitleTextBlockStyle}" />
-            <TextBlock Text="Inspect running processes, priority, and affinity."
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
-        <Grid Grid.Row="1" ColumnSpacing="8">
+        <Grid ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -26,7 +20,7 @@
             </ComboBox>
             <Button Grid.Column="1" Content="Refresh" Click="RefreshClick" />
         </Grid>
-        <Grid Grid.Row="2" RowSpacing="8">
+        <Grid Grid.Row="1" RowSpacing="8">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
             <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextBlockStyle}" AutomationProperties.LiveSetting="Polite" />
         <ListView x:Name="ProcessList" Grid.Row="1" SelectionMode="Single" SelectionChanged="ProcessSelectionChanged">

@@ -82,14 +82,146 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
     return table;
 }
 
+std::unordered_map<std::wstring, std::wstring> const& spanish() {
+    static const std::unordered_map<std::wstring, std::wstring> table{
+        {L"Home", L"Inicio"}, {L"Debloater", L"Optimizador"}, {L"Performance", L"Rendimiento"},
+        {L"Privacy & Security", L"Privacidad y seguridad"}, {L"Downloads", L"Descargas"},
+        {L"Processes", L"Procesos"}, {L"Latency", L"Latencia"}, {L"Extras", L"Extras"},
+        {L"Settings", L"Configuración"}, {L"Hardware", L"Hardware"}, {L"System", L"Sistema"},
+        {L"Processor", L"Procesador"}, {L"Graphics", L"Gráficos"}, {L"Memory", L"Memoria"},
+        {L"Storage", L"Almacenamiento"}, {L"Windows", L"Windows"}, {L"Motherboard", L"Placa base"},
+        {L"Display", L"Pantalla"}, {L"Uptime", L"Tiempo activo"},
+        {L"Keep the app behavior aligned with your workflow.", L"Adapta el comportamiento de la aplicación a tu flujo de trabajo."},
+        {L"Application", L"Aplicación"}, {L"These settings are saved automatically.", L"Estos ajustes se guardan automáticamente."},
+        {L"Language", L"Idioma"}, {L"Choose the application language.", L"Elige el idioma de la aplicación."},
+        {L"Check updates on startup", L"Buscar actualizaciones al iniciar"},
+        {L"Look for a newer Winchisel release when the app starts.", L"Buscar una versión más reciente de Winchisel al iniciar la aplicación."},
+        {L"Show console", L"Mostrar consola"}, {L"Show the debug console window while the app is running.", L"Mostrar la consola de depuración mientras se ejecuta la aplicación."},
+        {L"Start with Windows", L"Iniciar con Windows"}, {L"Launch Winchisel automatically when you sign in.", L"Iniciar Winchisel automáticamente al iniciar sesión."},
+        {L"System Protection", L"Protección del sistema"}, {L"System Restore Point", L"Punto de restauración del sistema"},
+        {L"Remove or restore Windows apps, capabilities, and optional features.", L"Elimina o restaura aplicaciones, capacidades y características opcionales de Windows."},
+        {L"Windows Apps", L"Aplicaciones de Windows"}, {L"Capabilities", L"Capacidades"}, {L"Optional Features", L"Características opcionales"},
+        {L"Search", L"Buscar"}, {L"Find and install trusted applications with winget.", L"Busca e instala aplicaciones de confianza con winget."},
+        {L"Search apps, categories, or package IDs", L"Buscar aplicaciones, categorías o identificadores de paquetes"},
+        {L"Inspect running processes, priority, and affinity.", L"Inspecciona los procesos en ejecución, la prioridad y la afinidad."},
+        {L"Analyze USB topology for latency issues.", L"Analiza la topología USB para detectar problemas de latencia."},
+        {L"Ready", L"Listo"}, {L"Additional system, browser, networking, and power options.", L"Opciones adicionales del sistema, navegador, red y energía."},
+        {L"Installed", L"Instalado"}, {L"Not installed", L"No instalado"}, {L"Website", L"Sitio web"},
+        {L"Install", L"Instalar"}, {L"Scan failed", L"Error de análisis"}, {L"Installation complete", L"Instalación completada"},
+        {L"Update", L"Actualizar"}, {L"Later", L"Más tarde"}, {L"Winchisel update available", L"Actualización de Winchisel disponible"},
+        {L"Create Restore Point", L"Crear punto de restauración"}, {L"System Repair", L"Reparación del sistema"},
+        {L"Temporary Files - Remove", L"Eliminar archivos temporales"}, {L"Close", L"Cerrar"}, {L"Cancel", L"Cancelar"},
+        {L"Apply", L"Aplicar"}, {L"Live log", L"Registro en directo"}, {L"Waiting for output...", L"Esperando resultados..."},
+        {L"This can take a while. Keep the window open until it finishes.", L"Esto puede tardar. Mantén la ventana abierta hasta que termine."},
+        {L"Could not apply setting", L"No se pudo aplicar el ajuste"}, {L"Recommended", L"Recomendado"},
+        {L"Defaults", L"Valores predeterminados"}, {L"Settings could not be saved", L"No se pudieron guardar los ajustes"},
+        {L"Refresh", L"Actualizar"}, {L"All", L"Todos"}, {L"Active", L"Activos"}, {L"User", L"Usuario"},
+    };
+    return table;
+}
+
+std::unordered_map<std::wstring, std::wstring> const& french() {
+    static const std::unordered_map<std::wstring, std::wstring> table{
+        {L"Home", L"Accueil"}, {L"Debloater", L"Optimisation"}, {L"Performance", L"Performances"},
+        {L"Privacy & Security", L"Confidentialité et sécurité"}, {L"Downloads", L"Téléchargements"},
+        {L"Processes", L"Processus"}, {L"Latency", L"Latence"}, {L"Extras", L"Extras"},
+        {L"Settings", L"Paramètres"}, {L"Hardware", L"Matériel"}, {L"System", L"Système"},
+        {L"Processor", L"Processeur"}, {L"Graphics", L"Graphiques"}, {L"Memory", L"Mémoire"},
+        {L"Storage", L"Stockage"}, {L"Windows", L"Windows"}, {L"Motherboard", L"Carte mère"},
+        {L"Display", L"Écran"}, {L"Uptime", L"Durée de fonctionnement"},
+        {L"Keep the app behavior aligned with your workflow.", L"Adaptez le comportement de l’application à votre flux de travail."},
+        {L"Application", L"Application"}, {L"These settings are saved automatically.", L"Ces paramètres sont enregistrés automatiquement."},
+        {L"Language", L"Langue"}, {L"Choose the application language.", L"Choisissez la langue de l’application."},
+        {L"Check updates on startup", L"Rechercher les mises à jour au démarrage"},
+        {L"Look for a newer Winchisel release when the app starts.", L"Rechercher une version plus récente de Winchisel au démarrage."},
+        {L"Show console", L"Afficher la console"}, {L"Show the debug console window while the app is running.", L"Afficher la console de débogage pendant l’exécution de l’application."},
+        {L"Start with Windows", L"Démarrer avec Windows"}, {L"Launch Winchisel automatically when you sign in.", L"Lancer Winchisel automatiquement à la connexion."},
+        {L"System Protection", L"Protection du système"}, {L"System Restore Point", L"Point de restauration système"},
+        {L"Remove or restore Windows apps, capabilities, and optional features.", L"Supprimez ou restaurez les applications, capacités et fonctionnalités facultatives de Windows."},
+        {L"Windows Apps", L"Applications Windows"}, {L"Capabilities", L"Capacités"}, {L"Optional Features", L"Fonctionnalités facultatives"},
+        {L"Search", L"Rechercher"}, {L"Find and install trusted applications with winget.", L"Recherchez et installez des applications fiables avec winget."},
+        {L"Search apps, categories, or package IDs", L"Rechercher des applications, catégories ou identifiants de paquet"},
+        {L"Inspect running processes, priority, and affinity.", L"Inspectez les processus en cours, leur priorité et leur affinité."},
+        {L"Analyze USB topology for latency issues.", L"Analysez la topologie USB pour détecter les problèmes de latence."},
+        {L"Ready", L"Prêt"}, {L"Additional system, browser, networking, and power options.", L"Options supplémentaires pour le système, le navigateur, le réseau et l’alimentation."},
+        {L"Installed", L"Installé"}, {L"Not installed", L"Non installé"}, {L"Website", L"Site web"},
+        {L"Install", L"Installer"}, {L"Scan failed", L"Échec de l’analyse"}, {L"Installation complete", L"Installation terminée"},
+        {L"Update", L"Mettre à jour"}, {L"Later", L"Plus tard"}, {L"Winchisel update available", L"Mise à jour de Winchisel disponible"},
+        {L"Create Restore Point", L"Créer un point de restauration"}, {L"System Repair", L"Réparation du système"},
+        {L"Temporary Files - Remove", L"Supprimer les fichiers temporaires"}, {L"Close", L"Fermer"}, {L"Cancel", L"Annuler"},
+        {L"Apply", L"Appliquer"}, {L"Live log", L"Journal en direct"}, {L"Waiting for output...", L"En attente des résultats..."},
+        {L"This can take a while. Keep the window open until it finishes.", L"Cette opération peut prendre du temps. Gardez la fenêtre ouverte jusqu’à la fin."},
+        {L"Could not apply setting", L"Impossible d’appliquer le paramètre"}, {L"Recommended", L"Recommandé"},
+        {L"Defaults", L"Valeurs par défaut"}, {L"Settings could not be saved", L"Impossible d’enregistrer les paramètres"},
+        {L"Refresh", L"Actualiser"}, {L"All", L"Tous"}, {L"Active", L"Actifs"}, {L"User", L"Utilisateur"},
+    };
+    return table;
+}
+
+std::unordered_map<std::wstring, std::wstring> const& russian() {
+    static const std::unordered_map<std::wstring, std::wstring> table{
+        {L"Home",L"Главная"},{L"Debloater",L"Оптимизация"},{L"Performance",L"Производительность"},{L"Privacy & Security",L"Конфиденциальность и безопасность"},
+        {L"Downloads",L"Загрузки"},{L"Processes",L"Процессы"},{L"Latency",L"Задержка"},{L"Extras",L"Дополнительно"},{L"Settings",L"Настройки"},
+        {L"Hardware",L"Оборудование"},{L"System",L"Система"},{L"Processor",L"Процессор"},{L"Graphics",L"Графика"},{L"Memory",L"Память"},
+        {L"Storage",L"Хранилище"},{L"Windows",L"Windows"},{L"Motherboard",L"Материнская плата"},{L"Display",L"Экран"},{L"Uptime",L"Время работы"},
+        {L"Keep the app behavior aligned with your workflow.",L"Настройте приложение под свой рабочий процесс."},{L"Application",L"Приложение"},
+        {L"These settings are saved automatically.",L"Эти настройки сохраняются автоматически."},{L"Language",L"Язык"},{L"Choose the application language.",L"Выберите язык приложения."},
+        {L"Check updates on startup",L"Проверять обновления при запуске"},{L"Look for a newer Winchisel release when the app starts.",L"Искать новую версию Winchisel при запуске приложения."},
+        {L"Show console",L"Показывать консоль"},{L"Show the debug console window while the app is running.",L"Показывать консоль отладки во время работы приложения."},
+        {L"Start with Windows",L"Запускать вместе с Windows"},{L"Launch Winchisel automatically when you sign in.",L"Автоматически запускать Winchisel при входе в систему."},
+        {L"System Protection",L"Защита системы"},{L"System Restore Point",L"Точка восстановления системы"},
+        {L"Remove or restore Windows apps, capabilities, and optional features.",L"Удаляйте или восстанавливайте приложения, компоненты и дополнительные функции Windows."},
+        {L"Windows Apps",L"Приложения Windows"},{L"Capabilities",L"Компоненты"},{L"Optional Features",L"Дополнительные функции"},{L"Search",L"Поиск"},
+        {L"Find and install trusted applications with winget.",L"Находите и устанавливайте проверенные приложения с помощью winget."},
+        {L"Search apps, categories, or package IDs",L"Поиск приложений, категорий или идентификаторов пакетов"},
+        {L"Inspect running processes, priority, and affinity.",L"Просматривайте запущенные процессы, их приоритет и привязку."},
+        {L"Analyze USB topology for latency issues.",L"Анализируйте топологию USB на наличие проблем с задержкой."},{L"Ready",L"Готово"},
+        {L"Additional system, browser, networking, and power options.",L"Дополнительные параметры системы, браузера, сети и питания."},
+        {L"Installed",L"Установлено"},{L"Not installed",L"Не установлено"},{L"Website",L"Веб-сайт"},{L"Install",L"Установить"},{L"Scan failed",L"Ошибка сканирования"},
+        {L"Installation complete",L"Установка завершена"},{L"Update",L"Обновить"},{L"Later",L"Позже"},{L"Winchisel update available",L"Доступно обновление Winchisel"},
+        {L"Create Restore Point",L"Создать точку восстановления"},{L"System Repair",L"Восстановление системы"},{L"Temporary Files - Remove",L"Удалить временные файлы"},
+        {L"Close",L"Закрыть"},{L"Cancel",L"Отмена"},{L"Apply",L"Применить"},{L"Live log",L"Журнал в реальном времени"},{L"Waiting for output...",L"Ожидание результата..."},
+        {L"This can take a while. Keep the window open until it finishes.",L"Это может занять некоторое время. Не закрывайте окно до завершения."},
+        {L"Could not apply setting",L"Не удалось применить настройку"},{L"Recommended",L"Рекомендуемые"},{L"Defaults",L"По умолчанию"},
+        {L"Settings could not be saved",L"Не удалось сохранить настройки"},{L"Refresh",L"Обновить"},{L"All",L"Все"},{L"Active",L"Активные"},{L"User",L"Пользователь"},
+    }; return table;
+}
+
+std::unordered_map<std::wstring, std::wstring> const& simplified_chinese() {
+    static const std::unordered_map<std::wstring, std::wstring> table{
+        {L"Home",L"主页"},{L"Debloater",L"精简优化"},{L"Performance",L"性能"},{L"Privacy & Security",L"隐私与安全"},{L"Downloads",L"下载"},
+        {L"Processes",L"进程"},{L"Latency",L"延迟"},{L"Extras",L"其他"},{L"Settings",L"设置"},{L"Hardware",L"硬件"},{L"System",L"系统"},
+        {L"Processor",L"处理器"},{L"Graphics",L"显卡"},{L"Memory",L"内存"},{L"Storage",L"存储"},{L"Windows",L"Windows"},{L"Motherboard",L"主板"},
+        {L"Display",L"显示器"},{L"Uptime",L"运行时间"},{L"Keep the app behavior aligned with your workflow.",L"使应用行为符合您的工作流程。"},
+        {L"Application",L"应用"},{L"These settings are saved automatically.",L"这些设置会自动保存。"},{L"Language",L"语言"},{L"Choose the application language.",L"选择应用语言。"},
+        {L"Check updates on startup",L"启动时检查更新"},{L"Look for a newer Winchisel release when the app starts.",L"应用启动时检查较新的 Winchisel 版本。"},
+        {L"Show console",L"显示控制台"},{L"Show the debug console window while the app is running.",L"应用运行时显示调试控制台窗口。"},
+        {L"Start with Windows",L"随 Windows 启动"},{L"Launch Winchisel automatically when you sign in.",L"登录时自动启动 Winchisel。"},
+        {L"System Protection",L"系统保护"},{L"System Restore Point",L"系统还原点"},{L"Remove or restore Windows apps, capabilities, and optional features.",L"移除或恢复 Windows 应用、功能和可选功能。"},
+        {L"Windows Apps",L"Windows 应用"},{L"Capabilities",L"功能"},{L"Optional Features",L"可选功能"},{L"Search",L"搜索"},
+        {L"Find and install trusted applications with winget.",L"使用 winget 查找并安装可信应用。"},{L"Search apps, categories, or package IDs",L"搜索应用、类别或软件包 ID"},
+        {L"Inspect running processes, priority, and affinity.",L"查看正在运行的进程、优先级和处理器关联。"},{L"Analyze USB topology for latency issues.",L"分析 USB 拓扑中的延迟问题。"},
+        {L"Ready",L"就绪"},{L"Additional system, browser, networking, and power options.",L"其他系统、浏览器、网络和电源选项。"},
+        {L"Installed",L"已安装"},{L"Not installed",L"未安装"},{L"Website",L"网站"},{L"Install",L"安装"},{L"Scan failed",L"扫描失败"},{L"Installation complete",L"安装完成"},
+        {L"Update",L"更新"},{L"Later",L"稍后"},{L"Winchisel update available",L"Winchisel 有可用更新"},{L"Create Restore Point",L"创建还原点"},
+        {L"System Repair",L"系统修复"},{L"Temporary Files - Remove",L"删除临时文件"},{L"Close",L"关闭"},{L"Cancel",L"取消"},{L"Apply",L"应用"},
+        {L"Live log",L"实时日志"},{L"Waiting for output...",L"正在等待输出..."},{L"This can take a while. Keep the window open until it finishes.",L"这可能需要一些时间。请保持窗口打开直至完成。"},
+        {L"Could not apply setting",L"无法应用设置"},{L"Recommended",L"推荐"},{L"Defaults",L"默认值"},{L"Settings could not be saved",L"无法保存设置"},
+        {L"Refresh",L"刷新"},{L"All",L"全部"},{L"Active",L"活动"},{L"User",L"用户"},
+    }; return table;
+}
+
 }  // namespace
 
 void set_ui_language(Language language) { g_language = language; }
 Language ui_language() { return g_language; }
 
 std::wstring loc(std::wstring_view english) {
-    if (g_language != Language::german) return std::wstring(english);
-    auto const& table = german();
+    if (g_language == Language::english) return std::wstring(english);
+    auto const& table = g_language == Language::german ? german()
+        : g_language == Language::spanish ? spanish()
+        : g_language == Language::french ? french()
+        : g_language == Language::russian ? russian() : simplified_chinese();
     if (auto it = table.find(std::wstring(english)); it != table.end()) return it->second;
     return std::wstring(english);
 }

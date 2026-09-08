@@ -30,7 +30,7 @@ ProcessesPage::ProcessesPage(){
     InitializeComponent();initialized_=true;load_processes();
     refresh_timer_=DispatcherQueue().CreateTimer();refresh_timer_.Interval(std::chrono::seconds(2));refresh_timer_.IsRepeating(true);
     auto weak=get_weak();refresh_timer_.Tick([weak](auto&&,auto&&){if(auto self=weak.get()){if(self->open_overlays_)self->refresh_pending_=true;else self->load_processes();}});
-    Loaded([weak](auto&&,auto&&){if(auto self=weak.get()){self->load_processes();self->refresh_timer_.Start();}});Unloaded([weak](auto&&,auto&&){if(auto self=weak.get())self->refresh_timer_.Stop();});
+    Loaded([weak](auto&&,auto&&){if(auto self=weak.get())self->refresh_timer_.Start();});Unloaded([weak](auto&&,auto&&){if(auto self=weak.get())self->refresh_timer_.Stop();});
 }
 
 void ProcessesPage::RefreshClick(Windows::Foundation::IInspectable const&,mux::RoutedEventArgs const&){load_processes();}
