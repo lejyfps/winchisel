@@ -8,11 +8,12 @@ namespace winrt::Winchisel::implementation {
 struct HomePage : HomePageT<HomePage> {
     HomePage();
     ~HomePage();
-    void Refresh();
+    winrt::fire_and_forget Refresh();
 
 private:
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};
     winrt::event_token timer_token_{};
+    bool refresh_running_{};
 };
 
 }  // namespace winrt::Winchisel::implementation

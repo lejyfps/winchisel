@@ -34,7 +34,8 @@ private:
     std::uint32_t selected_pid_{};
     bool restoring_selection_{};
     bool initialized_{};
-    void load_processes();
+    bool scan_running_{};
+    winrt::fire_and_forget load_processes();
     void render_processes();
     void set_sort(SortColumn);
     void add_process_menu(winrt::Microsoft::UI::Xaml::FrameworkElement const&, ProcessRow const&);

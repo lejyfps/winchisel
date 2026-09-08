@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **38 von 56 Auditpunkten behoben**, 18 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **40 von 56 Auditpunkten behoben**, 16 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -28,7 +28,7 @@ Stand: **38 von 56 Auditpunkten behoben**, 18 offen. Erfolgreich behobene Punkte
 - [x] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
 - [ ] **Block 7 – Performance-Backend-Parität:** AUD-007 und AUD-008 verifiziert; AUD-009 offen
 - [ ] **Block 8 – i18n und Encoding:** AUD-048 verifiziert; AUD-003 offen
-- [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
+- [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014 und AUD-031 behoben; AUD-015 und AUD-016 offen
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
 - [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030 und AUD-037 erledigt; AUD-036 offen
 - [ ] **Block 12 – Prozesse:** AUD-034 und AUD-035 behoben; AUD-032 und AUD-033 offen
@@ -160,6 +160,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-014 – Home-Abfragen laufen synchron auf dem UI-Thread
 
 - Typ: **PERFORMANCE / HANG-RISIKO**
+- [x] Status: **BEHOBEN IM ASYNC-MEHRFACHBLOCK (2026-09-08)** – Die vollständige Systemabfrage läuft per `resume_background`; nur das fertige Snapshot-Modell wird über die DispatcherQueue in die Controls übertragen. Ein Lauf-Guard verhindert überlappende 5-s-Abfragen, Timer und Callback halten die Page nicht künstlich am Leben.
 - Neu: Konstruktor und 5-s-DispatcherTimer rufen `query_home_info()` direkt auf (`src/app/HomePage.xaml.cpp:14-21`). Dieses führt Registry-, DXGI-, Speicher-, Laufwerks- und weitere Systemabfragen aus (`src/platform/src/home.cpp`).
 - Alt/Zielarchitektur: teure Abfragen im Worker; UI-Thread nur UI.
 - Folge: periodische UI-Ruckler oder Hänger bei langsamen Treibern/Laufwerken. Das verletzt die eigene Architekturleitplanke.
@@ -288,6 +289,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-031 – Prozessseite führt teure Vollabfrage auf dem UI-Thread aus
 
 - Typ: **PERFORMANCE**
+- [x] Status: **BEHOBEN IM ASYNC-MEHRFACHBLOCK (2026-09-08)** – Toolhelp-Snapshot, Prozesshandles, Zeiten, Pfade, Priorität und Affinity werden in einem guarded Background-Lauf gesammelt. Erst der fertige Snapshot wird schwach referenziert auf dem UI-Thread übernommen und gerendert.
 - Neu: `load_processes()` erstellt Toolhelp-Snapshot, öffnet Prozesse, liest Pfade/Zeiten und rendert die gesamte Tabelle aus dem 2-s-UI-Timer (`src/app/ProcessesPage.xaml.cpp:29-93`).
 - Folge: Bei vielen Prozessen entstehen regelmäßige UI-Pausen und große Control-Allokationen.
 - Korrektur: Datenerfassung und Sortierung im Worker, UI-Diff/Virtualisierung statt komplettes Neurendern.
