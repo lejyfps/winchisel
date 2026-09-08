@@ -45,9 +45,8 @@ winchisel::core::Result<std::string> get_https(std::string_view url, std::uint64
 }
 
 std::optional<std::string> asset_url(std::string const& api_json, std::string_view name) {
-    const auto marker = std::string("\"name\":\"") + std::string(name) + "\""; const auto position=api_json.find(marker); if(position==std::string::npos)return std::nullopt;
-    const auto begin=api_json.rfind('{',position), end=api_json.find('}',position); if(begin==std::string::npos||end==std::string::npos)return std::nullopt; const auto object=api_json.substr(begin,end-begin+1);
-    static const std::regex url(R"json("browser_download_url":"([^"]+)")json"); std::smatch match; return std::regex_search(object,match,url)?std::optional<std::string>{match[1].str()}:std::nullopt;
+    const std::regex marker("\\\"name\\\"\\s*:\\s*\\\"" + std::string(name) + "\\\""); std::smatch name_match; if(!std::regex_search(api_json,name_match,marker))return std::nullopt; const auto position=static_cast<std::size_t>(name_match.position());
+    const auto remainder=api_json.substr(position); static const std::regex url(R"json("browser_download_url"\s*:\s*"([^"]+)")json"); std::smatch match; return std::regex_search(remainder,match,url)?std::optional<std::string>{match[1].str()}:std::nullopt;
 }
 
 std::vector<std::byte> decode_base64(std::string_view value) {

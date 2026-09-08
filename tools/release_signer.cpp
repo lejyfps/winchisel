@@ -51,7 +51,7 @@ std::string hex(std::span<std::byte const> bytes) {
 
 std::string base64(std::span<std::byte const> bytes) {
     DWORD size{}; CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &size);
-    std::string output(size, '\0'); CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, output.data(), &size); output.resize(size - 1); return output;
+    std::string output(size, '\0'); CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, output.data(), &size); output.resize(size); return output;
 }
 
 int keygen(std::filesystem::path const& private_path) {
