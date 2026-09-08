@@ -1,4 +1,5 @@
 #include "winchisel/platform/debloater.hpp"
+#include "process_wait.hpp"
 
 #include <windows.h>
 #include <algorithm>
@@ -70,13 +71,9 @@ winchisel::core::Result<CommandResult> run_powershell(std::wstring_view script) 
         return std::unexpected(debloater_error("CreateProcessW failed: " + std::to_string(error)));
     }
     CloseHandle(write_handle);
-    std::string output; std::array<char, 4096> buffer{}; DWORD count{};
-    while (ReadFile(read_handle, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr) && count)
-        output.append(buffer.data(), count);
-    WaitForSingleObject(process.hProcess, INFINITE);
-    DWORD exit_code{}; GetExitCodeProcess(process.hProcess, &exit_code);
+    std::string output;const auto waited=detail::wait_process_with_pipe(process.hProcess,read_handle,30*60*1000,[&](char const* data,DWORD size){output.append(data,size);});
     CloseHandle(read_handle); CloseHandle(process.hThread); CloseHandle(process.hProcess);
-    return CommandResult{exit_code, std::move(output)};
+    return CommandResult{waited.exit_code, std::move(output)};
 }
 
 winchisel::core::Result<std::unordered_set<std::string>> powershell_lines(

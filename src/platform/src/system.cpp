@@ -1,4 +1,5 @@
 #include "winchisel/platform/system.hpp"
+#include "process_wait.hpp"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -273,13 +274,11 @@ winchisel::core::Result<void> run_hidden(std::wstring command, char const* messa
     if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
         return fail(message_key, "Failed to start process");
     }
-    WaitForSingleObject(process.hProcess, INFINITE);
-    DWORD code{};
-    GetExitCodeProcess(process.hProcess, &code);
+    const auto waited = detail::wait_process(process.hProcess, 30 * 60 * 1000);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    if (code != 0) {
-        return fail(message_key, std::to_string(code));
+    if (waited.exit_code != 0) {
+        return fail(message_key, waited.timed_out ? "process timed out" : std::to_string(waited.exit_code));
     }
     return {};
 }
@@ -306,24 +305,19 @@ winchisel::core::Result<void> run_logged(std::wstring command, char const* messa
     }
     CloseHandle(write);
     std::string pending;
-    char buffer[512]{};
-    DWORD read_count{};
-    while (ReadFile(read, buffer, sizeof(buffer), &read_count, nullptr) && read_count > 0) {
+    const auto waited = detail::wait_process_with_pipe(process.hProcess, read, 30 * 60 * 1000, [&](char const* buffer,DWORD read_count) {
         pending.append(buffer, read_count);
         emit_lines(pending, progress);
-    }
+    });
     emit_lines(pending, progress);
     if (!pending.empty() && progress) {
         progress(false, pending);
     }
-    WaitForSingleObject(process.hProcess, INFINITE);
-    DWORD code{};
-    GetExitCodeProcess(process.hProcess, &code);
     CloseHandle(read);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    if (code != 0) {
-        return fail(message_key, std::to_string(code));
+    if (waited.exit_code != 0) {
+        return fail(message_key, waited.timed_out ? "process timed out" : std::to_string(waited.exit_code));
     }
     return {};
 }
@@ -458,14 +452,10 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
     }
     CloseHandle(write);
     std::string output;
-    char buffer[256]{};
-    DWORD count{};
-    while (ReadFile(read, buffer, sizeof(buffer), &count, nullptr) && count) output.append(buffer, count);
-    WaitForSingleObject(process.hProcess, INFINITE);
-    DWORD code{}; GetExitCodeProcess(process.hProcess, &code);
+    const auto waited=detail::wait_process_with_pipe(process.hProcess,read,30*60*1000,[&](char const* buffer,DWORD count){output.append(buffer,count);});
     CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess);
     std::filesystem::remove(temp, ec);
-    if (code != 0) return fail("power_plan_failed", "powercfg /import exited with " + std::to_string(code));
+    if (waited.exit_code != 0) return fail("power_plan_failed", waited.timed_out ? "powercfg /import timed out" : "powercfg /import exited with " + std::to_string(waited.exit_code));
 
     static const std::regex guid_pattern(R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
     std::smatch match;
@@ -543,13 +533,9 @@ ExtrasCommandState read_extras_command_state() {
         }
         CloseHandle(write);
         std::string output;
-        char buffer[256]{};
-        DWORD count{};
-        while (ReadFile(read, buffer, sizeof(buffer), &count, nullptr) && count) output.append(buffer, count);
-        WaitForSingleObject(process.hProcess, INFINITE);
-        DWORD code{}; GetExitCodeProcess(process.hProcess, &code);
+        const auto waited=detail::wait_process_with_pipe(process.hProcess,read,2*60*1000,[&](char const* buffer,DWORD count){output.append(buffer,count);});
         CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess);
-        return {code, std::move(output)};
+        return {waited.exit_code, std::move(output)};
     };
 
     ExtrasCommandState state;

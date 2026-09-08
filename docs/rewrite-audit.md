@@ -18,7 +18,7 @@ Die Prüfung war ein vollständiger statischer Review aller eingecheckten, selbs
 
 ## Fortschritt
 
-Stand: **42 von 56 Auditpunkten behoben**, 14 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
+Stand: **43 von 56 Auditpunkten behoben**, 13 offen. Erfolgreich behobene Punkte sind sowohl hier als auch direkt am jeweiligen Befund mit `[x]` markiert.
 
 - [x] **Block 1 – Debloater-Parität:** AUD-004, AUD-005, AUD-006
 - [x] **Block 2 – Settings/Persistenz:** AUD-011, AUD-012, AUD-013
@@ -28,7 +28,7 @@ Stand: **42 von 56 Auditpunkten behoben**, 14 offen. Erfolgreich behobene Punkte
 - [x] **Block 6 – Updater Ende-zu-Ende:** AUD-001, AUD-002
 - [ ] **Block 7 – Performance-Backend-Parität:** AUD-007 und AUD-008 verifiziert; AUD-009 offen
 - [ ] **Block 8 – i18n und Encoding:** AUD-048 verifiziert; AUD-003 offen
-- [ ] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-016 und AUD-031 behoben; AUD-015 offen
+- [x] **Block 9 – Async, Cancellation und UI-Thread:** AUD-014, AUD-015, AUD-016, AUD-031
 - [x] **Block 10 – Netzwerk/Downloads:** AUD-019 bis AUD-024
 - [ ] **Block 11 – Extras/Registry-Restpunkte:** AUD-026, AUD-030 und AUD-037 erledigt; AUD-036 offen
 - [ ] **Block 12 – Prozesse:** AUD-033 bis AUD-035 behoben; AUD-032 offen
@@ -169,6 +169,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-015 – Kindprozesse besitzen weder Timeout noch Cancellation
 
 - Typ: **BUG / RESOURCE-RISIKO**
+- [x] Status: **BEHOBEN IM PROCESS-RUNNER-BLOCK (2026-09-08)** – Alle Platform-Runner verwenden begrenzte Wartezeiten statt `INFINITE`. Pipe-Ausgabe wird während des Wartens drainiert; bei Timeout beendet ein Kill-on-close Job Object den vollständigen Prozessbaum und liefert `ERROR_TIMEOUT` beziehungsweise eine konkrete Fehlermeldung zurück.
 - Betroffen: Debloater, Downloads, Performance, Latency, Reparatur, Cleanup, Extras (`WaitForSingleObject(..., INFINITE)` in den Platform-Dateien).
 - Folge: Hängt winget/DISM/netsh/powercfg, bleibt Operation bzw. App-Shutdown unbegrenzt blockiert. UI-Seiten-Futures können beim Zerstören blockieren.
 - Korrektur: RAII-Prozessobjekt, Job Object mit Kill-on-close, Zeitlimit, Cancel-Button und definierter Shutdown.
@@ -425,6 +426,7 @@ Der Rewrite kompiliert und die neun Seiten sind als native WinUI-3-Oberflächen 
 ### AUD-049 – Starke Logikduplizierung und Minified-One-Line-C++
 
 - Typ: **WARTBARKEIT / FEHLERRISIKO**
+- Zwischenstand (2026-09-08): Timeout, Prozessbaum-Abbruch und pipe-sicheres Warten sind in `process_wait.hpp` zentralisiert und sämtliche Platform-Runner verwenden diesen Pfad. Prozessanlage/Fehlerformatierung und mehrere minifizierte Dateien sind weiterhin zu vereinheitlichen; der Punkt bleibt offen.
 - Befund: Prozessstart/Pipe/Handle-Logik ist mehrfach kopiert; Registryzugriffe liegen teils im Platform-Layer, teils direkt in Pages. Mehrere Dateien bestehen aus extrem langen Einzeilern (`performance.cpp`, `DownloadsPage.xaml.cpp`, `ExtrasPage.xaml.cpp`, `ProcessesPage.xaml.cpp`).
 - Folge: RAII, Fehlerbehandlung, Unicode und Timeouts werden inkonsistent; Reviews und gezielte Fixes sind unnötig riskant.
 - Korrektur: gemeinsame `ProcessRunner`-/Registry-/Command-Action-Abstraktionen im Platform-Layer, formatierten Code erzwingen.

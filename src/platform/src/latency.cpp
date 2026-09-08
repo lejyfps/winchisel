@@ -1,5 +1,6 @@
 #include "winchisel/platform/latency.hpp"
 #include "latency_database.generated.hpp"
+#include "process_wait.hpp"
 
 #include <windows.h>
 #include <algorithm>
@@ -172,11 +173,7 @@ std::string run_command(wchar_t const* command) {
     if (!started) { CloseHandle(read_handle); return {}; }
 
     std::string output;
-    std::array<char, 4096> buffer{};
-    DWORD read{};
-    while (ReadFile(read_handle, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr) && read != 0)
-        output.append(buffer.data(), read);
-    WaitForSingleObject(process.hProcess, INFINITE);
+    (void)detail::wait_process_with_pipe(process.hProcess,read_handle,5*60*1000,[&](char const* data,DWORD size){output.append(data,size);});
     CloseHandle(read_handle);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);

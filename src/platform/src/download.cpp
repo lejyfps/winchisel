@@ -1,4 +1,5 @@
 #include "winchisel/platform/download.hpp"
+#include "process_wait.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -39,10 +40,8 @@ winchisel::core::Result<CommandResult> run_hidden(std::wstring command) {
     STARTUPINFOW startup{};startup.cb=sizeof(startup);startup.dwFlags=STARTF_USESTDHANDLES|STARTF_USESHOWWINDOW;startup.wShowWindow=SW_HIDE;startup.hStdOutput=write;startup.hStdError=write;
     PROCESS_INFORMATION process{};
     if(!CreateProcessW(nullptr,command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process)){auto code=GetLastError();CloseHandle(read);CloseHandle(write);return std::unexpected(error("CreateProcessW: "+std::to_string(code)));}
-    CloseHandle(write);std::string output;std::array<char,4096> buffer{};DWORD count{};
-    while(ReadFile(read,buffer.data(),static_cast<DWORD>(buffer.size()),&count,nullptr)&&count)output.append(buffer.data(),count);
-    WaitForSingleObject(process.hProcess,INFINITE);DWORD code{};GetExitCodeProcess(process.hProcess,&code);
-    CloseHandle(read);CloseHandle(process.hThread);CloseHandle(process.hProcess);return CommandResult{code,std::move(output)};
+    CloseHandle(write);std::string output;const auto waited=detail::wait_process_with_pipe(process.hProcess,read,30*60*1000,[&](char const* buffer,DWORD count){output.append(buffer,count);});
+    CloseHandle(read);CloseHandle(process.hThread);CloseHandle(process.hProcess);return CommandResult{waited.exit_code,std::move(output)};
 }
 
 StringSet registry_display_names(HKEY root,std::wstring const& path) {
