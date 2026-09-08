@@ -35,7 +35,8 @@ winchisel::core::Result<std::string> get_https(std::string_view url) {
     std::wstring target(path.data(), parts.dwUrlPathLength);
     if (parts.lpszExtraInfo && parts.dwExtraInfoLength) target.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
     HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",target.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
-    const bool sent=request&&WinHttpSendRequest(request,L"Accept: application/vnd.github+json\r\n",-1,WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
+    static constexpr wchar_t headers[] = L"Accept: application/vnd.github+json\r\n";
+    const bool sent=request&&WinHttpSendRequest(request,headers,static_cast<DWORD>(std::size(headers)-1),WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
     std::string output; for(DWORD available{}; sent&&status==200&&WinHttpQueryDataAvailable(request,&available)&&available;){const auto at=output.size();output.resize(at+available);DWORD read{};if(!WinHttpReadData(request,output.data()+at,available,&read)){output.clear();break;}output.resize(at+read);} if(request)WinHttpCloseHandle(request);if(connection)WinHttpCloseHandle(connection);WinHttpCloseHandle(session);
     if(!sent||status!=200) return std::unexpected(winchisel::core::Error{.code=winchisel::core::ErrorCode::io,.message_key="update_check_failed",.detail="GitHub returned HTTP "+std::to_string(status)}); return output;
 }

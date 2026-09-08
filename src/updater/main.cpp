@@ -72,6 +72,17 @@ std::string sha256_hex(std::filesystem::path const& file) {
     return output;
 }
 
+std::optional<std::string> ascii_hash(std::wstring const& value) {
+    if (value.size() != 64) return std::nullopt;
+    std::string result;
+    result.reserve(value.size());
+    for (const auto character : value) {
+        if (!((character >= L'0' && character <= L'9') || (character >= L'a' && character <= L'f'))) return std::nullopt;
+        result.push_back(static_cast<char>(character));
+    }
+    return result;
+}
+
 bool wait_for_process(std::wstring_view pid_text) {
     const std::wstring pid_value(pid_text);
     wchar_t* end{};
@@ -102,16 +113,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     const auto target_arg = argument(L"--target");
     const auto hash_arg = argument(L"--sha256");
     const auto pid_arg = argument(L"--wait-pid");
-    if (!staged_arg || !target_arg || !hash_arg || !pid_arg || hash_arg->size() != 64) return fail(ERROR_INVALID_PARAMETER);
+    if (!staged_arg || !target_arg || !hash_arg || !pid_arg) return fail(ERROR_INVALID_PARAMETER);
+    const auto expected_hash = ascii_hash(*hash_arg);
+    if (!expected_hash) return fail(ERROR_INVALID_PARAMETER);
     const auto staged = absolute_existing_file(*staged_arg);
     const auto target = absolute_target(*target_arg);
-    if (!staged || !target || sha256_hex(*staged) != std::string(hash_arg->begin(), hash_arg->end())) return fail(ERROR_INVALID_DATA);
+    if (!staged || !target || sha256_hex(*staged) != *expected_hash) return fail(ERROR_INVALID_DATA);
     if (!wait_for_process(*pid_arg)) return fail(ERROR_TIMEOUT);
 
     const auto nonce = std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
     const auto replacement = target->wstring() + L".update-" + nonce;
     const auto backup = target->wstring() + L".backup-" + nonce;
-    if (!CopyFileW(staged->c_str(), replacement.c_str(), TRUE) || sha256_hex(replacement) != std::string(hash_arg->begin(), hash_arg->end())) { DeleteFileW(replacement.c_str()); return fail(ERROR_CRC); }
+    if (!CopyFileW(staged->c_str(), replacement.c_str(), TRUE) || sha256_hex(replacement) != *expected_hash) { DeleteFileW(replacement.c_str()); return fail(ERROR_CRC); }
     if (!MoveFileExW(target->c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH)) { DeleteFileW(replacement.c_str()); return fail(GetLastError()); }
     if (!MoveFileExW(replacement.c_str(), target->c_str(), MOVEFILE_WRITE_THROUGH)) {
         const auto error = GetLastError();
