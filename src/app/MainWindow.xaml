@@ -14,17 +14,17 @@
                 <Image x:Name="AppTitleBarIcon" Width="24" Height="24" Stretch="Uniform" />
                 <TextBlock Text="Winchisel" VerticalAlignment="Center" FontWeight="SemiBold" />
             </StackPanel>
-            <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button x:Name="UpdateButton" Click="Update_Click" Width="46" Height="48" Padding="0" CornerRadius="0" BorderThickness="0"
+            <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="2">
+                <Button x:Name="UpdateButton" Click="Update_Click" Width="36" Height="32" Padding="0" CornerRadius="4" BorderThickness="0"
                         ToolTipService.ToolTip="Check for updates" AutomationProperties.Name="Check for updates">
                     <SymbolIcon Symbol="Sync" />
                 </Button>
-                <Button Click="BugReport_Click" Width="46" Height="48" Padding="0" CornerRadius="0" BorderThickness="0"
+                <Button Click="BugReport_Click" Width="36" Height="32" Padding="0" CornerRadius="4" BorderThickness="0"
                         Background="#C42B1C" Foreground="White"
                         ToolTipService.ToolTip="Report a bug" AutomationProperties.Name="Report a bug">
                     <SymbolIcon Symbol="ReportHacked" />
                 </Button>
-                <Button Click="Donate_Click" Width="46" Height="48" Padding="0" CornerRadius="0" BorderThickness="0"
+                <Button Click="Donate_Click" Width="36" Height="32" Padding="0" CornerRadius="4" BorderThickness="0"
                         ToolTipService.ToolTip="Donate" AutomationProperties.Name="Donate">
                     <SymbolIcon Symbol="Like" />
                 </Button>
