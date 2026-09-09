@@ -3,6 +3,8 @@
 #include "ExtrasPage.g.h"
 #include "ExtrasPage.xaml.g.h"
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace winrt::Winchisel::implementation {
 
@@ -17,7 +19,7 @@ private:
         bool modern_standby{}, sync_provider{}, brave{}, edge{}, ctfmon{}, ctfmon_dll{}, timer_resolution{}, ipv6{}, teredo{}, ps7{};
         DWORD ipv6_value{};
     };
-    struct WorkResult { bool ok{}; DWORD error{ERROR_SUCCESS}; };
+    struct WorkResult { bool ok{}; DWORD error{ERROR_SUCCESS}; std::string note; };
     bool loading_{};
     bool command_running_{};
     void load_states();

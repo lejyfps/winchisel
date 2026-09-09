@@ -466,34 +466,154 @@ void PrivacyPage::save_smart_app_control(){if(loading_uac_||!smart_app_control_|
 void PrivacyPage::save_powershell_policy(){if(loading_uac_||!powershell_policy_||powershell_policy_.SelectedIndex()<0)return;constexpr std::array values{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};auto selected=powershell_policy_.SelectedIndex();std::vector<std::pair<Target,Value>> changes;for(auto hive:{Hive::current_user,Hive::local_machine})changes.emplace_back(target(hive,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string),std::string(values[selected]));submit([changes=std::move(changes)] { return winchisel::platform::write_registry_values_atomic(changes); });}
 void PrivacyPage::save_ads_mode(){if(loading_uac_||!ads_mode_)return;const auto mode=ads_mode_.SelectedIndex();if(mode==2)return;std::vector<std::pair<Target,Value>> changes;if(!append_ads_rules(changes,mode)){show_write_error("A privacy catalog entry is invalid and was not applied.");submit([] { return winchisel::core::Result<void>{}; });return;}if(changes.empty())return;submit([changes=std::move(changes)] { return winchisel::platform::write_registry_values_atomic(changes); });}
 
-void PrivacyPage::apply_profile(bool recommended){
-    loading_security_=true;loading_uac_=true;
-    for(auto& toggle:security_toggles_)toggle.control.IsOn(!recommended);
-    const bool privacy_enabled=!recommended;
-    for(auto& toggle:privacy_toggles_)toggle.control.IsOn(privacy_enabled);
-    uac_level_.SelectedIndex(recommended?4:2);
-    if(smart_app_control_)smart_app_control_.SelectedIndex(recommended?0:2);
-    if(powershell_policy_)powershell_policy_.SelectedIndex(recommended?2:0);
-    if(ads_mode_)ads_mode_.SelectedIndex(recommended?1:0);
-    loading_security_=false;loading_uac_=false;
-    std::vector<std::pair<Target,Value>> changes;
-    for(auto const& tweak:security_toggles_){
-        auto const& values=tweak.control.IsOn()?tweak.enabled_values:tweak.disabled_values;
-        for(std::size_t i{};i<tweak.targets.size();++i)changes.emplace_back(tweak.targets[i],values[i]);
+PrivacyPage::ProfilePlan PrivacyPage::build_profile_plan(bool recommended) const {
+    // Explicit per-setting profile specification. `recommended` trades
+    // protection features for fewer prompts; `defaults` restores them.
+    ProfilePlan plan;
+    auto widen_ascii = [](std::string_view text) { return std::wstring(text.begin(), text.end()); };
+    plan.security_on = !recommended;
+    plan.privacy_on = !recommended;
+    plan.uac_index = recommended ? 4 : 2;
+    plan.sac_index = recommended ? 0 : 2;
+    plan.powershell_index = recommended ? 2 : 0;
+    plan.ads_mode = recommended ? 1 : 0;
+    auto on_off = [](bool value) { return value ? L"On" : L"Off"; };
+    for (auto const& tweak : security_toggles_) {
+        const bool current = tweak.control.IsOn();
+        if (current != plan.security_on) {
+            plan.summary.push_back(L"\u2022 " + std::wstring(tweak.title.c_str()) + L": " + on_off(current) + L" \u2192 " + on_off(plan.security_on));
+        }
+        auto const& values = plan.security_on ? tweak.enabled_values : tweak.disabled_values;
+        for (std::size_t i{}; i < tweak.targets.size(); ++i) plan.changes.emplace_back(tweak.targets[i], values[i]);
     }
-    for(auto const& item:winchisel::core::get_privacy_catalog()) if(!append_privacy_rules(changes,item.id,privacy_enabled)){show_write_error("A privacy catalog entry is invalid and was not applied.");submit([] { return winchisel::core::Result<void>{}; });return;}
-    constexpr std::array<std::pair<std::uint32_t,std::uint32_t>,5> uac{{{1,1},{2,1},{5,1},{5,0},{0,0}}};
-    const auto selected=uac_level_.SelectedIndex();
-    if(selected>=0&&selected<static_cast<int>(uac.size())){
-        const auto key="SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
-        changes.emplace_back(target(Hive::local_machine,key,"ConsentPromptBehaviorAdmin",Type::dword),uac[selected].first);
-        changes.emplace_back(target(Hive::local_machine,key,"PromptOnSecureDesktop",Type::dword),uac[selected].second);
+    for (auto const& toggle : privacy_toggles_) {
+        std::wstring name = widen_ascii(toggle.id);
+        for (auto const& item : winchisel::core::get_privacy_catalog()) {
+            if (item.id == toggle.id) { name = widen_ascii(item.name); break; }
+        }
+        const bool current = toggle.control.IsOn();
+        if (current != plan.privacy_on) {
+            plan.summary.push_back(L"\u2022 " + name + L": " + on_off(current) + L" \u2192 " + on_off(plan.privacy_on));
+        }
     }
-    if(smart_app_control_&&smart_app_control_.SelectedIndex()>=0)changes.emplace_back(target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy","VerifiedAndReputablePolicyState",Type::dword),static_cast<std::uint32_t>(smart_app_control_.SelectedIndex()));
-    if(powershell_policy_&&powershell_policy_.SelectedIndex()>=0){constexpr std::array values{"Restricted","AllSigned","RemoteSigned","Unrestricted","Bypass"};auto idx=powershell_policy_.SelectedIndex();for(auto hive:{Hive::current_user,Hive::local_machine})changes.emplace_back(target(hive,"Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell","ExecutionPolicy",Type::string),std::string(values[idx]));}
-    submit([changes=std::move(changes)] { return winchisel::platform::write_registry_values_atomic(changes); });
+    for (auto const& item : winchisel::core::get_privacy_catalog()) {
+        if (!append_privacy_rules(plan.changes, item.id, plan.privacy_on)) { plan.valid = false; return plan; }
+    }
+    constexpr std::array<std::pair<std::uint32_t, std::uint32_t>, 5> uac{{{1, 1}, {2, 1}, {5, 1}, {5, 0}, {0, 0}}};
+    constexpr std::array uac_labels{L"Always notify", L"Notify for app changes", L"Default: notify without dimming", L"Notify without secure desktop", L"Never notify"};
+    {
+        const auto current = uac_level_.SelectedIndex();
+        if (current != plan.uac_index) {
+            std::wstring from = (current >= 0 && current < 5) ? uac_labels[current] : L"Unknown";
+            plan.summary.push_back(L"\u2022 User Account Control: " + from + L" \u2192 " + std::wstring(uac_labels[plan.uac_index]));
+        }
+        const auto key = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
+        plan.changes.emplace_back(target(Hive::local_machine, key, "ConsentPromptBehaviorAdmin", Type::dword), uac[plan.uac_index].first);
+        plan.changes.emplace_back(target(Hive::local_machine, key, "PromptOnSecureDesktop", Type::dword), uac[plan.uac_index].second);
+    }
+    constexpr std::array sac_labels{L"Off", L"On (Enforced)", L"Evaluation Mode"};
+    if (smart_app_control_) {
+        const auto current = smart_app_control_.SelectedIndex();
+        if (current != plan.sac_index) {
+            std::wstring from = (current >= 0 && current < 3) ? sac_labels[current] : L"Unknown";
+            plan.summary.push_back(L"\u2022 Smart App Control: " + from + L" \u2192 " + std::wstring(sac_labels[plan.sac_index]));
+        }
+        plan.changes.emplace_back(target(Hive::local_machine, "SYSTEM\\CurrentControlSet\\Control\\CI\\Policy", "VerifiedAndReputablePolicyState", Type::dword), static_cast<std::uint32_t>(plan.sac_index));
+    }
+    constexpr std::array ps_labels{"Restricted", "AllSigned", "RemoteSigned", "Unrestricted", "Bypass"};
+    if (powershell_policy_) {
+        const auto current = powershell_policy_.SelectedIndex();
+        if (current != plan.powershell_index) {
+            std::wstring from = (current >= 0 && current < 5) ? widen_ascii(ps_labels[current]) : L"Unknown";
+            plan.summary.push_back(L"• PowerShell Execution Policy: " + from + L" → " + widen_ascii(ps_labels[plan.powershell_index]));
+        }
+        for (auto hive : {Hive::current_user, Hive::local_machine}) {
+            plan.changes.emplace_back(target(hive, "Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell", "ExecutionPolicy", Type::string), std::string(ps_labels[plan.powershell_index]));
+        }
+    }
+    constexpr std::array ads_labels{L"Allow", L"Deny", L"Custom"};
+    if (ads_mode_) {
+        const auto current = ads_mode_.SelectedIndex();
+        if (current != plan.ads_mode) {
+            std::wstring from = (current >= 0 && current < 3) ? ads_labels[current] : L"Unknown";
+            plan.summary.push_back(L"\u2022 Ads, Suggestions and Promotional Content: " + from + L" \u2192 " + std::wstring(ads_labels[plan.ads_mode]));
+        }
+    }
+    return plan;
 }
-void PrivacyPage::Recommended_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(true);}
-void PrivacyPage::Defaults_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){apply_profile(false);}
+
+winrt::fire_and_forget PrivacyPage::preview_profile(bool recommended) {
+    auto error_weak = get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue = DispatcherQueue(); } catch (...) {}
+    try {
+        auto error_lifetime = get_strong();
+        auto plan = build_profile_plan(recommended);
+        if (!plan.valid) {
+            show_write_error("A privacy catalog entry is invalid and was not applied.");
+            submit([] { return winchisel::core::Result<void>{}; });
+            co_return;
+        }
+        if (plan.summary.empty()) {
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Informational,
+                recommended ? L"Recommended settings" : L"Default settings",
+                L"Everything already matches this profile. No changes were made.");
+            co_return;
+        }
+        winchisel::core::DialogSlot dialog_slot;
+        if (!winchisel::ui::dialog_available(dialog_slot)) co_return;
+        Controls::ContentDialog dialog;
+        dialog.XamlRoot(XamlRoot());
+        dialog.Title(box_value(recommended ? L"Apply Recommended settings?" : L"Restore default settings?"));
+        auto content = Controls::StackPanel();
+        content.Spacing(8);
+        if (recommended) {
+            auto warning = Controls::TextBlock();
+            warning.Text(L"Recommended turns off protection features (all Security toggles, UAC notifications, Smart App Control) and relaxes the script policy. Review each change below.");
+            warning.TextWrapping(TextWrapping::Wrap);
+            warning.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+            content.Children().Append(warning);
+        }
+        auto list = Controls::StackPanel();
+        list.Spacing(2);
+        for (auto const& line : plan.summary) {
+            auto row = Controls::TextBlock();
+            row.Text(line);
+            row.TextWrapping(TextWrapping::Wrap);
+            list.Children().Append(row);
+        }
+        auto scroll = Controls::ScrollViewer();
+        scroll.MaxHeight(320);
+        scroll.Content(list);
+        content.Children().Append(scroll);
+        dialog.Content(content);
+        dialog.PrimaryButtonText(L"Apply");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(Controls::ContentDialogButton::Close);
+        if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) co_return;
+        loading_security_ = true;
+        loading_uac_ = true;
+        for (auto& toggle : security_toggles_) toggle.control.IsOn(plan.security_on);
+        for (auto& toggle : privacy_toggles_) toggle.control.IsOn(plan.privacy_on);
+        uac_level_.SelectedIndex(plan.uac_index);
+        if (smart_app_control_) smart_app_control_.SelectedIndex(plan.sac_index);
+        if (powershell_policy_) powershell_policy_.SelectedIndex(plan.powershell_index);
+        if (ads_mode_) ads_mode_.SelectedIndex(plan.ads_mode);
+        loading_security_ = false;
+        loading_uac_ = false;
+        submit([changes = std::move(plan.changes)] { return winchisel::platform::write_registry_values_atomic(changes); });
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self = error_weak.get()) {
+                self->loading_security_ = false;
+                self->loading_uac_ = false;
+                self->show_write_error(to_string(text));
+            }
+        });
+    }
+}
+
+void PrivacyPage::Recommended_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){preview_profile(true);}
+void PrivacyPage::Defaults_Click(Windows::Foundation::IInspectable const&,RoutedEventArgs const&){preview_profile(false);}
 
 }  // namespace winrt::Winchisel::implementation

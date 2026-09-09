@@ -7,6 +7,7 @@
 
 #include <deque>
 #include <functional>
+#include <string>
 #include <vector>
 
 namespace winrt::Winchisel::implementation {
@@ -43,7 +44,19 @@ private:
     void save_smart_app_control();
     void save_powershell_policy();
     void save_ads_mode();
-    void apply_profile(bool recommended);
+    struct ProfilePlan {
+        bool security_on{};
+        bool privacy_on{};
+        int uac_index{2};
+        int sac_index{-1};
+        int powershell_index{-1};
+        int ads_mode{2};
+        bool valid{true};
+        std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> changes;
+        std::vector<std::wstring> summary;
+    };
+    ProfilePlan build_profile_plan(bool recommended) const;
+    winrt::fire_and_forget preview_profile(bool recommended);
     bool append_privacy_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, std::string_view id, bool enabled) const;
     bool append_ads_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, int mode) const;
     int detect_ads_mode() const;

@@ -87,6 +87,25 @@ void ExtrasPage::apply_registry_snapshot(RegistrySnapshot const& snapshot){
 
 ExtrasPage::WorkResult ExtrasPage::do_registry_work(RegistryToggle which, bool enabled){
     bool ok = false;
+    std::string note;
+    // Snapshot helpers for group transactions: capture the current values
+    // before writing so a partial failure can be rolled back.
+    auto snap_dwords = [&](wchar_t const* path, auto const& rules) {
+        std::vector<std::optional<DWORD>> snap;
+        for (auto const& [name, _] : rules) {
+            DWORD value{}, size = sizeof(value);
+            snap.push_back(RegGetValueW(HKEY_LOCAL_MACHINE, path, name, RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS
+                          ? std::optional<DWORD>{value} : std::nullopt);
+        }
+        return snap;
+    };
+    auto restore_dwords = [&](wchar_t const* path, auto const& rules, std::vector<std::optional<DWORD>> const& snap) {
+        bool restored = true;
+        for (std::size_t i{}; i < rules.size(); ++i) {
+            restored = write_dword(HKEY_LOCAL_MACHINE, path, rules[i].first, snap[i]) && restored;
+        }
+        return restored;
+    };
     switch (which) {
     case RegistryToggle::modern_standby:
         ok = write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Power",L"PlatformAoAcOverride",enabled?std::optional<DWORD>{0}:std::nullopt);
@@ -123,19 +142,76 @@ ExtrasPage::WorkResult ExtrasPage::do_registry_work(RegistryToggle which, bool e
     case RegistryToggle::brave: {
         constexpr wchar_t path[]=L"SOFTWARE\\Policies\\BraveSoftware\\Brave";
         std::vector<std::pair<wchar_t const*,DWORD>> rules={{L"BraveRewardsDisabled",1},{L"BraveWalletDisabled",1},{L"BraveVPNDisabled",1},{L"BraveAIChatEnabled",0},{L"BraveStatsPingEnabled",0},{L"BraveNewsDisabled",1},{L"BraveTalkDisabled",1},{L"TorDisabled",1},{L"BraveP3AEnabled",0},{L"UrlKeyedAnonymizedDataCollectionEnabled",0},{L"SafeBrowsingExtendedReportingEnabled",0},{L"MetricsReportingEnabled",0}};
-        if(enabled){ok=true;for(auto const& [name,_]:rules)ok=backup_dword(L"Brave",path,name)&&ok;if(ok)for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;}
-        else{ok=true;for(auto const& [name,_]:rules)ok=restore_dword(L"Brave",path,name)&&ok;}
+        if(enabled){
+            ok=true;
+            const auto snapshot = snap_dwords(path, rules);
+            for(auto const& [name,_]:rules)ok=backup_dword(L"Brave",path,name)&&ok;
+            if(ok)for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;
+            if(!ok)note = restore_dwords(path, rules, snapshot) ? " Previous values were restored." : " Previous values could not be fully restored.";
+        }
+        else{
+            ok=true;
+            for(std::size_t i{};i<rules.size();++i){
+                if(restore_dword(L"Brave",path,rules[i].first))continue;
+                ok=false;
+                for(std::size_t j{};j<i;++j)write_dword(HKEY_LOCAL_MACHINE,path,rules[j].first,rules[j].second);
+                note = " The policy state may be mixed; retry to complete the restore.";
+                break;
+            }
+        }
         break;
     }
     case RegistryToggle::edge: {
         constexpr wchar_t path[]=L"SOFTWARE\\Policies\\Microsoft\\Edge";constexpr wchar_t update_path[]=L"SOFTWARE\\Policies\\Microsoft\\EdgeUpdate";constexpr wchar_t extension_path[]=L"SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist";
+        constexpr wchar_t extension_name[]=L"1";constexpr wchar_t extension_value[]=L"ofefcgjbeghpigppfmkologfjadafddi";
         std::vector<std::pair<wchar_t const*,DWORD>> rules={{L"PersonalizationReportingEnabled",0},{L"ShowRecommendationsEnabled",0},{L"HideFirstRunExperience",1},{L"UserFeedbackAllowed",0},{L"ConfigureDoNotTrack",1},{L"AlternateErrorPagesEnabled",0},{L"EdgeCollectionsEnabled",0},{L"EdgeShoppingAssistantEnabled",0},{L"MicrosoftEdgeInsiderPromotionEnabled",0},{L"ShowMicrosoftRewards",0},{L"WebWidgetAllowed",0},{L"DiagnosticData",0},{L"EdgeAssetDeliveryServiceEnabled",0},{L"WalletDonationEnabled",0},{L"DefaultBrowserSettingsCampaignEnabled",0}};
-        if(enabled){ok=true;for(auto const& [name,_]:rules)ok=backup_dword(L"Edge",path,name)&&ok;ok=backup_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")&&ok;ok=backup_string(L"EdgeExtension",extension_path,L"1")&&ok;if(ok){for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;ok=write_dword(HKEY_LOCAL_MACHINE,update_path,L"CreateDesktopShortcutDefault",0)&&ok;ok=write_string(HKEY_LOCAL_MACHINE,extension_path,L"1",L"ofefcgjbeghpigppfmkologfjadafddi")&&ok;}}
-        else{ok=true;for(auto const& [name,_]:rules)ok=restore_dword(L"Edge",path,name)&&ok;ok=restore_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")&&ok;ok=restore_string(L"EdgeExtension",extension_path,L"1")&&ok;}
+        if(enabled){
+            ok=true;
+            const auto snapshot = snap_dwords(path, rules);
+            const auto snapshot_update = snap_dwords(update_path, std::vector<std::pair<wchar_t const*,DWORD>>{{L"CreateDesktopShortcutDefault",0}});
+            DWORD ext_size{};
+            const bool ext_had_value = RegGetValueW(HKEY_LOCAL_MACHINE,extension_path,extension_name,RRF_RT_REG_SZ,nullptr,nullptr,&ext_size)==ERROR_SUCCESS;
+            std::vector<BYTE> ext_data(ext_size);
+            if(ext_had_value&&RegGetValueW(HKEY_LOCAL_MACHINE,extension_path,extension_name,RRF_RT_REG_SZ,nullptr,ext_data.data(),&ext_size)!=ERROR_SUCCESS){ok=false;}
+            for(auto const& [name,_]:rules)ok=backup_dword(L"Edge",path,name)&&ok;
+            ok=backup_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")&&ok;
+            ok=backup_string(L"EdgeExtension",extension_path,extension_name)&&ok;
+            if(ok){for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;ok=write_dword(HKEY_LOCAL_MACHINE,update_path,L"CreateDesktopShortcutDefault",0)&&ok;ok=write_string(HKEY_LOCAL_MACHINE,extension_path,extension_name,extension_value)&&ok;}
+            if(!ok){
+                bool restored = restore_dwords(path, rules, snapshot);
+                restored = restore_dwords(update_path, std::vector<std::pair<wchar_t const*,DWORD>>{{L"CreateDesktopShortcutDefault",0}}, snapshot_update) && restored;
+                if(ext_had_value){
+                    HKEY k{};
+                    if(RegCreateKeyExW(HKEY_LOCAL_MACHINE,extension_path,0,nullptr,0,KEY_SET_VALUE,nullptr,&k,nullptr)==ERROR_SUCCESS){
+                        restored = (RegSetValueExW(k,extension_name,0,REG_SZ,ext_data.data(),ext_size)==ERROR_SUCCESS) && restored;
+                        RegCloseKey(k);
+                    } else restored = false;
+                } else {
+                    HKEY k{};
+                    if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,extension_path,0,KEY_SET_VALUE,&k)==ERROR_SUCCESS){
+                        const auto r=RegDeleteValueW(k,extension_name);RegCloseKey(k);
+                        restored = (r==ERROR_SUCCESS||r==ERROR_FILE_NOT_FOUND) && restored;
+                    } else restored = false;
+                }
+                note = restored ? " Previous values were restored." : " Previous values could not be fully restored.";
+            }
+        }
+        else{
+            ok=true;
+            for(std::size_t i{};i<rules.size();++i){
+                if(restore_dword(L"Edge",path,rules[i].first))continue;
+                ok=false;
+                for(std::size_t j{};j<i;++j)write_dword(HKEY_LOCAL_MACHINE,path,rules[j].first,rules[j].second);
+                note = " The policy state may be mixed; retry to complete the restore.";
+                break;
+            }
+            if(ok&&!restore_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")){ok=false;write_dword(HKEY_LOCAL_MACHINE,update_path,L"CreateDesktopShortcutDefault",0);note=" The policy state may be mixed; retry to complete the restore.";}
+            if(ok&&!restore_string(L"EdgeExtension",extension_path,extension_name)){ok=false;write_string(HKEY_LOCAL_MACHINE,extension_path,extension_name,extension_value);note=" The policy state may be mixed; retry to complete the restore.";}
+        }
         break;
     }
     }
-    return {ok, ok ? ERROR_SUCCESS : GetLastError()};
+    return {ok, ok ? ERROR_SUCCESS : GetLastError(), std::move(note)};
 }
 
 winrt::fire_and_forget ExtrasPage::apply_registry_toggle(RegistryToggle which, muxc::ToggleSwitch toggle, bool enabled) {
@@ -154,7 +230,8 @@ winrt::fire_and_forget ExtrasPage::apply_registry_toggle(RegistryToggle which, m
         if (auto self = weak.get()) {
             self->apply_registry_snapshot(snapshot);
             toggle.IsEnabled(true);
-            if (!work.ok) self->show_result(false, L"Could not apply the setting. Windows error " + std::to_wstring(work.error) + L".");
+            if (!work.ok) self->show_result(false, L"Could not apply the setting. Windows error " + std::to_wstring(work.error) + L"." + std::wstring(work.note.begin(), work.note.end()));
+            else if (!work.note.empty()) self->show_result(true, L"Setting applied." + std::wstring(work.note.begin(), work.note.end()));
             else self->show_result(true, L"Setting applied.");
         }
     } catch (...) {

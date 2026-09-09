@@ -149,6 +149,10 @@ winchisel::core::Result<RegistryValue> read_registry_value(RegistryTarget const&
     if (status != ERROR_SUCCESS) {
         return std::unexpected(registry_error(std::to_string(status)));
     }
+    if (!expected_type_matches(target.type, type)) {
+        return std::unexpected(registry_error("unexpected registry value type"));
+    }
+    data.resize(bytes);
 
     switch (target.type) {
         case RegistryValueType::dword: {
@@ -205,7 +209,17 @@ winchisel::core::Result<void> write_registry_value(RegistryTarget const& target,
         if (!string->empty() && text.empty()) {
             status = ERROR_INVALID_DATA;
         } else {
-            status = RegSetValueExW(key, value_name.c_str(), 0, REG_SZ, reinterpret_cast<BYTE const*>(text.c_str()),
+            // Preserve REG_EXPAND_SZ: rewriting an expandable string as
+            // REG_SZ would change how consumers expand its content, and a
+            // later rollback could never restore the original type.
+            DWORD current_type{};
+            DWORD write_type = REG_SZ;
+            if (RegGetValueW(native_hive(target.hive), key_path.c_str(), value_name.c_str(),
+                             RRF_RT_ANY | RRF_NOEXPAND, &current_type, nullptr, nullptr) == ERROR_SUCCESS &&
+                current_type == REG_EXPAND_SZ) {
+                write_type = REG_EXPAND_SZ;
+            }
+            status = RegSetValueExW(key, value_name.c_str(), 0, write_type, reinterpret_cast<BYTE const*>(text.c_str()),
                                     static_cast<DWORD>((text.size() + 1) * sizeof(wchar_t)));
         }
     } else if (const auto* binary = std::get_if<std::vector<std::uint8_t>>(&value); binary && target.type == RegistryValueType::binary) {

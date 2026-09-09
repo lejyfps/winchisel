@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <ranges>
@@ -43,8 +44,8 @@ winchisel::core::Result<std::string> get_https(std::string_view url, std::uint64
     HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",target.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
     static constexpr wchar_t headers[] = L"Accept: application/vnd.github+json\r\n";
     const bool sent=request&&WinHttpSendRequest(request,headers,static_cast<DWORD>(std::size(headers)-1),WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
-    std::string output; bool too_large{}; bool transport{}; const auto deadline=GetTickCount64()+120'000;
-    if(sent&&status==200){for(;;){if(GetTickCount64()>deadline){transport=true;break;}DWORD available{};if(!WinHttpQueryDataAvailable(request,&available)){transport=true;break;}if(!available)break;if(output.size()>maximum_size||available>maximum_size-output.size()){too_large=true;break;}const auto at=output.size();output.resize(at+available);DWORD read{};if(!WinHttpReadData(request,output.data()+at,available,&read)){transport=true;output.resize(at);break;}output.resize(at+read);}}
+    std::string output; bool too_large{}; bool transport{}; auto deadline=GetTickCount64()+120'000;
+    if(sent&&status==200){for(;;){if(GetTickCount64()>deadline){transport=true;break;}DWORD available{};if(!WinHttpQueryDataAvailable(request,&available)){transport=true;break;}if(!available)break;if(output.size()>maximum_size||available>maximum_size-output.size()){too_large=true;break;}const auto at=output.size();output.resize(at+available);DWORD read{};if(!WinHttpReadData(request,output.data()+at,available,&read)){transport=true;output.resize(at);break;}output.resize(at+read);if(read)deadline=GetTickCount64()+120'000;}}
     if(request)WinHttpCloseHandle(request);if(connection)WinHttpCloseHandle(connection);WinHttpCloseHandle(session);
     if(too_large)return std::unexpected(winchisel::core::Error{.detail="Response exceeded declared size limit"});
     if(transport)return std::unexpected(winchisel::core::Error{.detail="HTTPS transfer failed"});
@@ -174,7 +175,7 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
     std::uint64_t total{};
     bool failed{};
     bool transport{};
-    const auto deadline=GetTickCount64()+120'000;
+    auto deadline=GetTickCount64()+120'000;
     for(;;){
         if(GetTickCount64()>deadline){transport=true;break;}
         DWORD available{};
@@ -188,6 +189,7 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
             if(!read){transport=true;break;}
             if(!hasher.update(buffer.data(), read) || !output.write(buffer.data(), static_cast<std::streamsize>(read))){ failed=true; break; }
             total+=read; available-=read;
+            deadline=GetTickCount64()+120'000;
         }
         if(failed||transport) break;
     }
@@ -207,7 +209,14 @@ std::optional<std::wstring> portable_host() {
         std::wstring host(size, L'\0');
         if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), size)) {
             if (host.back() == L'\0') host.pop_back();
-            return host;
+            // Only trust the variable when it names an existing executable;
+            // otherwise fall through to the explicit command-line flag.
+            std::error_code error;
+            const std::filesystem::path candidate(host);
+            if (candidate.is_absolute() && _wcsicmp(candidate.extension().c_str(), L".exe") == 0 &&
+                std::filesystem::is_regular_file(candidate, error) && !error) {
+                return host;
+            }
         }
     }
     int count{};
@@ -254,23 +263,35 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
     const auto url=std::string("https://github.com/lejyfps/winchisel/releases/download/v")+manifest.version+"/"+artifact->file_name; if(!artifact->size||artifact->size>2ULL*1024*1024*1024)return std::unexpected(winchisel::core::Error{.detail="Invalid artifact size"});
     PWSTR raw{}; if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&raw)))return std::unexpected(winchisel::core::Error{.detail="LocalAppData unavailable"}); std::filesystem::path dir=raw;CoTaskMemFree(raw);dir/=L"Winchisel";dir/=L"updates";dir/=std::wstring(manifest.version.begin(),manifest.version.end());std::error_code error;std::filesystem::create_directories(dir,error);if(error)return std::unexpected(winchisel::core::Error{.detail=error.message()});
     const auto final=dir/std::filesystem::path(artifact->file_name);const auto partial=std::filesystem::path(final.wstring()+L".partial");
+    const auto updates_root = dir.parent_path();
+    for (auto const& entry : std::filesystem::directory_iterator(updates_root, error)) {
+        if (!entry.is_directory(error)) continue;
+        if (entry.path() != dir) std::filesystem::remove_all(entry.path(), error);
+    }
+    auto write_manifest_siblings = [&] {
+        if (manifest.raw_json.empty() || manifest.raw_signature.empty()) return;
+        std::ofstream manifest_out(dir / L"manifest.json", std::ios::binary | std::ios::trunc);
+        std::ofstream signature_out(dir / L"manifest.json.sig", std::ios::binary | std::ios::trunc);
+        if (manifest_out) manifest_out.write(manifest.raw_json.data(), static_cast<std::streamsize>(manifest.raw_json.size()));
+        if (signature_out) signature_out.write(manifest.raw_signature.data(), static_cast<std::streamsize>(manifest.raw_signature.size()));
+    };
+    // Reuse a previously staged artifact that still verifies instead of
+    // downloading it again on every check.
+    {
+        std::error_code size_error;
+        const auto staged_size = std::filesystem::file_size(final, size_error);
+        if (!size_error && staged_size == artifact->size && sha256_hex_file(final) == artifact->sha256) {
+            write_manifest_siblings();
+            return final;
+        }
+    }
     std::filesystem::remove(partial, error);
     if (auto downloaded = download_https_file(url, partial, artifact->size, artifact->sha256); !downloaded) return std::unexpected(downloaded.error());
     if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){ std::filesystem::remove(partial, error); return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())}); }
     // Persist the exact signed manifest bytes next to the artifact. The
     // updater re-verifies them with its embedded public key instead of
     // trusting the caller-provided hash argument alone.
-    if (!manifest.raw_json.empty() && !manifest.raw_signature.empty()) {
-        std::ofstream manifest_out(dir / L"manifest.json", std::ios::binary | std::ios::trunc);
-        std::ofstream signature_out(dir / L"manifest.json.sig", std::ios::binary | std::ios::trunc);
-        if (manifest_out) manifest_out.write(manifest.raw_json.data(), static_cast<std::streamsize>(manifest.raw_json.size()));
-        if (signature_out) signature_out.write(manifest.raw_signature.data(), static_cast<std::streamsize>(manifest.raw_signature.size()));
-    }
-    const auto updates_root = dir.parent_path();
-    for (auto const& entry : std::filesystem::directory_iterator(updates_root, error)) {
-        if (!entry.is_directory(error)) continue;
-        if (entry.path() != dir) std::filesystem::remove_all(entry.path(), error);
-    }
+    write_manifest_siblings();
     return final;
 }
 

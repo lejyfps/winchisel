@@ -2,7 +2,9 @@
 #include <shellapi.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
+#include <tlhelp32.h>
 
+#include <algorithm>
 #include <array>
 #include <cwchar>
 #include <filesystem>
@@ -95,11 +97,34 @@ bool wait_for_process(std::wstring_view pid_text) {
         pid = pid * 10 + digit;
     }
     if (!pid) return false;
-    const auto process = OpenProcess(SYNCHRONIZE, FALSE, pid);
-    if (!process) return GetLastError() == ERROR_INVALID_PARAMETER;
-    const auto result = WaitForSingleObject(process, k_wait_timeout_ms);
-    CloseHandle(process);
-    return result == WAIT_OBJECT_0;
+    if (const auto process = OpenProcess(SYNCHRONIZE, FALSE, pid)) {
+        const auto result = WaitForSingleObject(process, k_wait_timeout_ms);
+        CloseHandle(process);
+        return result == WAIT_OBJECT_0;
+    }
+    const auto open_error = GetLastError();
+    if (open_error == ERROR_INVALID_PARAMETER) return true;
+    if (open_error != ERROR_ACCESS_DENIED) return false;
+    // Less-privileged updater, elevated parent: no handle access, so poll
+    // the process snapshot until the PID disappears or we time out.
+    const auto deadline = GetTickCount64() + k_wait_timeout_ms;
+    for (;;) {
+        bool alive = false;
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE) {
+            if (GetTickCount64() >= deadline) return false;
+        } else {
+            PROCESSENTRY32W entry{};
+            entry.dwSize = sizeof(entry);
+            if (Process32FirstW(snapshot, &entry)) do {
+                if (entry.th32ProcessID == pid) { alive = true; break; }
+            } while (Process32NextW(snapshot, &entry));
+            CloseHandle(snapshot);
+            if (!alive) return true;
+        }
+        if (GetTickCount64() >= deadline) return false;
+        Sleep(500);
+    }
 }
 
 bool launch(std::filesystem::path const& target) {
@@ -217,6 +242,28 @@ bool verify_staged_against_signed_manifest(std::filesystem::path const& staged, 
 
 int fail(DWORD code) { return static_cast<int>(code); }
 
+// Fail closed when any component of the path is a reparse point: otherwise
+// a pre-planted symlink could redirect the privileged file moves.
+bool has_reparse_point(std::filesystem::path const& path) {
+    std::error_code error;
+    const auto absolute = std::filesystem::absolute(path, error);
+    if (error) return true;
+    auto current = absolute;
+    for (;;) {
+        const auto attributes = GetFileAttributesW(current.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            const auto code = GetLastError();
+            if (code != ERROR_FILE_NOT_FOUND && code != ERROR_PATH_NOT_FOUND) return true;
+        } else if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+            return true;
+        }
+        const auto parent = current.parent_path();
+        if (parent == current) break;
+        current = parent;
+    }
+    return false;
+}
+
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
@@ -231,6 +278,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     const auto target = absolute_target(*target_arg);
     if (!staged || !target || sha256_hex(*staged) != *expected_hash) return fail(ERROR_INVALID_DATA);
     if (!verify_staged_against_signed_manifest(*staged, *expected_hash)) return fail(ERROR_INVALID_DATA);
+    if (has_reparse_point(*target)) return fail(ERROR_INVALID_DATA);
     if (!wait_for_process(*pid_arg)) return fail(ERROR_TIMEOUT);
 
     const auto nonce = std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
@@ -244,17 +292,32 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         DeleteFileW(replacement.c_str());
         return fail(error);
     }
+    if (sha256_hex(*target) != *expected_hash) {
+        MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
+        MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);
+        return fail(ERROR_CRC);
+    }
     if (!launch(*target)) {
         const auto error = GetLastError();
         MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);
         return fail(error ? error : ERROR_ACCESS_DENIED);
     }
-    std::error_code error;
-    for (auto const& entry : std::filesystem::directory_iterator(target->parent_path(), error)) {
-        auto name = entry.path().filename().wstring();
-        auto prefix = target->filename().wstring() + L".backup-";
-        if (name.rfind(prefix, 0) == 0 && entry.path() != std::filesystem::path(backup)) DeleteFileW(entry.path().c_str());
+    // Keep the newest few backups for manual recovery; drop the rest.
+    {
+        std::error_code error;
+        const auto prefix = target->filename().wstring() + L".backup-";
+        std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> backups;
+        for (auto const& entry : std::filesystem::directory_iterator(target->parent_path(), error)) {
+            const auto name = entry.path().filename().wstring();
+            if (name.rfind(prefix, 0) != 0 || entry.path() == std::filesystem::path(backup)) continue;
+            std::error_code time_error;
+            const auto stamp = std::filesystem::last_write_time(entry.path(), time_error);
+            if (time_error) { DeleteFileW(entry.path().c_str()); continue; }
+            backups.emplace_back(stamp, entry.path());
+        }
+        std::ranges::sort(backups, [](auto const& a, auto const& b) { return a.first > b.first; });
+        for (std::size_t i = 2; i < backups.size(); ++i) DeleteFileW(backups[i].second.c_str());
     }
     return 0;
 }

@@ -28,12 +28,17 @@ bool Session::bootstrap() {
     if (auto loaded = winchisel::platform::load_settings()) {
         settings_ = *loaded;
     } else {
+        if (!first_start) {
+            winchisel::platform::boot_log(("previous settings could not be loaded, using defaults: " + loaded.error().detail).c_str());
+        }
         settings_ = winchisel::core::settings_defaults();
     }
     if (first_start) settings_.language = winchisel::platform::system_ui_language();
     settings_.autostart_enabled = winchisel::platform::is_autostart_enabled();
     winchisel::core::set_ui_language(settings_.language);
-    (void)winchisel::platform::save_settings(settings_);
+    if (auto saved = winchisel::platform::save_settings(settings_); !saved) {
+        winchisel::platform::boot_log(("initial settings could not be saved: " + saved.error().detail).c_str());
+    }
     winchisel::platform::set_console_visible(settings_.show_console);
     return true;
 }
@@ -43,7 +48,11 @@ winchisel::core::Result<void> Session::set_settings(winchisel::core::Settings se
     if (auto saved = winchisel::platform::save_settings(settings); !saved) return saved;
     if (settings.autostart_enabled != previous.autostart_enabled) {
         if (auto result = winchisel::platform::set_autostart_enabled(settings.autostart_enabled); !result) {
-            (void)winchisel::platform::save_settings(previous);
+            if (auto restored = winchisel::platform::save_settings(previous); !restored) {
+                auto chained = result.error();
+                chained.detail += "; settings rollback failed: " + restored.error().detail;
+                return std::unexpected(std::move(chained));
+            }
             return std::unexpected(result.error());
         }
     }

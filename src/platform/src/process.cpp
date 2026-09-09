@@ -24,8 +24,9 @@ winchisel::core::Error win32_error(std::string detail) {
 winchisel::core::Result<void> set_ifeo_dword(std::wstring const& image, std::wstring_view value_name, std::uint32_t value) {
     const auto path = ifeo_path(image);
     HKEY key{};
-    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
-        return std::unexpected(win32_error(std::to_string(GetLastError())));
+    const auto open_status = RegCreateKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr);
+    if (open_status != ERROR_SUCCESS) {
+        return std::unexpected(win32_error(std::to_string(open_status)));
     }
     const auto status = RegSetValueExW(key, std::wstring(value_name).c_str(), 0, REG_DWORD, reinterpret_cast<BYTE const*>(&value), sizeof(value));
     RegCloseKey(key);
@@ -38,8 +39,14 @@ winchisel::core::Result<void> remove_ifeo_dword(std::wstring const& image, std::
     const auto base = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\" + exe;
     const auto path = base + L"\\PerfOptions";
     HKEY key{};
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, KEY_QUERY_VALUE | KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
+    const auto open_status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, KEY_QUERY_VALUE | KEY_SET_VALUE, &key);
+    // Only a missing key means "nothing to remove". Any other failure
+    // (e.g. access denied) must surface instead of pretending success.
+    if (open_status == ERROR_FILE_NOT_FOUND) {
         return {};
+    }
+    if (open_status != ERROR_SUCCESS) {
+        return std::unexpected(win32_error(std::to_string(open_status)));
     }
     const auto removed = RegDeleteValueW(key, std::wstring(value_name).c_str());
     DWORD values{}, subkeys{};
