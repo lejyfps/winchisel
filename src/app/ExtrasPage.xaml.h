@@ -14,9 +14,9 @@ struct ExtrasPage : ExtrasPageT<ExtrasPage> {
     void PowerPlanClick(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
     enum class CommandAction { power_plan, widgets, teredo, hpet };
-    enum class RegistryToggle { modern_standby, sync_provider, ctfmon, ctfmon_dll, timer_resolution, ipv6, ps7, brave, edge };
+    enum class RegistryToggle { modern_standby, sync_provider, ctfmon, ctfmon_dll, timer_resolution, ipv6, ps7, brave, edge, long_paths, developer_mode, verbose_boot };
     struct RegistrySnapshot {
-        bool modern_standby{}, sync_provider{}, brave{}, edge{}, ctfmon{}, ctfmon_dll{}, timer_resolution{}, ipv6{}, teredo{}, ps7{};
+        bool modern_standby{}, sync_provider{}, brave{}, edge{}, ctfmon{}, ctfmon_dll{}, timer_resolution{}, ipv6{}, teredo{}, ps7{}, long_paths{}, developer_mode{}, verbose_boot{};
         DWORD ipv6_value{};
     };
     struct WorkResult { bool ok{}; DWORD error{ERROR_SUCCESS}; std::string note; };

@@ -67,6 +67,9 @@ ExtrasPage::RegistrySnapshot ExtrasPage::read_registry_snapshot(){
     snapshot.ipv6 = (snapshot.ipv6_value&0x20)!=0;
     snapshot.teredo = (snapshot.ipv6_value&1)!=0;
     snapshot.ps7 = read_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",L"POWERSHELL_TELEMETRY_OPTOUT",text)&&text==L"1";
+    snapshot.long_paths = read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\FileSystem",L"LongPathsEnabled",value)&&value==1;
+    snapshot.developer_mode = read_dword(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",L"AllowDevelopmentWithoutDevLicense",value)&&value==1;
+    snapshot.verbose_boot = read_dword(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",L"VerboseStatus",value)&&value==1;
     return snapshot;
 }
 
@@ -82,6 +85,9 @@ void ExtrasPage::apply_registry_snapshot(RegistrySnapshot const& snapshot){
     Ipv6().IsOn(snapshot.ipv6);
     Teredo().IsOn(snapshot.teredo);
     Ps7().IsOn(snapshot.ps7);
+    LongPaths().IsOn(snapshot.long_paths);
+    DeveloperMode().IsOn(snapshot.developer_mode);
+    VerboseBoot().IsOn(snapshot.verbose_boot);
     loading_ = false;
 }
 
@@ -138,6 +144,15 @@ ExtrasPage::WorkResult ExtrasPage::do_registry_work(RegistryToggle which, bool e
                 auto result=RegDeleteValueW(key,L"POWERSHELL_TELEMETRY_OPTOUT");RegCloseKey(key);ok=result==ERROR_SUCCESS||result==ERROR_FILE_NOT_FOUND;
             } else ok = false;
         }
+        break;
+    case RegistryToggle::long_paths:
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\FileSystem",L"LongPathsEnabled",enabled?std::optional<DWORD>{1}:std::optional<DWORD>{0});
+        break;
+    case RegistryToggle::developer_mode:
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",L"AllowDevelopmentWithoutDevLicense",enabled?std::optional<DWORD>{1}:std::optional<DWORD>{0});
+        break;
+    case RegistryToggle::verbose_boot:
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",L"VerboseStatus",enabled?std::optional<DWORD>{1}:std::optional<DWORD>{0});
         break;
     case RegistryToggle::brave: {
         constexpr wchar_t path[]=L"SOFTWARE\\Policies\\BraveSoftware\\Brave";
@@ -255,6 +270,9 @@ void ExtrasPage::ToggleChanged(Windows::Foundation::IInspectable const& sender,M
     else if(toggle==TimerResolution())which=RegistryToggle::timer_resolution;
     else if(toggle==Ipv6())which=RegistryToggle::ipv6;
     else if(toggle==Ps7())which=RegistryToggle::ps7;
+    else if(toggle==LongPaths())which=RegistryToggle::long_paths;
+    else if(toggle==DeveloperMode())which=RegistryToggle::developer_mode;
+    else if(toggle==VerboseBoot())which=RegistryToggle::verbose_boot;
     else if(toggle==Brave())which=RegistryToggle::brave;
     else if(toggle==Edge())which=RegistryToggle::edge;
     else return;
