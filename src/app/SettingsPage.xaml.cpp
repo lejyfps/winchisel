@@ -34,10 +34,13 @@ SettingsPage::SettingsPage() {
 
     save_timer_ = DispatcherTimer();
     save_timer_.Interval(std::chrono::milliseconds(600));
-    save_timer_token_ = save_timer_.Tick([this](auto&&, auto&&) { save_settings(); });
+    auto weak = get_weak();
+    save_timer_token_ = save_timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) self->save_settings(); });
     poll_timer_ = DispatcherTimer();
     poll_timer_.Interval(std::chrono::milliseconds(200));
-    poll_timer_token_ = poll_timer_.Tick([this](auto&&, auto&&) { poll_worker(); });
+    poll_timer_token_ = poll_timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) self->poll_worker(); });
+    Loaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { if (self->action_ != Action::none) self->poll_timer_.Start(); } });
+    Unloaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { self->flush_pending_save(); self->poll_timer_.Stop(); } });
 }
 
 SettingsPage::~SettingsPage() {
@@ -54,6 +57,7 @@ SettingsPage::~SettingsPage() {
         action_dialog_.Hide();
     }
     winchisel::ui::finish_in_background(worker_);
+    winchisel::ui::finish_in_background(dialog_worker_);
 }
 
 void SettingsPage::Language_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) {
@@ -122,12 +126,14 @@ void SettingsPage::Link_Click(IInspectable const& sender, RoutedEventArgs const&
 }
 
 void SettingsPage::start_cleanup() {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     if (action_ != Action::none) {
+        winchisel::ui::show_toast(Controls::InfoBarSeverity::Informational, L"Busy", L"Another maintenance task is still running.");
         return;
     }
     action_ = Action::cleanup;
@@ -144,11 +150,15 @@ void SettingsPage::start_cleanup() {
 }
 
 void SettingsPage::poll_worker() {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
+    if (action_ != Action::cleanup) {
+        return;
+    }
     if (!worker_.valid() || worker_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         return;
     }
@@ -257,15 +267,17 @@ void SettingsPage::finish_dialog(winchisel::core::Result<void> const& result) {
 }
 
 fire_and_forget SettingsPage::run_dialog(Action action) {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
     winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
 
 
     auto lifetime = get_strong();
     if (action_ != Action::none) {
+        winchisel::ui::show_toast(Controls::InfoBarSeverity::Informational, L"Busy", L"Another maintenance task is still running.");
         co_return;
     }
     action_ = action;
@@ -332,7 +344,7 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
     auto queue = DispatcherQueue();
     auto weak = get_weak();
     auto shown = action_dialog_.ShowAsync();
-    worker_ = std::async(std::launch::async, [action, queue, weak] {
+    dialog_worker_ = std::async(std::launch::async, [action, queue, weak] {
         auto progress = [queue, weak](bool is_stage, std::string_view text) {
             std::string copy{text};
             if (!is_stage) {

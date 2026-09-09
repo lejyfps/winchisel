@@ -12,9 +12,20 @@ struct ExtrasPage : ExtrasPageT<ExtrasPage> {
     void PowerPlanClick(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
     enum class CommandAction { power_plan, widgets, teredo, hpet };
+    enum class RegistryToggle { modern_standby, sync_provider, ctfmon, ctfmon_dll, timer_resolution, ipv6, ps7, brave, edge };
+    struct RegistrySnapshot {
+        bool modern_standby{}, sync_provider{}, brave{}, edge{}, ctfmon{}, ctfmon_dll{}, timer_resolution{}, ipv6{}, teredo{}, ps7{};
+        DWORD ipv6_value{};
+    };
+    struct WorkResult { bool ok{}; DWORD error{ERROR_SUCCESS}; };
     bool loading_{};
     bool command_running_{};
     void load_states();
+    winrt::fire_and_forget reload_registry_states();
+    RegistrySnapshot read_registry_snapshot();
+    void apply_registry_snapshot(RegistrySnapshot const&);
+    WorkResult do_registry_work(RegistryToggle, bool enabled);
+    winrt::fire_and_forget apply_registry_toggle(RegistryToggle, winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch, bool enabled);
     bool read_dword(HKEY,wchar_t const*,wchar_t const*,DWORD&);
     bool write_dword(HKEY,wchar_t const*,wchar_t const*,std::optional<DWORD>);
     bool read_string(HKEY,wchar_t const*,wchar_t const*,std::wstring&);

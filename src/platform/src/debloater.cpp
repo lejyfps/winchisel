@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <optional>
+#include <ranges>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -41,9 +43,29 @@ winchisel::core::Result<StringSet> dism_packages(bool capabilities){auto command
 
 winchisel::core::Result<void> change_dism(winchisel::core::DebloatCatalogEntry const& item,bool install){const auto name=wide(item.package_name);std::wstring command=L"dism.exe /Online /English /NoRestart ";if(item.category==winchisel::core::DebloatCategory::capabilities)command+=(install?L"/Add-Capability /CapabilityName:\"":L"/Remove-Capability /CapabilityName:\"")+name+L"\"";else command+=(install?L"/Enable-Feature /FeatureName:\"":L"/Disable-Feature /FeatureName:\"")+name+L"\"";auto result=run_native(std::move(command));if(!result)return std::unexpected(result.error());if(result->timed_out)return std::unexpected(error("DISM action timed out"));if(result->code==0||result->code==ERROR_SUCCESS_REBOOT_REQUIRED)return{};return std::unexpected(error("DISM action exited with "+std::to_string(result->code)));}
 
-winchisel::core::Result<void> change_appx(winchisel::core::DebloatCatalogEntry const& item,bool install){try{if(install&&!item.can_reinstall)return std::unexpected(error(std::string(item.package_name)+": reinstall is not supported"));detail::ComApartment com;if(!com)return std::unexpected(error(std::to_string(com.hr)));winrt::Windows::Management::Deployment::PackageManager manager;bool matched{};for(auto const& package:manager.FindPackagesForUser(L"")){if(!item_matches(winrt::to_string(package.Id().Name()),item))continue;matched=true;if(install){auto location=package.InstalledLocation();if(location)manager.RegisterPackageAsync(winrt::Windows::Foundation::Uri(location.Path()+L"\\AppxManifest.xml"),nullptr,winrt::Windows::Management::Deployment::DeploymentOptions::None).get();}else manager.RemovePackageAsync(package.Id().FullName()).get();}if(install&&!matched){if(item.store_id.empty())return std::unexpected(error(std::string(item.package_name)+": no local payload and no Store ID"));auto uri=L"ms-windows-store://pdp/?ProductId="+wide(item.store_id);if(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",uri.c_str(),nullptr,nullptr,SW_SHOWNORMAL))<=32)return std::unexpected(error(std::string(item.package_name)+": Store listing could not be opened"));}return{};}catch(winrt::hresult_error const& value){return std::unexpected(error(std::string(item.package_name)+": "+winrt::to_string(value.message())));}}
+winchisel::core::Result<void> change_appx(
+    winrt::Windows::Management::Deployment::PackageManager& manager,
+    std::vector<std::pair<std::string, winrt::Windows::ApplicationModel::Package>> const& packages,
+    winchisel::core::DebloatCatalogEntry const& item, bool install){try{if(install&&!item.can_reinstall)return std::unexpected(error(std::string(item.package_name)+": reinstall is not supported"));bool matched{};for(auto const& [name,package]:packages){if(!item_matches(name,item))continue;matched=true;if(install){auto location=package.InstalledLocation();if(location)manager.RegisterPackageAsync(winrt::Windows::Foundation::Uri(winrt::hstring(std::wstring(location.Path().c_str())+L"\\AppxManifest.xml")),nullptr,winrt::Windows::Management::Deployment::DeploymentOptions::None).get();}else manager.RemovePackageAsync(package.Id().FullName()).get();}if(install&&!matched){if(item.store_id.empty())return std::unexpected(error(std::string(item.package_name)+": no local payload and no Store ID"));auto uri=L"ms-windows-store://pdp/?ProductId="+wide(item.store_id);if(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",uri.c_str(),nullptr,nullptr,SW_SHOWNORMAL))<=32)return std::unexpected(error(std::string(item.package_name)+": Store listing could not be opened"));}return{};}catch(winrt::hresult_error const& value){return std::unexpected(error(std::string(item.package_name)+": "+winrt::to_string(value.message())));}}
 }
 
 winchisel::core::Result<std::vector<bool>> scan_debloater_installed(std::span<winchisel::core::DebloatCatalogEntry const> catalog){auto apps=appx_packages();if(!apps)return std::unexpected(apps.error());auto capabilities=dism_packages(true);if(!capabilities)return std::unexpected(capabilities.error());auto features=dism_packages(false);if(!features)return std::unexpected(features.error());std::vector<bool> result;result.reserve(catalog.size());for(auto const& item:catalog){auto const& installed=item.category==winchisel::core::DebloatCategory::windows_apps?*apps:item.category==winchisel::core::DebloatCategory::capabilities?*capabilities:*features;result.push_back(is_installed(installed,item));}return result;}
-winchisel::core::Result<DebloatActionResult> apply_debloater_action(std::span<winchisel::core::DebloatCatalogEntry const* const> items,bool install){DebloatActionResult result;for(auto const* item:items){auto changed=item->category==winchisel::core::DebloatCategory::windows_apps?change_appx(*item,install):change_dism(*item,install);if(changed){++result.succeeded;if(item->requires_reboot)result.reboot_required=true;}else{++result.failed;result.failure_details.push_back(item->package_name.empty()?std::string(item->id):std::string(item->package_name)+": "+changed.error().detail);}}return result;}
+// One COM apartment, one PackageManager and one enumeration shared by every
+// AppX item of the batch instead of re-initializing per item. Members are
+// declared so that the manager is destroyed before the apartment uninitializes.
+struct AppxBatch {
+    detail::ComApartment com;
+    winrt::Windows::Management::Deployment::PackageManager manager;
+    std::vector<std::pair<std::string, winrt::Windows::ApplicationModel::Package>> packages;
+    winchisel::core::Error error;
+    bool ready{};
+};
+void ensure_appx_batch(AppxBatch& batch){
+    if(batch.ready||!batch.error.detail.empty())return;
+    if(!batch.com){batch.error=error(std::to_string(batch.com.hr));return;}
+    try{for(auto const& package:batch.manager.FindPackagesForUser(L""))batch.packages.emplace_back(winrt::to_string(package.Id().Name()),package);}
+    catch(winrt::hresult_error const& value){batch.error=error("PackageManager scan: "+winrt::to_string(value.message()));return;}
+    batch.ready=true;
+}
+winchisel::core::Result<DebloatActionResult> apply_debloater_action(std::span<winchisel::core::DebloatCatalogEntry const* const> items,bool install){DebloatActionResult result;std::optional<AppxBatch> appx;const bool needs_appx=std::ranges::any_of(items,[](auto const* item){return item->category==winchisel::core::DebloatCategory::windows_apps;});if(needs_appx){appx.emplace();ensure_appx_batch(*appx);}for(auto const* item:items){winchisel::core::Result<void> changed{std::unexpect,error("internal error")};if(item->category==winchisel::core::DebloatCategory::windows_apps){changed=(appx&&appx->ready)?change_appx(appx->manager,appx->packages,*item,install):std::unexpected(appx?appx->error:error("PackageManager unavailable"));}else changed=change_dism(*item,install);if(changed){++result.succeeded;if(item->requires_reboot)result.reboot_required=true;}else{++result.failed;result.failure_details.push_back(item->package_name.empty()?std::string(item->id):std::string(item->package_name)+": "+changed.error().detail);}}return result;}
 }

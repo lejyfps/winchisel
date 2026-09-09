@@ -31,10 +31,11 @@ HomePage::~HomePage() {
 }
 
 winrt::fire_and_forget HomePage::Refresh() {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     if (refresh_running_) co_return;
     refresh_running_ = true;

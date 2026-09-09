@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <filesystem>
 #include <fstream>
 #include <ranges>
@@ -135,6 +136,22 @@ std::string sha256_hex(std::span<std::byte const> value) {
     return hasher.finish();
 }
 
+// Streaming file hash used to re-verify the staged artifact immediately
+// before handoff, closing the stage-to-launch swap window.
+std::string sha256_hex_file(std::filesystem::path const& file) {
+    std::ifstream input(file, std::ios::binary);
+    if (!input) return {};
+    Sha256 hasher;
+    std::array<char, 65536> buffer{};
+    while (input.good()) {
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const auto read = input.gcount();
+        if (read && !hasher.update(buffer.data(), static_cast<ULONG>(read))) return {};
+    }
+    if (!input.eof()) return {};
+    return hasher.finish();
+}
+
 winchisel::core::Result<void> download_https_file(std::string_view url, std::filesystem::path const& destination, std::uint64_t expected_size, std::string_view expected_sha256) {
     const int count = MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), nullptr, 0);
     std::wstring wide(count, L'\0'); MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), wide.data(), count);
@@ -215,8 +232,16 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_vie
     static const std::regex artifact(R"json(\{\s*"id"\s*:\s*"([a-z0-9-]+)"\s*,\s*"file"\s*:\s*"([A-Za-z0-9._-]+)"\s*,\s*"sha256"\s*:\s*"([a-fA-F0-9]{64})"\s*,\s*"size"\s*:\s*([0-9]+)\s*\})json");
     std::match_results<std::string_view::const_iterator> version_match; if (!std::regex_search(json.begin(), json.end(), version_match, version)) return fail("Missing semantic version");
     ReleaseManifest result{.version = version_match[1].str()};
+    result.raw_json = std::string(json);
+    result.raw_signature = std::string(signature);
     using Iterator = std::string_view::const_iterator;
-    for (std::regex_iterator<Iterator> it(json.begin(), json.end(), artifact), end; it != end; ++it) result.artifacts.push_back({.id=(*it)[1].str(), .file_name=(*it)[2].str(), .sha256=(*it)[3].str(), .size=std::stoull((*it)[4].str())});
+    for (std::regex_iterator<Iterator> it(json.begin(), json.end(), artifact), end; it != end; ++it) {
+        const std::string size_text = (*it)[4].str();
+        std::uint64_t size{};
+        const auto [ptr, ec] = std::from_chars(size_text.data(), size_text.data() + size_text.size(), size);
+        if (ec != std::errc{} || ptr != size_text.data() + size_text.size() || !size || size > 2ULL * 1024 * 1024 * 1024) return fail("Invalid artifact size");
+        result.artifacts.push_back({.id=(*it)[1].str(), .file_name=(*it)[2].str(), .sha256=(*it)[3].str(), .size=size});
+    }
     return result.artifacts.empty() ? fail("No artifacts") : winchisel::core::Result<ReleaseManifest>{std::move(result)};
 }
 
@@ -232,6 +257,15 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
     std::filesystem::remove(partial, error);
     if (auto downloaded = download_https_file(url, partial, artifact->size, artifact->sha256); !downloaded) return std::unexpected(downloaded.error());
     if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){ std::filesystem::remove(partial, error); return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())}); }
+    // Persist the exact signed manifest bytes next to the artifact. The
+    // updater re-verifies them with its embedded public key instead of
+    // trusting the caller-provided hash argument alone.
+    if (!manifest.raw_json.empty() && !manifest.raw_signature.empty()) {
+        std::ofstream manifest_out(dir / L"manifest.json", std::ios::binary | std::ios::trunc);
+        std::ofstream signature_out(dir / L"manifest.json.sig", std::ios::binary | std::ios::trunc);
+        if (manifest_out) manifest_out.write(manifest.raw_json.data(), static_cast<std::streamsize>(manifest.raw_json.size()));
+        if (signature_out) signature_out.write(manifest.raw_signature.data(), static_cast<std::streamsize>(manifest.raw_signature.size()));
+    }
     const auto updates_root = dir.parent_path();
     for (auto const& entry : std::filesystem::directory_iterator(updates_root, error)) {
         if (!entry.is_directory(error)) continue;
@@ -294,6 +328,12 @@ bool open_store_updates_page() {
 winchisel::core::Result<void> launch_staged_update(
     std::filesystem::path const& staged, ReleaseArtifact const& artifact) {
     if (!is_portable_install()) {
+        // Re-verify immediately before handoff: the file passed every check
+        // at stage time, but must still match now or not run at all.
+        std::error_code size_error;
+        const auto staged_size = std::filesystem::file_size(staged, size_error);
+        if (size_error || staged_size != artifact.size || sha256_hex_file(staged) != artifact.sha256)
+            return std::unexpected(winchisel::core::Error{.detail="Staged update failed verification"});
         const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", staged.c_str(), nullptr,
             staged.parent_path().c_str(), SW_SHOWNORMAL));
         if (result <= 32) return std::unexpected(winchisel::core::Error{.detail=std::to_string(result)});

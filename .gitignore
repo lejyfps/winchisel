@@ -28,6 +28,7 @@ CMakeUserPresets.json
 *.pem
 *.key
 store.cmd
+store-api.cmd
 .env
 .env.*
 /release-output/
@@ -35,3 +36,6 @@ store.cmd
 /LOCAL_RELEASE.cmd
 /release_signer.obj
 fixes.md
+/tools/winget-submit.cmd
+/tools/store-submit.ps1
+todo.md

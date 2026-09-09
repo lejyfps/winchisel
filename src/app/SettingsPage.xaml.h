@@ -49,6 +49,7 @@ private:
     bool loading_{true};
     Action action_{Action::none};
     std::future<winchisel::core::Result<void>> worker_;
+    std::future<winchisel::core::Result<void>> dialog_worker_;
     std::vector<std::string> log_lines_;
     std::mutex log_mutex_;
     std::deque<std::string> pending_log_;

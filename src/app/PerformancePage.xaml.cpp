@@ -14,6 +14,7 @@
 #include <array>
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <optional>
 #include <vector>
 
@@ -39,6 +40,16 @@ std::string_view service_name(std::string_view id) {
 
 Target target(Hive hive, char const* key, char const* name, Type type) {
     return {.hive = hive, .key_path = key, .value_name = name, .type = type};
+}
+
+// Exception-free DWORD parsing for catalog tokens. Returns nullopt instead of
+// throwing, so a corrupt catalog entry surfaces as an error message rather
+// than an unhandled UI exception.
+std::optional<std::uint32_t> parse_dword_token(std::string_view token) {
+    std::uint32_t value{};
+    const auto [ptr, ec] = std::from_chars(token.data(), token.data() + token.size(), value);
+    if (ec != std::errc{} || ptr != token.data() + token.size()) return std::nullopt;
+    return value;
 }
 
 Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control) {
@@ -249,12 +260,16 @@ void PerformancePage::load_catalog_toggles() {
     loading_gaming_toggles_ = false;
 }
 
-Value catalog_desired(auto const& rule, bool enabled, auto&& read) {
+std::optional<Value> catalog_desired(auto const& rule, bool enabled, auto&& read) {
     auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
     auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
     auto values = enabled ? rule.enabled_values : rule.disabled_values; auto separator = values.find('|'); auto value = values.substr(0, separator);
     Value desired;
-    if (rule.kind == 0) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{static_cast<std::uint32_t>(std::stoul(std::string(value)))};
+    if (rule.kind == 0) {
+        if (value == "__MISSING__") desired = Value{std::monostate{}};
+        else if (auto parsed = parse_dword_token(value)) desired = Value{*parsed};
+        else return std::nullopt;
+    }
     else if (rule.kind == 1) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{std::string(value)};
     else {
         auto current=read(destination);
@@ -277,7 +292,9 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
         if (rule.id != item.id) continue;
         auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
         auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
-        registry.emplace_back(destination, catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);}));
+        auto desired = catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);});
+        if (!desired) { show_write_error("A performance catalog entry is invalid and was not applied."); load_catalog_toggles(); return; }
+        registry.emplace_back(destination, std::move(*desired));
     }
     const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;});
     if(!has_registry) tasks.emplace_back(std::string(item.id), enabled);
@@ -394,7 +411,9 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
             has_registry = true;
             auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
             auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
-            registry.emplace_back(destination, catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);}));
+            auto desired = catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);});
+            if (!desired) { show_write_error("A performance catalog entry is invalid and was not applied."); load_catalog_toggles(); load_catalog_selections(); return; }
+            registry.emplace_back(destination, std::move(*desired));
         }
         if (!has_registry) tasks.emplace_back(item.id, enabled);
     }
@@ -515,13 +534,14 @@ void PerformancePage::submit(std::function<winchisel::core::Result<void>()> chan
 }
 
 winrt::fire_and_forget PerformancePage::process_changes() {
-    auto lifetime=get_strong();
-    const auto queue=DispatcherQueue();
     const auto weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue queue{nullptr};
+    try { queue=DispatcherQueue(); } catch (...) {}
     winrt::apartment_context ui;
     if(work_running_)co_return;
     work_running_=true;
     try {
+        auto lifetime=get_strong();
         IsEnabled(false);
         std::string failure;
         while(!pending_changes_.empty()) {

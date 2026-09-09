@@ -47,10 +47,11 @@ void ProcessesPage::SortStatus(Windows::Foundation::IInspectable const&,mux::Rou
 void ProcessesPage::set_sort(SortColumn column){if(sort_column_==column)ascending_=!ascending_;else{sort_column_=column;ascending_=true;}render_processes();}
 
 winrt::fire_and_forget ProcessesPage::load_processes(){
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     if(scan_running_)co_return;scan_running_=true;auto weak=get_weak();auto queue=DispatcherQueue();auto previous_times=previous_process_times_;auto previous_created=previous_process_created_;auto previous_system=previous_system_time_;std::unordered_map<std::uint32_t,std::wstring> previous_paths;for(auto const& row:rows_)previous_paths.emplace(row.pid,row.path);
     co_await winrt::resume_background();
@@ -110,7 +111,7 @@ void ProcessesPage::render_processes(){
         muxc::Grid grid;grid.Tag(winrt::box_value(row->pid));grid.Padding({12,6,12,6});for(auto width:{80.0,0.0,80.0,120.0,120.0,100.0}){muxc::ColumnDefinition col;col.Width(width==0?mux::GridLength{1,mux::GridUnitType::Star}:mux::GridLength{width,mux::GridUnitType::Pixel});grid.ColumnDefinitions().Append(col);}
         Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(grid,L"Process "+row->name+L", PID "+std::to_wstring(row->pid));muxc::StackPanel pid_panel;pid_panel.Orientation(muxc::Orientation::Horizontal);pid_panel.Spacing(4);auto pid=row->pid;if(row->has_children){muxc::Button expand;expand.Padding({0,0,0,0});expand.Width(20);expand.Height(20);expand.MinWidth(0);expand.MinHeight(0);expand.CornerRadius({2});muxc::FontIcon chevron;chevron.Glyph(expanded_.contains(row->pid)?L"\uE70D":L"\uE76C");chevron.FontSize(10);expand.Content(chevron);Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(expand,(expanded_.contains(row->pid)?L"Collapse ":L"Expand ")+row->name);auto weak=get_weak();expand.Click([weak,pid](auto&&,auto&&){if(auto self=weak.get()){if(!self->expanded_.insert(pid).second)self->expanded_.erase(pid);self->DispatcherQueue().TryEnqueue([weak]{if(auto page=weak.get())page->render_processes();});}});pid_panel.Children().Append(expand);}else{muxc::Border spacer;spacer.Width(20);pid_panel.Children().Append(spacer);}muxc::TextBlock pid_text;pid_text.Text(std::to_wstring(row->pid));pid_text.VerticalAlignment(mux::VerticalAlignment::Center);pid_panel.Children().Append(pid_text);grid.Children().Append(pid_panel);
         auto add=[&](std::wstring const& text,int column,double left=0){muxc::TextBlock block;block.Text(text);block.Margin({left,0,0,0});block.TextTrimming(mux::TextTrimming::CharacterEllipsis);block.VerticalAlignment(mux::VerticalAlignment::Center);if(column==1&&!row->path.empty())muxc::ToolTipService::SetToolTip(block,winrt::box_value(row->path));muxc::Grid::SetColumn(block,column);grid.Children().Append(block);};
-        wchar_t cpu[24]{};swprintf_s(cpu,L"%.1f%%",row->cpu);add(row->name,1,row->depth*16.0);add(cpu,2);add(row->priority,3);add(row->affinity,4);add(row->status,5);auto weak=get_weak();grid.RightTapped([weak,pid=row->pid](auto const& sender,auto const& args){if(auto self=weak.get()){auto item=std::ranges::find(self->rows_,pid,&ProcessRow::pid);if(item!=self->rows_.end()){auto element=sender.template as<mux::FrameworkElement>();self->add_process_menu(element,*item);if(auto flyout=element.ContextFlyout())flyout.ShowAt(element);args.Handled(true);}}});ProcessList().Items().Append(grid);if(row->pid==selected_pid_)selected_grid=grid;
+        wchar_t cpu[24]{};swprintf_s(cpu,L"%.1f%%",row->cpu);add(row->name,1,row->depth*16.0);add(cpu,2);add(row->priority,3);add(row->affinity,4);add(row->status,5);auto weak=get_weak();grid.RightTapped([weak,pid=row->pid](auto const& sender,auto const& args){if(auto self=weak.get()){self->request_process_menu(sender.template as<mux::FrameworkElement>(),pid);args.Handled(true);}});ProcessList().Items().Append(grid);if(row->pid==selected_pid_)selected_grid=grid;
     }
     if(selected_grid)ProcessList().SelectedItem(selected_grid);else selected_pid_=0;restoring_selection_=false;
     wchar_t total[32]{};swprintf_s(total,L"%.1f%%",total_cpu);StatusText().Text(L"Visible: "+std::to_wstring(visible.size())+L"   Processes: "+std::to_wstring(rows_.size())+L"   Total CPU: "+total+L"   •   Right-click a process for actions");
@@ -125,24 +126,55 @@ bool ProcessesPage::remove_always(std::wstring const& name,wchar_t const* value_
 std::optional<DWORD> ProcessesPage::read_always(std::wstring const& name,wchar_t const* value_name){if(auto value=winchisel::platform::read_ifeo_dword(name,value_name))return static_cast<DWORD>(*value);return std::nullopt;}
 std::optional<std::uint32_t> ProcessesPage::read_io_priority(std::uint32_t pid){return winchisel::platform::read_process_io_priority(pid);}
 
-void ProcessesPage::add_process_menu(mux::FrameworkElement const& element,ProcessRow const& row){
+void ProcessesPage::add_process_menu(mux::FrameworkElement const& element,ProcessRow const& row,MenuSnapshot const& snap){
     muxc::MenuFlyout menu;auto submenu=[&](wchar_t const* text){muxc::MenuFlyoutSubItem item;item.Text(text);menu.Items().Append(item);return item;};
     auto weak=get_weak();menu.Opened([weak](auto&&,auto&&){if(auto self=weak.get())++self->open_overlays_;});menu.Closed([weak](auto&&,auto&&){if(auto self=weak.get()){if(self->open_overlays_)--self->open_overlays_;if(!self->open_overlays_&&self->refresh_pending_){self->refresh_pending_=false;self->load_processes();}}});
     auto add=[&](muxc::MenuFlyoutSubItem const& parent,wchar_t const* text,bool active,auto action){muxc::ToggleMenuFlyoutItem item;item.Text(text);item.IsChecked(active);item.Click(action);parent.Items().Append(item);};auto pid=row.pid;auto name=row.name;
     auto current=submenu(L"CPU priority · Current");for(auto const& [text,value]:std::vector<std::pair<wchar_t const*,DWORD>>{{L"Idle",IDLE_PRIORITY_CLASS},{L"Below normal",BELOW_NORMAL_PRIORITY_CLASS},{L"Normal",NORMAL_PRIORITY_CLASS},{L"Above normal",ABOVE_NORMAL_PRIORITY_CLASS},{L"High",HIGH_PRIORITY_CLASS}})add(current,text,row.priority==text,[this,pid,value](auto&&,auto&&){set_priority(pid,value);});add(current,L"Realtime…",row.priority==L"Realtime",[this,pid](auto&&,auto&&){confirm_realtime(pid);});
-    auto cpu_saved=read_always(name,L"CpuPriorityClass");auto always=submenu(L"CPU priority · Always");add(always,L"Default (remove saved rule)",!cpu_saved,[this,name](auto&&,auto&&){if(remove_always(name,L"CpuPriorityClass"))StatusText().Text(L"Permanent CPU priority rule removed.");else StatusText().Text(L"Could not remove permanent CPU priority rule.");});for(auto const& [text,value]:std::vector<std::pair<wchar_t const*,DWORD>>{{L"Idle",1},{L"Below normal",5},{L"Normal",2},{L"Above normal",6},{L"High",3},{L"Realtime",4}})add(always,text,cpu_saved&&*cpu_saved==value,[this,pid,name,value](auto&&,auto&&){if(set_always(name,L"CpuPriorityClass",value)){DWORD cls=value==1?IDLE_PRIORITY_CLASS:value==5?BELOW_NORMAL_PRIORITY_CLASS:value==2?NORMAL_PRIORITY_CLASS:value==6?ABOVE_NORMAL_PRIORITY_CLASS:value==3?HIGH_PRIORITY_CLASS:REALTIME_PRIORITY_CLASS;set_priority(pid,cls);}else StatusText().Text(L"Could not save permanent CPU priority.");});
-    auto io_value=read_io_priority(pid);auto io=submenu(L"I/O priority · Current");add(io,L"Low",io_value&&*io_value==1,[this,pid](auto&&,auto&&){set_io_priority(pid,1);});add(io,L"Normal",io_value&&*io_value==2,[this,pid](auto&&,auto&&){set_io_priority(pid,2);});
-    auto io_saved=read_always(name,L"IoPriority");auto io_always=submenu(L"I/O priority · Always");add(io_always,L"Default (remove saved rule)",!io_saved,[this,name](auto&&,auto&&){if(remove_always(name,L"IoPriority"))StatusText().Text(L"Permanent I/O priority rule removed.");else StatusText().Text(L"Could not remove permanent I/O priority rule.");});add(io_always,L"Low",io_saved&&*io_saved==1,[this,pid,name](auto&&,auto&&){if(set_always(name,L"IoPriority",1))set_io_priority(pid,1);else StatusText().Text(L"Could not save permanent I/O priority.");});add(io_always,L"Normal",io_saved&&*io_saved==2,[this,pid,name](auto&&,auto&&){if(set_always(name,L"IoPriority",2))set_io_priority(pid,2);else StatusText().Text(L"Could not save permanent I/O priority.");});
-    auto affinity=submenu(L"Affinity");if(GetActiveProcessorGroupCount()>1){muxc::MenuFlyoutItem unavailable;unavailable.Text(L"Unavailable on systems with >64 CPUs");unavailable.IsEnabled(false);affinity.Items().Append(unavailable);element.ContextFlyout(menu);return;}add(affinity,L"Edit…",false,[this,pid,name](auto&&,auto&&){edit_affinity(pid,name);});
-    auto mode=[this,pid](int selected){HANDLE p=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);DWORD_PTR current{},system{};if(!p||!GetProcessAffinityMask(p,&current,&system)){if(p)CloseHandle(p);return;}CloseHandle(p);set_affinity(pid,static_cast<DWORD_PTR>(winchisel::core::affinity_mask(system,selected)));};
+    auto cpu_saved=snap.cpu_saved;auto always=submenu(L"CPU priority · Always");add(always,L"Default (remove saved rule)",!cpu_saved,[this,name](auto&&,auto&&){if(remove_always(name,L"CpuPriorityClass"))StatusText().Text(L"Permanent CPU priority rule removed.");else StatusText().Text(L"Could not remove permanent CPU priority rule.");});for(auto const& [text,value]:std::vector<std::pair<wchar_t const*,DWORD>>{{L"Idle",1},{L"Below normal",5},{L"Normal",2},{L"Above normal",6},{L"High",3},{L"Realtime",4}})add(always,text,cpu_saved&&*cpu_saved==value,[this,pid,name,value](auto&&,auto&&){if(set_always(name,L"CpuPriorityClass",value)){DWORD cls=value==1?IDLE_PRIORITY_CLASS:value==5?BELOW_NORMAL_PRIORITY_CLASS:value==2?NORMAL_PRIORITY_CLASS:value==6?ABOVE_NORMAL_PRIORITY_CLASS:value==3?HIGH_PRIORITY_CLASS:REALTIME_PRIORITY_CLASS;set_priority(pid,cls);}else StatusText().Text(L"Could not save permanent CPU priority.");});
+    auto io_value=snap.io_value;auto io=submenu(L"I/O priority · Current");add(io,L"Low",io_value&&*io_value==1,[this,pid](auto&&,auto&&){set_io_priority(pid,1);});add(io,L"Normal",io_value&&*io_value==2,[this,pid](auto&&,auto&&){set_io_priority(pid,2);});
+    auto io_saved=snap.io_saved;auto io_always=submenu(L"I/O priority · Always");
+    add(io_always,L"Default (remove saved rule)",!io_saved,[this,name](auto&&,auto&&){if(remove_always(name,L"IoPriority"))StatusText().Text(L"Permanent I/O priority rule removed.");else StatusText().Text(L"Could not remove permanent I/O priority rule.");});add(io_always,L"Low",io_saved&&*io_saved==1,[this,pid,name](auto&&,auto&&){if(set_always(name,L"IoPriority",1))set_io_priority(pid,1);else StatusText().Text(L"Could not save permanent I/O priority.");});add(io_always,L"Normal",io_saved&&*io_saved==2,[this,pid,name](auto&&,auto&&){if(set_always(name,L"IoPriority",2))set_io_priority(pid,2);else StatusText().Text(L"Could not save permanent I/O priority.");});
+    auto affinity=submenu(L"Affinity");if(GetActiveProcessorGroupCount()>1){muxc::MenuFlyoutItem unavailable;unavailable.Text(L"Unavailable on systems with >64 CPUs");unavailable.IsEnabled(false);affinity.Items().Append(unavailable);element.ContextFlyout(menu);return;}if(!snap.affinity_ok){muxc::MenuFlyoutItem unavailable;unavailable.Text(L"Could not read process affinity.");unavailable.IsEnabled(false);affinity.Items().Append(unavailable);element.ContextFlyout(menu);return;}add(affinity,L"Edit…",false,[this,pid,name,current=snap.affinity_current,system=snap.affinity_system](auto&&,auto&&){edit_affinity(pid,name,current,system);});
+    auto mode=[this,pid,system=snap.affinity_system](int selected){set_affinity(pid,static_cast<DWORD_PTR>(winchisel::core::affinity_mask(system,selected)));};
     add(affinity,L"All cores",row.affinity==L"All cores",[mode](auto&&,auto&&){mode(0);});add(affinity,L"Even logical CPUs",false,[mode](auto&&,auto&&){mode(1);});add(affinity,L"Odd logical CPUs",false,[mode](auto&&,auto&&){mode(2);});add(affinity,L"First half",false,[mode](auto&&,auto&&){mode(3);});add(affinity,L"Second half",false,[mode](auto&&,auto&&){mode(4);});element.ContextFlyout(menu);
 }
 
-winrt::fire_and_forget ProcessesPage::confirm_realtime(std::uint32_t pid){
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
+winrt::fire_and_forget ProcessesPage::request_process_menu(mux::FrameworkElement const& element,std::uint32_t pid){
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
+    auto item=std::ranges::find(rows_,pid,&ProcessRow::pid);
+    if(item==rows_.end())co_return;
+    ProcessRow row=*item;
+    winrt::apartment_context ui;
+    co_await winrt::resume_background();
+    MenuSnapshot snap;
+    snap.cpu_saved=read_always(row.name,L"CpuPriorityClass");
+    snap.io_saved=read_always(row.name,L"IoPriority");
+    snap.io_value=read_io_priority(pid);
+    if(GetActiveProcessorGroupCount()==1){
+        HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);
+        if(process){DWORD_PTR current{},system{};if(GetProcessAffinityMask(process,&current,&system)){snap.affinity_current=current;snap.affinity_system=system;snap.affinity_ok=true;}CloseHandle(process);}
+    }
+    co_await ui;
+    add_process_menu(element,row,snap);
+    if(auto flyout=element.ContextFlyout())flyout.ShowAt(element);
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self=error_weak.get()) { self->StatusText().Text(text); }
+        });
+    }
+}
+
+winrt::fire_and_forget ProcessesPage::confirm_realtime(std::uint32_t pid){
+    auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
+    try {
+        auto error_lifetime=get_strong();
     winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
 
 auto lifetime=get_strong();++open_overlays_;muxc::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(winrt::box_value(L"Realtime priority"));dialog.Content(winrt::box_value(L"Realtime priority can make Windows unresponsive. Apply it only when you understand the risk."));dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");auto result=co_await dialog.ShowAsync();if(open_overlays_)--open_overlays_;refresh_pending_=false;if(result==muxc::ContentDialogResult::Primary)set_priority(pid,REALTIME_PRIORITY_CLASS);else load_processes();
@@ -153,15 +185,16 @@ auto lifetime=get_strong();++open_overlays_;muxc::ContentDialog dialog;dialog.Xa
     }
 }
 
-winrt::fire_and_forget ProcessesPage::edit_affinity(std::uint32_t pid,std::wstring name){
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
+winrt::fire_and_forget ProcessesPage::edit_affinity(std::uint32_t pid,std::wstring name,DWORD_PTR current,DWORD_PTR system){
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
     winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
 
 
-    auto lifetime=get_strong();++open_overlays_;HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);DWORD_PTR current{},system{};if(!process||!GetProcessAffinityMask(process,&current,&system)){if(process)CloseHandle(process);if(open_overlays_)--open_overlays_;StatusText().Text(L"Could not read process affinity.");co_return;}CloseHandle(process);
+    auto lifetime=get_strong();++open_overlays_;if(!current||!system){if(open_overlays_)--open_overlays_;StatusText().Text(L"Could not read process affinity.");co_return;}
     auto selected=std::make_shared<DWORD_PTR>(current);auto boxes=std::make_shared<std::vector<std::pair<muxc::CheckBox,DWORD_PTR>>>();muxc::StackPanel content;content.Spacing(8);muxc::TextBlock hint;hint.Text(L"Choose at least one logical processor:");content.Children().Append(hint);muxc::Grid grid;for(int i=0;i<4;++i){muxc::ColumnDefinition column;column.Width({1,mux::GridUnitType::Star});grid.ColumnDefinitions().Append(column);}int n{};
     for(unsigned i=0;i<sizeof(DWORD_PTR)*8;++i)if(system&(DWORD_PTR{1}<<i)){muxc::CheckBox box;box.Content(winrt::box_value(L"CPU "+std::to_wstring(i)));box.IsChecked((current&(DWORD_PTR{1}<<i))!=0);auto bit=DWORD_PTR{1}<<i;box.Checked([selected,bit](auto&&,auto&&){*selected|=bit;});box.Unchecked([selected,bit](auto&&,auto&&){*selected&=~bit;});muxc::Grid::SetColumn(box,n%4);muxc::Grid::SetRow(box,n/4);if(n%4==0){muxc::RowDefinition row;row.Height(mux::GridLengthHelper::Auto());grid.RowDefinitions().Append(row);}grid.Children().Append(box);boxes->emplace_back(box,bit);++n;}content.Children().Append(grid);
     muxc::StackPanel tools;tools.Orientation(muxc::Orientation::Horizontal);tools.Spacing(8);muxc::Button invert;invert.Content(winrt::box_value(L"Invert"));invert.Click([selected,boxes,system](auto&&,auto&&){*selected=(~*selected)&system;if(!*selected)*selected=system;for(auto const& [box,bit]:*boxes)box.IsChecked((*selected&bit)!=0);});tools.Children().Append(invert);muxc::Button all;all.Content(winrt::box_value(L"All cores"));all.Click([selected,boxes,system](auto&&,auto&&){*selected=system;for(auto const& [box,bit]:*boxes)box.IsChecked(true);});tools.Children().Append(all);content.Children().Append(tools);

@@ -332,23 +332,30 @@ std::string command_error(std::string_view action, detail::ProcessWaitResult wai
 }
 
 void emit_lines(std::string& pending, ProtectionProgress const& progress) {
+    // Offset-based scan with a single compaction per call. Erasing the
+    // consumed prefix per line would memmove the remainder every time,
+    // which is quadratic on large process output.
+    std::size_t consumed{};
     while (true) {
-        auto pos = pending.find_first_of("\r\n");
+        const auto pos = pending.find_first_of("\r\n", consumed);
         if (pos == std::string::npos) {
-            return;
+            break;
         }
-        auto line = pending.substr(0, pos);
-        auto skip = 1;
+        auto line = pending.substr(consumed, pos - consumed);
+        std::size_t skip = 1;
         if (pending[pos] == '\r' && pos + 1 < pending.size() && pending[pos + 1] == '\n') {
             skip = 2;
         }
-        pending.erase(0, pos + skip);
+        consumed = pos + skip;
         while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) {
             line.pop_back();
         }
         if (!line.empty() && progress) {
             progress(false, line);
         }
+    }
+    if (consumed) {
+        pending.erase(0, consumed);
     }
 }
 

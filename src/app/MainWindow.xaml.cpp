@@ -130,7 +130,7 @@ MainWindow::MainWindow() {
         }
     }
     if (ContentFrame().Content() == nullptr) {
-        auto home = make_page(L"home"); pages_.emplace(L"home", home); ContentFrame().Content(home);
+        auto home = make_page(L"home"); pages_.emplace(L"home", home); touch_page(L"home"); ContentFrame().Content(home);
     }
 }
 
@@ -160,10 +160,11 @@ void MainWindow::CheckForUpdates(bool manual) {
 }
 
 winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     auto lifetime = get_strong();
     update_check_running_ = true;
@@ -272,8 +273,19 @@ void MainWindow::Nav_SelectionChanged(
     const auto tag = winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home");
     winchisel::application::Session::instance().set_screen(screen_from_tag(tag));
     const std::wstring key(tag.c_str());
-    if (const auto existing = pages_.find(key); existing != pages_.end()) { ContentFrame().Content(existing->second); return; }
-    if (auto page = make_page(tag)) { pages_.emplace(key, page); ContentFrame().Content(page); }
+    if (const auto existing = pages_.find(key); existing != pages_.end()) { touch_page(key); ContentFrame().Content(existing->second); return; }
+    if (auto page = make_page(tag)) { pages_.emplace(key, page); touch_page(key); ContentFrame().Content(page); }
+}
+
+void MainWindow::touch_page(std::wstring const& key) {
+    page_lru_.remove(key);
+    page_lru_.push_back(key);
+    while (page_lru_.size() > k_max_cached_pages) {
+        auto const& oldest = page_lru_.front();
+        if (oldest == key) break;
+        pages_.erase(oldest);
+        page_lru_.pop_front();
+    }
 }
 
 FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
@@ -326,6 +338,7 @@ void MainWindow::localize_nav() {
 void MainWindow::reload_language() {
     localize_nav();
     pages_.clear();
+    page_lru_.clear();
     auto item = Nav().SelectedItem().try_as<Controls::NavigationViewItem>();
     const auto tag = item ? winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home") : L"home";
     if (auto page = make_page(tag)) {

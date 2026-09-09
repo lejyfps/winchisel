@@ -99,9 +99,27 @@ std::optional<std::string> unescape_json_string(std::string_view body) {
                 else if (c >= 'A' && c <= 'F') code += 10 + c - 'A';
                 else return std::nullopt;
             }
+            if (code >= 0xD800 && code <= 0xDBFF) {
+                if (i + 6 >= body.size() || body[i + 1] != '\\' || body[i + 2] != 'u') return std::nullopt;
+                unsigned low{};
+                for (int n{}; n < 4; ++n) {
+                    const auto c = static_cast<unsigned char>(body[i + 3 + n]);
+                    low <<= 4;
+                    if (c >= '0' && c <= '9') low += c - '0';
+                    else if (c >= 'a' && c <= 'f') low += 10 + c - 'a';
+                    else if (c >= 'A' && c <= 'F') low += 10 + c - 'A';
+                    else return std::nullopt;
+                }
+                if (low < 0xDC00 || low > 0xDFFF) return std::nullopt;
+                code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                i += 6;
+            } else if (code >= 0xDC00 && code <= 0xDFFF) {
+                return std::nullopt;
+            }
             if (code < 0x80) out.push_back(static_cast<char>(code));
             else if (code < 0x800) { out.push_back(static_cast<char>(0xC0 | (code >> 6))); out.push_back(static_cast<char>(0x80 | (code & 0x3F))); }
-            else { out.push_back(static_cast<char>(0xE0 | (code >> 12))); out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (code & 0x3F))); }
+            else if (code < 0x10000) { out.push_back(static_cast<char>(0xE0 | (code >> 12))); out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (code & 0x3F))); }
+            else { out.push_back(static_cast<char>(0xF0 | (code >> 18))); out.push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F))); out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (code & 0x3F))); }
             break;
         }
         default: return std::nullopt;

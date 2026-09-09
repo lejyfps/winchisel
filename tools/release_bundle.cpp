@@ -21,6 +21,32 @@ constexpr char k_magic[] = "WCHBNDL2";
 
 struct File { std::filesystem::path source; std::string relative; std::uint64_t offset{}; std::uint64_t size{}; std::uint64_t compressed_size{}; std::filesystem::path packed; };
 
+// Mirrors the unpacker limits so the build fails instead of exhausting RAM
+// on an unexpectedly large stage directory.
+constexpr std::uint64_t k_max_file_size = 256ULL * 1024 * 1024;
+constexpr std::uint64_t k_max_total_size = 1024ULL * 1024 * 1024;
+constexpr std::size_t k_max_file_count = 10000;
+constexpr std::size_t k_max_relative_length = 4096;
+
+bool checked_add(std::uint64_t a, std::uint64_t b, std::uint64_t& out) {
+    if (a > UINT64_MAX - b) return false;
+    out = a + b;
+    return true;
+}
+
+// Component-wise path check: the old substring search rejected legitimate
+// names like "a...b" while missing absolute roots and reserved names.
+bool safe_relative(std::string const& relative) {
+    if (relative.empty() || relative.size() > k_max_relative_length) return false;
+    const std::filesystem::path path(relative);
+    if (path.has_root_path()) return false;
+    for (auto const& part : path) {
+        const auto name = part.string();
+        if (name.empty() || name == "." || name == "..") return false;
+    }
+    return relative.find('\0') == std::string::npos;
+}
+
 bool write(std::ofstream& out, void const* data, std::size_t size) { out.write(static_cast<char const*>(data), static_cast<std::streamsize>(size)); return static_cast<bool>(out); }
 
 bool append(std::ofstream& out, std::filesystem::path const& source) {
@@ -31,6 +57,7 @@ bool append(std::ofstream& out, std::filesystem::path const& source) {
 }
 
 bool compress_file(COMPRESSOR_HANDLE compressor, File& file) {
+    if (file.size > k_max_file_size) { std::cerr << "File too large: " << file.relative << "\n"; return false; }
     std::ifstream input(file.source, std::ios::binary);
     std::vector<std::byte> raw(static_cast<std::size_t>(file.size));
     input.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
@@ -55,20 +82,36 @@ int bundle(std::filesystem::path const& stub, std::filesystem::path const& stage
     for (std::filesystem::recursive_directory_iterator it(stage, error), end; !error && it != end; it.increment(error)) {
         if (!it->is_regular_file(error)) continue;
         auto relative = std::filesystem::relative(it->path(), stage, error).generic_string();
-        if (error || relative.empty() || relative.find("..") != std::string::npos) return 2;
-        files.push_back({it->path(), std::move(relative), 0, std::filesystem::file_size(it->path(), error), {}});
-        if (error) return 2;
+        if (error || !safe_relative(relative)) return 2;
+        const auto size = std::filesystem::file_size(it->path(), error);
+        if (error || size > k_max_file_size) return 2;
+        files.push_back({it->path(), std::move(relative), 0, size, {}});
+        if (files.size() > k_max_file_count) return 2;
     }
     std::sort(files.begin(), files.end(), [](auto const& a, auto const& b) { return a.relative < b.relative; });
     COMPRESSOR_HANDLE compressor{};
     if (!CreateCompressor(COMPRESS_ALGORITHM_XPRESS_HUFF, nullptr, &compressor)) return 2;
-    for (auto& file : files) if (!compress_file(compressor, file)) { CloseCompressor(compressor); return 2; }
+    bool compressed_ok = true;
+    std::uint64_t total_raw{};
+    for (auto& file : files) {
+        if (!compressed_ok) break;
+        if (!checked_add(total_raw, file.size, total_raw) || total_raw > k_max_total_size) { std::cerr << "Total stage size exceeds limit\n"; compressed_ok = false; break; }
+        if (!compress_file(compressor, file)) compressed_ok = false;
+    }
     CloseCompressor(compressor);
+    if (!compressed_ok) {
+        for (auto const& file : files) std::filesystem::remove(file.packed, error);
+        return 2;
+    }
     std::uint64_t table_size = sizeof(std::uint32_t);
-    for (auto const& file : files) table_size += sizeof(std::uint32_t) + file.relative.size() + sizeof(std::uint64_t) * 3;
+    for (auto const& file : files) {
+        std::uint64_t entry = sizeof(std::uint32_t) + file.relative.size() + sizeof(std::uint64_t) * 3;
+        if (!checked_add(table_size, entry, table_size)) return 2;
+    }
     const auto stub_size = std::filesystem::file_size(stub, error); if (error) return 2;
-    std::uint64_t next = stub_size + table_size;
-    for (auto& file : files) { file.offset = next; next += file.compressed_size; }
+    std::uint64_t next = stub_size;
+    if (!checked_add(next, table_size, next)) return 2;
+    for (auto& file : files) { file.offset = next; if (!checked_add(next, file.compressed_size, next)) return 2; }
     std::filesystem::create_directories(output.parent_path(), error); if (error) return 2;
     std::ofstream out(output, std::ios::binary | std::ios::trunc); if (!out || !append(out, stub)) return 3;
     const auto count = static_cast<std::uint32_t>(files.size()); if (!write(out, &count, sizeof(count))) return 3;

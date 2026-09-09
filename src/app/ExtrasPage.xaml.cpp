@@ -27,48 +27,172 @@ bool ExtrasPage::write_string(HKEY root,wchar_t const* path,wchar_t const* name,
 void ExtrasPage::show_result(bool ok,std::wstring const& text){ResultBar().Title(ok?L"Applied":L"Could not apply setting");ResultBar().Severity(ok?muxc::InfoBarSeverity::Success:muxc::InfoBarSeverity::Error);ResultBar().Message(text);ResultBar().IsOpen(true);winchisel::platform::boot_log(winrt::to_string(text).c_str());}
 
 void ExtrasPage::load_states(){
- loading_=true;DWORD value{};std::wstring text;
- ModernStandby().IsOn(read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Power",L"PlatformAoAcOverride",value)&&value==0);
- SyncProvider().IsOn(read_dword(HKEY_CURRENT_USER,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",L"ShowSyncProviderNotifications",value)&&value==0);
- auto all=[&](wchar_t const* path,std::initializer_list<std::pair<wchar_t const*,DWORD>> rules){for(auto const& [name,expected]:rules)if(!read_dword(HKEY_LOCAL_MACHINE,path,name,value)||value!=expected)return false;return true;};
- Brave().IsOn(all(L"SOFTWARE\\Policies\\BraveSoftware\\Brave",{{L"BraveRewardsDisabled",1},{L"BraveWalletDisabled",1},{L"BraveVPNDisabled",1},{L"BraveAIChatEnabled",0},{L"BraveStatsPingEnabled",0},{L"BraveNewsDisabled",1},{L"BraveTalkDisabled",1},{L"TorDisabled",1},{L"BraveP3AEnabled",0},{L"UrlKeyedAnonymizedDataCollectionEnabled",0},{L"SafeBrowsingExtendedReportingEnabled",0},{L"MetricsReportingEnabled",0}}));
- const bool edge_base=all(L"SOFTWARE\\Policies\\Microsoft\\Edge",{{L"PersonalizationReportingEnabled",0},{L"ShowRecommendationsEnabled",0},{L"HideFirstRunExperience",1},{L"UserFeedbackAllowed",0},{L"ConfigureDoNotTrack",1},{L"AlternateErrorPagesEnabled",0},{L"EdgeCollectionsEnabled",0},{L"EdgeShoppingAssistantEnabled",0},{L"MicrosoftEdgeInsiderPromotionEnabled",0},{L"ShowMicrosoftRewards",0},{L"WebWidgetAllowed",0},{L"DiagnosticData",0},{L"EdgeAssetDeliveryServiceEnabled",0},{L"WalletDonationEnabled",0},{L"DefaultBrowserSettingsCampaignEnabled",0}});
- DWORD edge_shortcut{}; std::wstring edge_extension;
- Edge().IsOn(edge_base&&read_dword(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Policies\\Microsoft\\EdgeUpdate",L"CreateDesktopShortcutDefault",edge_shortcut)&&edge_shortcut==0&&read_string(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist",L"1",edge_extension)&&edge_extension==L"ofefcgjbeghpigppfmkologfjadafddi");
- Ctfmon().IsOn(all(L"Software\\Microsoft\\Input",{{L"InputServiceEnabled",0},{L"InputServiceEnabledForCCI",0}}));
- CtfmonDll().IsOn(read_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\TextInputManagementService\\Parameters",L"ServiceDll",text)&&_wcsicmp(text.c_str(),L"%SystemRoot%\\System32\\MSCTF.DLL")==0);
- TimerResolution().IsOn(read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",L"GlobalTimerResolutionRequests",value)&&value==1);
- Ipv6().IsOn(read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",L"DisabledComponents",value)&&(value&0x20));
- Teredo().IsOn(read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",L"DisabledComponents",value)&&(value&1));
- Ps7().IsOn(read_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",L"POWERSHELL_TELEMETRY_OPTOUT",text)&&text==L"1");
- loading_=false;
+    reload_registry_states();
 }
 
-void ExtrasPage::ToggleChanged(Windows::Foundation::IInspectable const& sender,Microsoft::UI::Xaml::RoutedEventArgs const&){if(loading_ || command_running_)return;auto toggle=sender.as<muxc::ToggleSwitch>();bool enabled=toggle.IsOn(),ok=true;
- if(toggle==ModernStandby())ok=write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Power",L"PlatformAoAcOverride",enabled?std::optional<DWORD>{0}:std::nullopt);
- else if(toggle==SyncProvider())ok=write_dword(HKEY_CURRENT_USER,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",L"ShowSyncProviderNotifications",enabled?0:1);
- else if(toggle==Ctfmon()){ok=write_dword(HKEY_LOCAL_MACHINE,L"Software\\Microsoft\\Input",L"InputServiceEnabled",enabled?0:1);ok=write_dword(HKEY_LOCAL_MACHINE,L"Software\\Microsoft\\Input",L"InputServiceEnabledForCCI",enabled?0:1)&&ok;}
- else if(toggle==CtfmonDll())ok=write_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\TextInputManagementService\\Parameters",L"ServiceDll",enabled?L"%SystemRoot%\\System32\\MSCTF.DLL":L"%SystemRoot%\\System32\\TabSvc.dll");
- else if(toggle==TimerResolution())ok=write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",L"GlobalTimerResolutionRequests",enabled?std::optional<DWORD>{1}:std::nullopt);
- else if(toggle==Ipv6()){DWORD current{};read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",L"DisabledComponents",current);ok=write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",L"DisabledComponents",enabled?current|0x20:current&~0x20);}
- else if(toggle==Ps7()){if(enabled)ok=write_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",L"POWERSHELL_TELEMETRY_OPTOUT",L"1");else{HKEY key{};if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",0,KEY_SET_VALUE,&key)==ERROR_SUCCESS){auto result=RegDeleteValueW(key,L"POWERSHELL_TELEMETRY_OPTOUT");RegCloseKey(key);ok=result==ERROR_SUCCESS||result==ERROR_FILE_NOT_FOUND;}}}
- else if(toggle==Brave()){constexpr wchar_t path[]=L"SOFTWARE\\Policies\\BraveSoftware\\Brave";std::vector<std::pair<wchar_t const*,DWORD>> rules={{L"BraveRewardsDisabled",1},{L"BraveWalletDisabled",1},{L"BraveVPNDisabled",1},{L"BraveAIChatEnabled",0},{L"BraveStatsPingEnabled",0},{L"BraveNewsDisabled",1},{L"BraveTalkDisabled",1},{L"TorDisabled",1},{L"BraveP3AEnabled",0},{L"UrlKeyedAnonymizedDataCollectionEnabled",0},{L"SafeBrowsingExtendedReportingEnabled",0},{L"MetricsReportingEnabled",0}};if(enabled){ok=true;for(auto const& [name,_]:rules)ok=backup_dword(L"Brave",path,name)&&ok;if(ok)for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;}else{ok=true;for(auto const& [name,_]:rules)ok=restore_dword(L"Brave",path,name)&&ok;}}
- else if(toggle==Edge()){constexpr wchar_t path[]=L"SOFTWARE\\Policies\\Microsoft\\Edge";constexpr wchar_t update_path[]=L"SOFTWARE\\Policies\\Microsoft\\EdgeUpdate";constexpr wchar_t extension_path[]=L"SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist";std::vector<std::pair<wchar_t const*,DWORD>> rules={{L"PersonalizationReportingEnabled",0},{L"ShowRecommendationsEnabled",0},{L"HideFirstRunExperience",1},{L"UserFeedbackAllowed",0},{L"ConfigureDoNotTrack",1},{L"AlternateErrorPagesEnabled",0},{L"EdgeCollectionsEnabled",0},{L"EdgeShoppingAssistantEnabled",0},{L"MicrosoftEdgeInsiderPromotionEnabled",0},{L"ShowMicrosoftRewards",0},{L"WebWidgetAllowed",0},{L"DiagnosticData",0},{L"EdgeAssetDeliveryServiceEnabled",0},{L"WalletDonationEnabled",0},{L"DefaultBrowserSettingsCampaignEnabled",0}};if(enabled){ok=true;for(auto const& [name,_]:rules)ok=backup_dword(L"Edge",path,name)&&ok;ok=backup_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")&&ok;ok=backup_string(L"EdgeExtension",extension_path,L"1")&&ok;if(ok){for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;ok=write_dword(HKEY_LOCAL_MACHINE,update_path,L"CreateDesktopShortcutDefault",0)&&ok;ok=write_string(HKEY_LOCAL_MACHINE,extension_path,L"1",L"ofefcgjbeghpigppfmkologfjadafddi")&&ok;}}else{ok=true;for(auto const& [name,_]:rules)ok=restore_dword(L"Edge",path,name)&&ok;ok=restore_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")&&ok;ok=restore_string(L"EdgeExtension",extension_path,L"1")&&ok;}}
- else if(toggle==Widgets()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::widgets,enabled);return;}
- else if(toggle==Teredo()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::teredo,enabled);return;}
- else if(toggle==Hpet()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::hpet,enabled);return;}
- else return;
- if(!ok){const auto error=GetLastError();load_states();show_result(false,L"Could not apply the setting. Windows error "+std::to_wstring(error)+L".");}else show_result(true,L"Setting applied.");
+winrt::fire_and_forget ExtrasPage::reload_registry_states() {
+    auto weak = get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue queue{nullptr};
+    try { queue = DispatcherQueue(); } catch (...) {}
+    try {
+        auto lifetime = get_strong();
+        winrt::apartment_context ui;
+        co_await winrt::resume_background();
+        auto snapshot = read_registry_snapshot();
+        co_await ui;
+        if (auto self = weak.get()) self->apply_registry_snapshot(snapshot);
+    } catch (...) {
+        winchisel::ui::report_async_error(queue, [weak](winrt::hstring const& text) {
+            if (auto self = weak.get()) self->show_result(false, std::wstring(text));
+        });
+    }
+}
+
+ExtrasPage::RegistrySnapshot ExtrasPage::read_registry_snapshot(){
+    RegistrySnapshot snapshot{};
+    DWORD value{};
+    snapshot.modern_standby = read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Power",L"PlatformAoAcOverride",value)&&value==0;
+    snapshot.sync_provider = read_dword(HKEY_CURRENT_USER,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",L"ShowSyncProviderNotifications",value)&&value==0;
+    auto all=[&](wchar_t const* path,std::initializer_list<std::pair<wchar_t const*,DWORD>> rules){for(auto const& [name,expected]:rules)if(!read_dword(HKEY_LOCAL_MACHINE,path,name,value)||value!=expected)return false;return true;};
+    snapshot.brave = all(L"SOFTWARE\\Policies\\BraveSoftware\\Brave",{{L"BraveRewardsDisabled",1},{L"BraveWalletDisabled",1},{L"BraveVPNDisabled",1},{L"BraveAIChatEnabled",0},{L"BraveStatsPingEnabled",0},{L"BraveNewsDisabled",1},{L"BraveTalkDisabled",1},{L"TorDisabled",1},{L"BraveP3AEnabled",0},{L"UrlKeyedAnonymizedDataCollectionEnabled",0},{L"SafeBrowsingExtendedReportingEnabled",0},{L"MetricsReportingEnabled",0}});
+    const bool edge_base=all(L"SOFTWARE\\Policies\\Microsoft\\Edge",{{L"PersonalizationReportingEnabled",0},{L"ShowRecommendationsEnabled",0},{L"HideFirstRunExperience",1},{L"UserFeedbackAllowed",0},{L"ConfigureDoNotTrack",1},{L"AlternateErrorPagesEnabled",0},{L"EdgeCollectionsEnabled",0},{L"EdgeShoppingAssistantEnabled",0},{L"MicrosoftEdgeInsiderPromotionEnabled",0},{L"ShowMicrosoftRewards",0},{L"WebWidgetAllowed",0},{L"DiagnosticData",0},{L"EdgeAssetDeliveryServiceEnabled",0},{L"WalletDonationEnabled",0},{L"DefaultBrowserSettingsCampaignEnabled",0}});
+    DWORD edge_shortcut{}; std::wstring edge_extension;
+    snapshot.edge = edge_base&&read_dword(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Policies\\Microsoft\\EdgeUpdate",L"CreateDesktopShortcutDefault",edge_shortcut)&&edge_shortcut==0&&read_string(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist",L"1",edge_extension)&&edge_extension==L"ofefcgjbeghpigppfmkologfjadafddi";
+    snapshot.ctfmon = all(L"Software\\Microsoft\\Input",{{L"InputServiceEnabled",0},{L"InputServiceEnabledForCCI",0}});
+    std::wstring text;
+    snapshot.ctfmon_dll = read_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\TextInputManagementService\\Parameters",L"ServiceDll",text)&&_wcsicmp(text.c_str(),L"%SystemRoot%\\System32\\MSCTF.DLL")==0;
+    snapshot.timer_resolution = read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",L"GlobalTimerResolutionRequests",value)&&value==1;
+    DWORD current{};
+    if (read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",L"DisabledComponents",current)) { snapshot.ipv6_value = current; }
+    snapshot.ipv6 = (snapshot.ipv6_value&0x20)!=0;
+    snapshot.teredo = (snapshot.ipv6_value&1)!=0;
+    snapshot.ps7 = read_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",L"POWERSHELL_TELEMETRY_OPTOUT",text)&&text==L"1";
+    return snapshot;
+}
+
+void ExtrasPage::apply_registry_snapshot(RegistrySnapshot const& snapshot){
+    loading_ = true;
+    ModernStandby().IsOn(snapshot.modern_standby);
+    SyncProvider().IsOn(snapshot.sync_provider);
+    Brave().IsOn(snapshot.brave);
+    Edge().IsOn(snapshot.edge);
+    Ctfmon().IsOn(snapshot.ctfmon);
+    CtfmonDll().IsOn(snapshot.ctfmon_dll);
+    TimerResolution().IsOn(snapshot.timer_resolution);
+    Ipv6().IsOn(snapshot.ipv6);
+    Teredo().IsOn(snapshot.teredo);
+    Ps7().IsOn(snapshot.ps7);
+    loading_ = false;
+}
+
+ExtrasPage::WorkResult ExtrasPage::do_registry_work(RegistryToggle which, bool enabled){
+    bool ok = false;
+    switch (which) {
+    case RegistryToggle::modern_standby:
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Power",L"PlatformAoAcOverride",enabled?std::optional<DWORD>{0}:std::nullopt);
+        break;
+    case RegistryToggle::sync_provider:
+        ok = write_dword(HKEY_CURRENT_USER,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",L"ShowSyncProviderNotifications",enabled?0:1);
+        break;
+    case RegistryToggle::ctfmon:
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"Software\\Microsoft\\Input",L"InputServiceEnabled",enabled?0:1);
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"Software\\Microsoft\\Input",L"InputServiceEnabledForCCI",enabled?0:1)&&ok;
+        break;
+    case RegistryToggle::ctfmon_dll:
+        ok = write_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\TextInputManagementService\\Parameters",L"ServiceDll",enabled?L"%SystemRoot%\\System32\\MSCTF.DLL":L"%SystemRoot%\\System32\\TabSvc.dll");
+        break;
+    case RegistryToggle::timer_resolution:
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",L"GlobalTimerResolutionRequests",enabled?std::optional<DWORD>{1}:std::nullopt);
+        break;
+    case RegistryToggle::ipv6: {
+        DWORD current{};
+        read_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",L"DisabledComponents",current);
+        ok = write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",L"DisabledComponents",enabled?current|0x20:current&~0x20);
+        break;
+    }
+    case RegistryToggle::ps7:
+        if (enabled) {
+            ok = write_string(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",L"POWERSHELL_TELEMETRY_OPTOUT",L"1");
+        } else {
+            HKEY key{};
+            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",0,KEY_SET_VALUE,&key)==ERROR_SUCCESS){
+                auto result=RegDeleteValueW(key,L"POWERSHELL_TELEMETRY_OPTOUT");RegCloseKey(key);ok=result==ERROR_SUCCESS||result==ERROR_FILE_NOT_FOUND;
+            } else ok = false;
+        }
+        break;
+    case RegistryToggle::brave: {
+        constexpr wchar_t path[]=L"SOFTWARE\\Policies\\BraveSoftware\\Brave";
+        std::vector<std::pair<wchar_t const*,DWORD>> rules={{L"BraveRewardsDisabled",1},{L"BraveWalletDisabled",1},{L"BraveVPNDisabled",1},{L"BraveAIChatEnabled",0},{L"BraveStatsPingEnabled",0},{L"BraveNewsDisabled",1},{L"BraveTalkDisabled",1},{L"TorDisabled",1},{L"BraveP3AEnabled",0},{L"UrlKeyedAnonymizedDataCollectionEnabled",0},{L"SafeBrowsingExtendedReportingEnabled",0},{L"MetricsReportingEnabled",0}};
+        if(enabled){ok=true;for(auto const& [name,_]:rules)ok=backup_dword(L"Brave",path,name)&&ok;if(ok)for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;}
+        else{ok=true;for(auto const& [name,_]:rules)ok=restore_dword(L"Brave",path,name)&&ok;}
+        break;
+    }
+    case RegistryToggle::edge: {
+        constexpr wchar_t path[]=L"SOFTWARE\\Policies\\Microsoft\\Edge";constexpr wchar_t update_path[]=L"SOFTWARE\\Policies\\Microsoft\\EdgeUpdate";constexpr wchar_t extension_path[]=L"SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist";
+        std::vector<std::pair<wchar_t const*,DWORD>> rules={{L"PersonalizationReportingEnabled",0},{L"ShowRecommendationsEnabled",0},{L"HideFirstRunExperience",1},{L"UserFeedbackAllowed",0},{L"ConfigureDoNotTrack",1},{L"AlternateErrorPagesEnabled",0},{L"EdgeCollectionsEnabled",0},{L"EdgeShoppingAssistantEnabled",0},{L"MicrosoftEdgeInsiderPromotionEnabled",0},{L"ShowMicrosoftRewards",0},{L"WebWidgetAllowed",0},{L"DiagnosticData",0},{L"EdgeAssetDeliveryServiceEnabled",0},{L"WalletDonationEnabled",0},{L"DefaultBrowserSettingsCampaignEnabled",0}};
+        if(enabled){ok=true;for(auto const& [name,_]:rules)ok=backup_dword(L"Edge",path,name)&&ok;ok=backup_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")&&ok;ok=backup_string(L"EdgeExtension",extension_path,L"1")&&ok;if(ok){for(auto const& [name,value]:rules)ok=write_dword(HKEY_LOCAL_MACHINE,path,name,value)&&ok;ok=write_dword(HKEY_LOCAL_MACHINE,update_path,L"CreateDesktopShortcutDefault",0)&&ok;ok=write_string(HKEY_LOCAL_MACHINE,extension_path,L"1",L"ofefcgjbeghpigppfmkologfjadafddi")&&ok;}}
+        else{ok=true;for(auto const& [name,_]:rules)ok=restore_dword(L"Edge",path,name)&&ok;ok=restore_dword(L"EdgeUpdate",update_path,L"CreateDesktopShortcutDefault")&&ok;ok=restore_string(L"EdgeExtension",extension_path,L"1")&&ok;}
+        break;
+    }
+    }
+    return {ok, ok ? ERROR_SUCCESS : GetLastError()};
+}
+
+winrt::fire_and_forget ExtrasPage::apply_registry_toggle(RegistryToggle which, muxc::ToggleSwitch toggle, bool enabled) {
+    auto weak = get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue queue{nullptr};
+    try { queue = DispatcherQueue(); } catch (...) {}
+    try {
+        auto lifetime = get_strong();
+        toggle.IsEnabled(false);
+        loading_ = true;
+        winrt::apartment_context ui;
+        co_await winrt::resume_background();
+        const auto work = do_registry_work(which, enabled);
+        const auto snapshot = read_registry_snapshot();
+        co_await ui;
+        if (auto self = weak.get()) {
+            self->apply_registry_snapshot(snapshot);
+            toggle.IsEnabled(true);
+            if (!work.ok) self->show_result(false, L"Could not apply the setting. Windows error " + std::to_wstring(work.error) + L".");
+            else self->show_result(true, L"Setting applied.");
+        }
+    } catch (...) {
+        winchisel::ui::report_async_error(queue, [weak](winrt::hstring const& text) {
+            if (auto self = weak.get()) { self->loading_ = false; self->show_result(false, std::wstring(text)); }
+        });
+    }
+}
+
+void ExtrasPage::ToggleChanged(Windows::Foundation::IInspectable const& sender,Microsoft::UI::Xaml::RoutedEventArgs const&){
+    if(loading_ || command_running_)return;
+    auto toggle=sender.as<muxc::ToggleSwitch>();bool enabled=toggle.IsOn();
+    if(toggle==Widgets()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::widgets,enabled);return;}
+    else if(toggle==Teredo()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::teredo,enabled);return;}
+    else if(toggle==Hpet()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::hpet,enabled);return;}
+    RegistryToggle which{};
+    if(toggle==ModernStandby())which=RegistryToggle::modern_standby;
+    else if(toggle==SyncProvider())which=RegistryToggle::sync_provider;
+    else if(toggle==Ctfmon())which=RegistryToggle::ctfmon;
+    else if(toggle==CtfmonDll())which=RegistryToggle::ctfmon_dll;
+    else if(toggle==TimerResolution())which=RegistryToggle::timer_resolution;
+    else if(toggle==Ipv6())which=RegistryToggle::ipv6;
+    else if(toggle==Ps7())which=RegistryToggle::ps7;
+    else if(toggle==Brave())which=RegistryToggle::brave;
+    else if(toggle==Edge())which=RegistryToggle::edge;
+    else return;
+    apply_registry_toggle(which, toggle, enabled);
 }
 void ExtrasPage::set_command_busy(bool busy) {
  command_running_=busy; Loading().Visibility(busy?Microsoft::UI::Xaml::Visibility::Visible:Microsoft::UI::Xaml::Visibility::Collapsed); Items().IsHitTestVisible(!busy); PowerPlanButton().IsEnabled(!busy);
 }
 
 winrt::fire_and_forget ExtrasPage::load_command_states() {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
  auto lifetime=get_strong(); if(command_running_) co_return; command_running_=true; Loading().Visibility(Microsoft::UI::Xaml::Visibility::Visible); Items().IsHitTestVisible(false); auto queue=DispatcherQueue();
  co_await winrt::resume_background(); const auto state=winchisel::platform::read_extras_command_state();
@@ -86,10 +210,11 @@ winrt::fire_and_forget ExtrasPage::load_command_states() {
 }
 
 winrt::fire_and_forget ExtrasPage::run_command(CommandAction action, bool enabled) {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
  auto lifetime=get_strong(); if(command_running_) co_return; set_command_busy(true); ResultBar().IsOpen(false); auto queue=DispatcherQueue();
  co_await winrt::resume_background();

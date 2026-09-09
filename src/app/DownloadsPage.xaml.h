@@ -16,9 +16,9 @@ struct DownloadsPage : DownloadsPageT<DownloadsPage> {
  void Website_Click(Windows::Foundation::IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
  enum class Operation { none, scan, install };
- void start_scan(bool force=false, bool clear_notice=true); void render_items(); void poll_worker(); void update_actions();
- winrt::fire_and_forget confirm_install(); void start_install();
- std::span<winchisel::core::DownloadCatalogEntry const> catalog_; std::vector<bool> installed_;
+  void start_scan(bool force=false, bool clear_notice=true); void render_items(); void apply_filter(); void poll_worker(); void update_actions();
+  winrt::fire_and_forget confirm_install(); void start_install();
+  std::span<winchisel::core::DownloadCatalogEntry const> catalog_; std::vector<bool> installed_; std::vector<std::string> search_index_;
  std::vector<Microsoft::UI::Xaml::Controls::ListView> category_lists_;
  std::future<winchisel::core::Result<std::vector<bool>>> scan_worker_;
  std::future<winchisel::core::Result<winchisel::platform::DownloadInstallResult>> install_worker_;

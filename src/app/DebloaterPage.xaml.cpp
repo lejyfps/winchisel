@@ -39,10 +39,13 @@ DebloaterPage::DebloaterPage() {
     installed_.assign(catalog_.size(), false);
     timer_ = DispatcherTimer();
     timer_.Interval(std::chrono::milliseconds(120));
-    timer_token_ = timer_.Tick([this](auto&&, auto&&) { poll_worker(); });
+    auto weak = get_weak();
+    timer_token_ = timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) self->poll_worker(); });
     search_timer_ = DispatcherTimer();
     search_timer_.Interval(std::chrono::milliseconds(200));
-    search_timer_token_ = search_timer_.Tick([this](auto&&, auto&&) { search_timer_.Stop(); if (operation_ == Operation::none) render_items(); });
+    search_timer_token_ = search_timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) { self->search_timer_.Stop(); if (self->operation_ == Operation::none) self->apply_filter(); } });
+    Loaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { if (self->operation_ != Operation::none) self->timer_.Start(); } });
+    Unloaded([weak](auto&&, auto&&) { if (auto self = weak.get()) self->timer_.Stop(); });
     ui_ready_ = true;
     start_scan();
 }
@@ -57,10 +60,11 @@ DebloaterPage::~DebloaterPage() {
 }
 
 void DebloaterPage::start_scan(bool clear_notice) {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     if (operation_ != Operation::none) return;
     operation_ = Operation::scan;
@@ -82,10 +86,11 @@ void DebloaterPage::start_scan(bool clear_notice) {
 }
 
 void DebloaterPage::poll_worker() {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     if (operation_ == Operation::scan) {
         if (!scan_worker_.valid() || scan_worker_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
@@ -143,33 +148,28 @@ void DebloaterPage::poll_worker() {
 
 void DebloaterPage::render_items() {
     Items().Items().Clear();
-    visible_indices_.clear();
-    const auto query = lower(to_string(Search().Text()));
-    std::uint32_t selected_tab{};
-    if (Tabs().SelectedItem()) {
-        Tabs().Items().IndexOf(Tabs().SelectedItem(), selected_tab);
+    search_index_.clear();
+    search_index_.reserve(catalog_.size());
+    for (auto const& item : catalog_) {
+        search_index_.push_back(lower(std::string(item.name) + " " + std::string(item.description_key) + " " + std::string(item.group) + " " + std::string(item.package_name) + " " + std::string(item.package_aliases)));
     }
-    const auto filter = Filter().SelectedIndex();
     auto resources = Application::Current().Resources();
     auto success = resources.Lookup(box_value(L"SystemFillColorSuccessBrush")).try_as<Media::Brush>();
     auto secondary = resources.Lookup(box_value(L"TextFillColorSecondaryBrush")).try_as<Media::Brush>();
     auto critical = resources.Lookup(box_value(L"SystemFillColorCriticalBrush")).try_as<Media::Brush>();
+    auto card_background = resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>();
+    auto card_stroke = resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>();
+    auto body_strong = resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>();
+    auto caption = resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>();
 
     for (std::size_t index{}; index < catalog_.size(); ++index) {
         auto const& item = catalog_[index];
-        const int category = item.category == winchisel::core::DebloatCategory::windows_apps ? 0 : item.category == winchisel::core::DebloatCategory::capabilities ? 1 : 2;
-        const auto searchable = lower(std::string(item.name) + " " + std::string(item.description_key) + " " + std::string(item.group) + " " + std::string(item.package_name) + " " + std::string(item.package_aliases));
-        if (query.empty() && static_cast<std::uint32_t>(category) != selected_tab) continue;
-        if (!query.empty() && searchable.find(query) == std::string::npos) continue;
-        if (filter == 1 && !installed_[index]) continue;
-        if (filter == 2 && installed_[index]) continue;
-
         auto row = Controls::ListViewItem();
         row.Tag(box_value(static_cast<std::uint64_t>(index)));
         Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,winrt::hstring{std::wstring(to_hstring(std::string(item.name)))+std::wstring(installed_[index]?winchisel::ui::tr(L", installed"):winchisel::ui::tr(L", not installed"))});
         row.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-        row.Background(resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>());
-        row.BorderBrush(resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>());
+        row.Background(card_background);
+        row.BorderBrush(card_stroke);
         row.BorderThickness({1, 1, 1, 1});
         row.CornerRadius({4, 4, 4, 4});
         row.Padding({12, 10, 16, 10});
@@ -178,16 +178,53 @@ void DebloaterPage::render_items() {
         grid.ColumnDefinitions().Append(Controls::ColumnDefinition());
         auto trailing = Controls::ColumnDefinition(); trailing.Width(GridLength{0, GridUnitType::Auto}); grid.ColumnDefinitions().Append(trailing);
         auto text = Controls::StackPanel();
-        auto title = Controls::TextBlock(); title.Text(to_hstring(item.name)); title.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>()); text.Children().Append(title);
+        auto title = Controls::TextBlock(); title.Text(to_hstring(item.name)); title.Style(body_strong); text.Children().Append(title);
         auto detail_text = std::string(item.group) + " | " + std::string(item.package_name);
         if (!item.can_reinstall) detail_text += " | " + winrt::to_string(winchisel::ui::tr(L"Cannot be reinstalled automatically"));
-        auto detail = Controls::TextBlock(); detail.Text(to_hstring(detail_text)); detail.TextWrapping(TextWrapping::Wrap); detail.Foreground(item.can_reinstall ? secondary : critical); detail.Style(resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>()); text.Children().Append(detail);
+        auto detail = Controls::TextBlock(); detail.Text(to_hstring(detail_text)); detail.TextWrapping(TextWrapping::Wrap); detail.Foreground(item.can_reinstall ? secondary : critical); detail.Style(caption); text.Children().Append(detail);
         grid.Children().Append(text);
         auto status = Controls::TextBlock(); status.Text(installed_[index] ? winchisel::ui::tr(L"Installed") : winchisel::ui::tr(L"Not installed")); status.Foreground(installed_[index] ? success : secondary); status.VerticalAlignment(VerticalAlignment::Center);
         Controls::Grid::SetColumn(status, 1); grid.Children().Append(status);
         row.Content(grid);
         Items().Items().Append(row);
-        visible_indices_.push_back(index);
+    }
+    apply_filter();
+}
+
+bool DebloaterPage::matches_filter(std::size_t index, std::string const& query, std::uint32_t tab, int filter) const {
+    auto const& item = catalog_[index];
+    const int category = item.category == winchisel::core::DebloatCategory::windows_apps ? 0 : item.category == winchisel::core::DebloatCategory::capabilities ? 1 : 2;
+    if (query.empty() && static_cast<std::uint32_t>(category) != tab) return false;
+    if (!query.empty() && search_index_[index].find(query) == std::string::npos) return false;
+    if (filter == 1 && !installed_[index]) return false;
+    if (filter == 2 && installed_[index]) return false;
+    return true;
+}
+
+void DebloaterPage::apply_filter() {
+    const auto query = lower(to_string(Search().Text()));
+    std::uint32_t tab{};
+    if (Tabs().SelectedItem()) {
+        Tabs().Items().IndexOf(Tabs().SelectedItem(), tab);
+    }
+    const auto filter = Filter().SelectedIndex();
+    visible_indices_.clear();
+    std::vector<Windows::Foundation::IInspectable> deselect;
+    for (auto const& value : Items().Items()) {
+        auto row = value.try_as<Controls::ListViewItem>();
+        if (!row) continue;
+        const auto raw = unbox_value<std::uint64_t>(row.Tag());
+        const bool show = raw < catalog_.size() && raw < search_index_.size() && matches_filter(static_cast<std::size_t>(raw), query, tab, filter);
+        row.Visibility(show ? Visibility::Visible : Visibility::Collapsed);
+        if (show) {
+            visible_indices_.push_back(static_cast<std::size_t>(raw));
+        } else if (row.IsSelected()) {
+            deselect.push_back(value);
+        }
+    }
+    for (auto const& value : deselect) {
+        std::uint32_t position{};
+        if (Items().SelectedItems().IndexOf(value, position)) Items().SelectedItems().RemoveAt(position);
     }
     if (visible_indices_.empty()) {
         Notice().Title(winchisel::ui::tr(L"No matching items")); Notice().Message(winchisel::ui::tr(L"Change the search, category, or installed-state filter.")); Notice().Severity(Controls::InfoBarSeverity::Informational); Notice().IsOpen(true);
@@ -200,6 +237,7 @@ void DebloaterPage::update_actions() {
     std::uint32_t removable{};
     for (auto const& value : Items().SelectedItems()) {
         if (auto row = value.try_as<Controls::ListViewItem>()) {
+            if (row.Visibility() != Visibility::Visible) continue;
             const auto index = unbox_value<std::uint64_t>(row.Tag());
             if (index >= catalog_.size()) continue;
             if (catalog_[static_cast<std::size_t>(index)].can_reinstall) ++installable;
@@ -214,10 +252,11 @@ void DebloaterPage::update_actions() {
 }
 
 fire_and_forget DebloaterPage::confirm_action(bool install) {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
     winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
 
 
@@ -241,14 +280,16 @@ fire_and_forget DebloaterPage::confirm_action(bool install) {
 }
 
 void DebloaterPage::start_action(bool install) {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     std::vector<winchisel::core::DebloatCatalogEntry const*> selected;
     for (auto const& value : Items().SelectedItems()) {
         if (auto row = value.try_as<Controls::ListViewItem>()) {
+            if (row.Visibility() != Visibility::Visible) continue;
             const auto index = unbox_value<std::uint64_t>(row.Tag());
             if (index < catalog_.size() && (!install || catalog_[static_cast<std::size_t>(index)].can_reinstall)) selected.push_back(&catalog_[static_cast<std::size_t>(index)]);
         }
@@ -268,12 +309,12 @@ void DebloaterPage::start_action(bool install) {
     }
 }
 
-void DebloaterPage::Tabs_SelectionChanged(IInspectable const&, Controls::SelectorBarSelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) render_items(); }
+void DebloaterPage::Tabs_SelectionChanged(IInspectable const&, Controls::SelectorBarSelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) apply_filter(); }
 void DebloaterPage::Refresh_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) start_scan(); }
 void DebloaterPage::Install_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(true); }
 void DebloaterPage::Remove_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(false); }
 void DebloaterPage::Search_TextChanged(IInspectable const&, Controls::AutoSuggestBoxTextChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) { search_timer_.Stop(); search_timer_.Start(); } }
-void DebloaterPage::Filter_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) render_items(); }
+void DebloaterPage::Filter_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) apply_filter(); }
 void DebloaterPage::Items_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_) update_actions(); }
 
 }  // namespace winrt::Winchisel::implementation

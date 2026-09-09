@@ -24,6 +24,8 @@ LatencyPage::LatencyPage() {
     timer_token_ = timer_.Tick([weak](auto&&, auto&&) {
         if (auto page = weak.get()) page->poll_analysis();
     });
+    Loaded([weak](auto&&, auto&&) { if (auto page = weak.get()) { if (page->analysis_.valid()) page->timer_.Start(); } });
+    Unloaded([weak](auto&&, auto&&) { if (auto page = weak.get()) page->timer_.Stop(); });
     render_message(L"Click 'Analyze USB Latency' to begin analysis.");
 }
 
@@ -36,10 +38,11 @@ LatencyPage::~LatencyPage() {
 }
 
 void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     if (analysis_.valid()) return;
     progress_ = 0;
@@ -75,10 +78,11 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
 }
 
 void LatencyPage::poll_analysis() {
-    auto error_lifetime=get_strong();
-    auto error_queue=DispatcherQueue();
     auto error_weak=get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
+        auto error_lifetime=get_strong();
 
     if (analysis_.valid() && analysis_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         pending_result_.emplace(analysis_.get());

@@ -43,7 +43,17 @@ private:
     winrt::fire_and_forget load_processes();
     void render_processes();
     void set_sort(SortColumn);
-    void add_process_menu(winrt::Microsoft::UI::Xaml::FrameworkElement const&, ProcessRow const&);
+    struct MenuSnapshot {
+        std::optional<DWORD> cpu_saved;
+        std::optional<std::uint32_t> io_value;
+        std::optional<DWORD> io_saved;
+        DWORD_PTR affinity_current{};
+        DWORD_PTR affinity_system{};
+        bool affinity_ok{};
+    };
+    winrt::fire_and_forget request_process_menu(
+        winrt::Microsoft::UI::Xaml::FrameworkElement const&, std::uint32_t pid);
+    void add_process_menu(winrt::Microsoft::UI::Xaml::FrameworkElement const&, ProcessRow const&, MenuSnapshot const&);
     bool set_priority(std::uint32_t,DWORD);
     bool set_affinity(std::uint32_t,DWORD_PTR);
     bool set_io_priority(std::uint32_t,std::uint32_t);
@@ -52,7 +62,7 @@ private:
     std::optional<DWORD> read_always(std::wstring const&,wchar_t const*);
     std::optional<std::uint32_t> read_io_priority(std::uint32_t);
     winrt::fire_and_forget confirm_realtime(std::uint32_t);
-    winrt::fire_and_forget edit_affinity(std::uint32_t,std::wstring);
+    winrt::fire_and_forget edit_affinity(std::uint32_t, std::wstring, DWORD_PTR current_mask, DWORD_PTR system_mask);
 };
 
 }  // namespace winrt::Winchisel::implementation

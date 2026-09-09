@@ -19,13 +19,14 @@ namespace {
 
 std::string hex_encode(std::span<std::byte const> bytes);
 
-std::vector<std::byte> read(std::filesystem::path const& path) {
+std::vector<std::byte> read(std::filesystem::path const& path, std::uintmax_t max_size) {
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error) || error) return {};
+    const auto size = std::filesystem::file_size(path, error);
+    if (error || size > max_size) return {};
     std::ifstream input(path, std::ios::binary);
-    input.seekg(0, std::ios::end);
-    const auto size = static_cast<std::size_t>(input.tellg());
-    input.seekg(0);
-    std::vector<std::byte> result(size);
-    input.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(size));
+    std::vector<std::byte> result(static_cast<std::size_t>(size));
+    if (size && (!input.read(reinterpret_cast<char*>(result.data()), static_cast<std::streamsize>(size)) || input.gcount() != static_cast<std::streamsize>(size))) return {};
     return result;
 }
 
@@ -75,8 +76,14 @@ std::string hex_encode(std::span<std::byte const> bytes) {
 }
 
 std::string base64(std::span<std::byte const> bytes) {
-    DWORD size{}; CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &size);
-    std::string output(size, '\0'); CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, output.data(), &size); output.resize(size); return output;
+    if (bytes.empty() || bytes.size() > 0xFFFFFFFFull) return {};
+    DWORD size{};
+    if (!CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &size) || !size) return {};
+    std::string output(size, '\0');
+    if (!CryptBinaryToStringA(reinterpret_cast<BYTE const*>(bytes.data()), static_cast<DWORD>(bytes.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, output.data(), &size) || !size) return {};
+    output.resize(size);
+    while (!output.empty() && output.back() == '\0') output.pop_back();
+    return output;
 }
 
 int keygen(std::filesystem::path const& private_path) {
@@ -93,23 +100,50 @@ int keygen(std::filesystem::path const& private_path) {
 }
 
 int sign(std::filesystem::path const& private_path, std::filesystem::path const& manifest_path) {
-    const auto private_key = read(private_path), manifest = read(manifest_path), digest = sha256(manifest); if (private_key.empty() || digest.empty()) return 1;
+    const auto private_key = read(private_path, 65536), manifest = read(manifest_path, 1024 * 1024), digest = sha256(manifest); if (private_key.empty() || digest.empty()) return 1;
     BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_KEY_HANDLE key{}; if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_ECDSA_P256_ALGORITHM, nullptr, 0) < 0 || BCryptImportKeyPair(algorithm, nullptr, BCRYPT_ECCPRIVATE_BLOB, &key, reinterpret_cast<BYTE*>(const_cast<std::byte*>(private_key.data())), static_cast<ULONG>(private_key.size()), 0) < 0) return 1;
     DWORD size{}; BCryptSignHash(key, nullptr, reinterpret_cast<BYTE*>(const_cast<std::byte*>(digest.data())), static_cast<ULONG>(digest.size()), nullptr, 0, &size, 0); std::vector<std::byte> signature(size);
     const bool ok = BCryptSignHash(key, nullptr, reinterpret_cast<BYTE*>(const_cast<std::byte*>(digest.data())), static_cast<ULONG>(digest.size()), reinterpret_cast<BYTE*>(signature.data()), size, &size, 0) >= 0;
     BCryptDestroyKey(key); BCryptCloseAlgorithmProvider(algorithm, 0); if (!ok) return 1;
-    std::ofstream output(manifest_path.string() + ".sig", std::ios::binary | std::ios::trunc); output << base64(signature) << "\n"; return output ? 0 : 1;
+    const auto encoded = base64(signature); if (encoded.empty()) return 1;
+    std::ofstream output(manifest_path.string() + ".sig", std::ios::binary | std::ios::trunc); output << encoded << "\n"; return output ? 0 : 1;
+}
+
+bool valid_version(std::string_view version) {
+    int parts{};
+    std::size_t pos{};
+    while (true) {
+        const auto dot = version.find('.', pos);
+        const auto token = version.substr(pos, dot == std::string_view::npos ? dot : dot - pos);
+        if (token.empty() || token.size() > 5) return false;
+        for (const char c : token) if (c < '0' || c > '9') return false;
+        if (++parts > 3) return false;
+        if (dot == std::string_view::npos) return parts == 3;
+        pos = dot + 1;
+    }
+}
+
+bool safe_json_name(std::string const& name) {
+    if (name.empty() || name.size() > 128) return false;
+    for (const char c : name) {
+        const auto u = static_cast<unsigned char>(c);
+        if (u < 0x20 || u > 0x7e || c == '"' || c == '\\') return false;
+    }
+    return true;
 }
 
 int manifest(std::string_view version, std::filesystem::path const& setup, std::filesystem::path const& portable, std::filesystem::path const& output_path) {
+    if (!valid_version(version)) { std::cerr << "Invalid version\n"; return 1; }
+    const auto setup_name = setup.filename().string(), portable_name = portable.filename().string();
+    if (!safe_json_name(setup_name) || !safe_json_name(portable_name)) { std::cerr << "Invalid artifact file name\n"; return 1; }
     const auto setup_hash = sha256_file(setup), portable_hash = sha256_file(portable);
     std::error_code error;
     const auto setup_size = std::filesystem::file_size(setup, error); if (error) return 1;
     const auto portable_size = std::filesystem::file_size(portable, error); if (error || setup_hash.empty() || portable_hash.empty()) return 1;
     std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
     output << "{\n  \"version\": \"" << version << "\",\n  \"artifacts\": [\n"
-           << "    {\n      \"id\": \"setup-x64\",\n      \"file\": \"" << setup.filename().string() << "\",\n      \"sha256\": \"" << setup_hash << "\",\n      \"size\": " << setup_size << "\n    },\n"
-           << "    {\n      \"id\": \"portable-x64\",\n      \"file\": \"" << portable.filename().string() << "\",\n      \"sha256\": \"" << portable_hash << "\",\n      \"size\": " << portable_size << "\n    }\n  ]\n}\n";
+           << "    {\n      \"id\": \"setup-x64\",\n      \"file\": \"" << setup_name << "\",\n      \"sha256\": \"" << setup_hash << "\",\n      \"size\": " << setup_size << "\n    },\n"
+           << "    {\n      \"id\": \"portable-x64\",\n      \"file\": \"" << portable_name << "\",\n      \"sha256\": \"" << portable_hash << "\",\n      \"size\": " << portable_size << "\n    }\n  ]\n}\n";
     return output ? 0 : 1;
 }
 

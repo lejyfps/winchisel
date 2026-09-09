@@ -39,7 +39,18 @@ bool validate(std::filesystem::path const& root, std::filesystem::path const& re
             return false;
         }
     }
-    const auto expected = static_cast<std::size_t>(std::stoull(declared[1].str()));
+    std::size_t expected{};
+    try {
+        const auto declared_value = std::stoull(declared[1].str());
+        if (declared_value > 1'000'000) {
+            std::cerr << symbol << ": implausible declaration\n";
+            return false;
+        }
+        expected = static_cast<std::size_t>(declared_value);
+    } catch (...) {
+        std::cerr << symbol << ": invalid declaration\n";
+        return false;
+    }
     if (count != expected) {
         std::cerr << symbol << ": declared " << expected << ", found " << count << '\n';
         return false;

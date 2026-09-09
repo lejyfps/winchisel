@@ -3,6 +3,7 @@
 #include "MainWindow.g.h"
 #include "MainWindow.xaml.g.h"
 #include <cstdint>
+#include <list>
 #include <string>
 #include <unordered_map>
 
@@ -20,6 +21,11 @@ struct MainWindow : MainWindowT<MainWindow> {
     void Donate_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
     std::unordered_map<std::wstring, winrt::Microsoft::UI::Xaml::FrameworkElement> pages_;
+    // LRU order of cached pages (most recent at the back). Bounds the number
+    // of fully materialized page trees kept alive while navigating.
+    std::list<std::wstring> page_lru_;
+    static constexpr std::size_t k_max_cached_pages = 4;
+    void touch_page(std::wstring const& key);
     void localize_nav();
     void apply_theme();
     void apply_titlebar_theme();

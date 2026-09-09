@@ -32,6 +32,8 @@ private:
     enum class Operation { none, scan, install, remove };
     void start_scan(bool clear_notice = true);
     void render_items();
+    void apply_filter();
+    bool matches_filter(std::size_t index, std::string const& query, std::uint32_t tab, int filter) const;
     void poll_worker();
     void update_actions();
     winrt::fire_and_forget confirm_action(bool install);
@@ -40,6 +42,7 @@ private:
     std::span<winchisel::core::DebloatCatalogEntry const> catalog_;
     std::vector<bool> installed_;
     std::vector<std::size_t> visible_indices_;
+    std::vector<std::string> search_index_;
     std::future<winchisel::core::Result<std::vector<bool>>> scan_worker_;
     std::future<winchisel::core::Result<winchisel::platform::DebloatActionResult>> action_worker_;
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};

@@ -20,6 +20,11 @@ struct ReleaseArtifact {
 struct ReleaseManifest {
     std::string version;
     std::vector<ReleaseArtifact> artifacts;
+    // Exact downloaded bytes the signature was verified against, plus the
+    // Base64 signature itself. Persisted next to staged artifacts so the
+    // updater can re-verify without trusting caller-provided hashes alone.
+    std::string raw_json;
+    std::string raw_signature;
 };
 
 // Validates the exact UTF-8 bytes of release.json against release.json.sig.

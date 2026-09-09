@@ -5,6 +5,8 @@
 
 #include "winchisel/core/registry.hpp"
 
+#include <deque>
+#include <functional>
 #include <vector>
 
 namespace winrt::Winchisel::implementation {
@@ -32,26 +34,37 @@ private:
     struct PrivacyToggle { std::string id; winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr}; };
 
     void render_groups();
+    void apply_filter();
     winrt::Microsoft::UI::Xaml::Controls::StackPanel security_content();
-    void load_security();
     void save_security_toggle(std::size_t index);
-    void load_uac_level();
     void save_uac_level();
-    winrt::Microsoft::UI::Xaml::Controls::StackPanel privacy_content(std::int32_t group, std::string const& query);
-    void load_privacy_toggles();
+    winrt::Microsoft::UI::Xaml::Controls::StackPanel privacy_content(std::int32_t group);
     void save_privacy_toggle(std::size_t index);
-    void load_privacy_selections();
     void save_smart_app_control();
     void save_powershell_policy();
     void save_ads_mode();
     void apply_profile(bool recommended);
-    void append_privacy_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, std::string_view id, bool enabled) const;
-    void append_ads_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, int mode) const;
+    bool append_privacy_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, std::string_view id, bool enabled) const;
+    bool append_ads_rules(std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>>& changes, int mode) const;
     int detect_ads_mode() const;
     void show_write_error(std::string const& detail = {});
+    void submit(std::function<winchisel::core::Result<void>()> change);
+    winrt::fire_and_forget process_changes();
 
     std::vector<SecurityToggle> security_toggles_;
     std::vector<PrivacyToggle> privacy_toggles_;
+    struct PrivacySnapshot {
+        std::vector<bool> privacy;
+        std::vector<bool> security;
+        int uac{2};
+        int smart_app_control{-1};
+        int powershell{-1};
+        int ads{2};
+    };
+    PrivacySnapshot read_snapshot() const;
+    void apply_snapshot(PrivacySnapshot const&);
+    std::deque<std::function<winchisel::core::Result<void>()>> pending_;
+    bool work_running_{};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox uac_level_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox smart_app_control_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox powershell_policy_{nullptr};
