@@ -13,7 +13,45 @@
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 namespace winrt::Winchisel::implementation {
-namespace { std::string lower(std::string value) { std::ranges::transform(value, value.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); }); return value; } }
+namespace { std::string lower(std::string value) { std::ranges::transform(value, value.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); }); return value; }
+
+// Subtle tinted brush derived from a theme brush (e.g. success green at ~18%
+// opacity) for pill badges. Text/icon keep the full-strength theme brush.
+Media::SolidColorBrush tint_brush(Media::Brush const& base, std::uint8_t alpha) {
+    auto color = Windows::UI::Colors::Transparent();
+    if (auto solid = base.try_as<Media::SolidColorBrush>()) color = solid.Color();
+    color.A = alpha;
+    return Media::SolidColorBrush(color);
+}
+
+// Pill badge with a Fluent icon and bold label.
+Controls::Border make_status_badge(Media::Brush const& tint, Media::Brush const& foreground,
+                                   wchar_t const* glyph, hstring const& text) {
+    Controls::Border badge;
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    Controls::StackPanel row;
+    row.Orientation(Controls::Orientation::Horizontal);
+    row.Spacing(6);
+    row.VerticalAlignment(VerticalAlignment::Center);
+    Controls::FontIcon icon;
+    icon.Glyph(hstring{glyph});
+    icon.FontSize(12);
+    icon.Foreground(foreground);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(icon);
+    Controls::TextBlock label;
+    label.Text(text);
+    label.Foreground(foreground);
+    label.FontSize(12);
+    label.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(label);
+    badge.Child(row);
+    return badge;
+} }
 
 DownloadsPage::DownloadsPage() {
  InitializeComponent(); catalog_=winchisel::core::get_download_catalog(); installed_.assign(catalog_.size(), false);
@@ -64,12 +102,12 @@ void DownloadsPage::poll_worker() {
 void DownloadsPage::render_items() {
  Groups().Children().Clear(); category_lists_.clear(); search_index_.clear(); search_index_.reserve(catalog_.size());
  for(auto const& item:catalog_){auto category_name=winchisel::core::download_category_name(item.category);search_index_.push_back(lower(std::string(item.name)+" "+std::string(category_name)+" "+std::string(item.winget_ids)));}
- auto resources=Application::Current().Resources(); auto success=resources.Lookup(box_value(L"SystemFillColorSuccessBrush")).try_as<Media::Brush>(); auto secondary=resources.Lookup(box_value(L"TextFillColorSecondaryBrush")).try_as<Media::Brush>(); auto card_background=resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>(); auto card_stroke=resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>(); auto body_strong=resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>(); auto caption=resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>();
+ auto resources=Application::Current().Resources(); auto success=resources.Lookup(box_value(L"SystemFillColorSuccessBrush")).try_as<Media::Brush>(); auto secondary=resources.Lookup(box_value(L"TextFillColorSecondaryBrush")).try_as<Media::Brush>(); auto critical=resources.Lookup(box_value(L"SystemFillColorCriticalBrush")).try_as<Media::Brush>(); auto card_background=resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>(); auto card_stroke=resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>(); auto body_strong=resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>(); auto caption=resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>();
  for(int category_index=0;category_index<16;++category_index){auto category=static_cast<winchisel::core::DownloadCategory>(category_index);auto list=Controls::ListView();list.SelectionMode(Controls::ListViewSelectionMode::Multiple);list.HorizontalContentAlignment(HorizontalAlignment::Stretch);list.SelectionChanged({this,&DownloadsPage::Items_SelectionChanged});
   for(std::size_t index{};index<catalog_.size();++index){auto const& item=catalog_[index];if(item.category!=category)continue;
    auto row=Controls::ListViewItem();row.Tag(box_value(static_cast<std::uint64_t>(index)));Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,winrt::hstring{std::wstring(to_hstring(std::string(item.name)))+std::wstring(installed_[index]?winchisel::ui::tr(L", installed"):winchisel::ui::tr(L", not installed"))});row.HorizontalContentAlignment(HorizontalAlignment::Stretch);row.Background(card_background);row.BorderBrush(card_stroke);row.BorderThickness({1,1,1,1});row.CornerRadius({4,4,4,4});row.Padding({12,10,12,10});row.Margin({0,0,0,8});
    auto grid=Controls::Grid();grid.ColumnDefinitions().Append(Controls::ColumnDefinition());auto trailing=Controls::ColumnDefinition();trailing.Width({0,GridUnitType::Auto});grid.ColumnDefinitions().Append(trailing);auto text=Controls::StackPanel();auto title=Controls::TextBlock();title.Text(to_hstring(item.name));title.Style(body_strong);text.Children().Append(title);auto detail=Controls::TextBlock();detail.Text(item.winget_ids.empty()?winchisel::ui::tr(L"Website install"):to_hstring(item.winget_ids));detail.Foreground(secondary);detail.TextWrapping(TextWrapping::Wrap);detail.Style(caption);text.Children().Append(detail);grid.Children().Append(text);
-   auto actions=Controls::StackPanel();actions.Orientation(Controls::Orientation::Horizontal);actions.Spacing(12);auto status=Controls::TextBlock();status.Text(installed_[index]?winchisel::ui::tr(L"Installed"):winchisel::ui::tr(L"Not installed"));status.Foreground(installed_[index]?success:secondary);status.VerticalAlignment(VerticalAlignment::Center);actions.Children().Append(status);auto website=Controls::HyperlinkButton();website.Content(box_value(winchisel::ui::tr(L"Website")));website.Tag(box_value(to_hstring(item.website_url)));website.Click({this,&DownloadsPage::Website_Click});actions.Children().Append(website);Controls::Grid::SetColumn(actions,1);grid.Children().Append(actions);row.Content(grid);list.Items().Append(row);
+   auto actions=Controls::StackPanel();actions.Orientation(Controls::Orientation::Horizontal);actions.Spacing(12);auto badge=make_status_badge(tint_brush(installed_[index]?success:critical,0x2E),installed_[index]?success:critical,installed_[index]?L"\uE73E":L"\uE896",installed_[index]?winchisel::ui::tr(L"Installed"):winchisel::ui::tr(L"Not installed"));actions.Children().Append(badge);auto website=Controls::HyperlinkButton();website.Content(box_value(winchisel::ui::tr(L"Website")));website.Tag(box_value(to_hstring(item.website_url)));website.Click({this,&DownloadsPage::Website_Click});actions.Children().Append(website);Controls::Grid::SetColumn(actions,1);grid.Children().Append(actions);row.Content(grid);list.Items().Append(row);
   }
   if(list.Items().Size()){auto base=winrt::hstring{winchisel::ui::tr(winrt::to_hstring(winchisel::core::download_category_name(category)))};auto expander=Controls::Expander();expander.Tag(box_value(base));expander.HorizontalAlignment(HorizontalAlignment::Stretch);expander.HorizontalContentAlignment(HorizontalAlignment::Stretch);expander.IsExpanded(category_index==0);expander.Content(list);category_lists_.push_back(list);Groups().Children().Append(expander);}
  }

@@ -69,6 +69,7 @@
     <ClCompile Include="src\update.cpp" />
     <ClCompile Include="src\shell.cpp" />
     <ClCompile Include="src\process.cpp" />
+    <ClCompile Include="src\startup.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">

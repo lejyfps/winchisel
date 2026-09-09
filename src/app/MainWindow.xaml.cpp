@@ -13,6 +13,7 @@
 #include "DownloadsPage.xaml.h"
 #include "ProcessesPage.xaml.h"
 #include "LatencyPage.xaml.h"
+#include "StartupPage.xaml.h"
 #include "ExtrasPage.xaml.h"
 #include "SettingsPage.xaml.h"
 #include "Localization.hpp"
@@ -65,6 +66,7 @@ winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
     if (tag == L"downloads") return winchisel::core::Screen::downloads;
     if (tag == L"processes") return winchisel::core::Screen::processes;
     if (tag == L"latency") return winchisel::core::Screen::latency;
+    if (tag == L"startup") return winchisel::core::Screen::startup;
     if (tag == L"extras") return winchisel::core::Screen::extras;
     if (tag == L"settings") return winchisel::core::Screen::settings;
     return winchisel::core::Screen::home;
@@ -309,6 +311,7 @@ FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
     else if (tag == L"downloads") page = make<DownloadsPage>();
     else if (tag == L"processes") page = make<ProcessesPage>();
     else if (tag == L"latency") page = make<LatencyPage>();
+    else if (tag == L"startup") page = make<StartupPage>();
     else if (tag == L"extras") page = make<ExtrasPage>();
     else if (tag == L"settings") page = make<SettingsPage>();
     if (page) {

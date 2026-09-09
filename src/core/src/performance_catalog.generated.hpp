@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include <array>
 namespace winchisel::core {
-inline constexpr std::array<PerformanceCatalogEntry, 114> generated_performance_catalog{{
+inline constexpr std::array<PerformanceCatalogEntry, 121> generated_performance_catalog{{
     {"gaming-game-mode", "Game Mode", "Optimize your PC for gaming by turning things off in the background", 0, 0, ""},
     {"gaming-performance-explorer-mouse-precision", "Enhance Pointer Precision", "Adjust cursor speed based on movement speed (mouse acceleration). Most competitive gamers disable this for consistent aiming in FPS games", 0, 0, ""},
     {"gaming-performance-mouse-hover-time", "Mouse Hover Time", "Controls how long you have to hover over an element before it becomes active (in milliseconds). Lower values cause tooltips, menus and hover effects to appear faster. The default value is 400 ms", 0, 1, "1ms (Instant)|10ms (Very Fast)|50ms (Fast)|100ms (Moderate)|200ms|400ms (Default)"},
@@ -116,8 +116,15 @@ inline constexpr std::array<PerformanceCatalogEntry, 114> generated_performance_
     {"accessibility-togglekeys-hotkey", "ToggleKeys Hotkey (Num Lock 5s)", "To activate ToggleKeys, activate the keyboard shortcut by holding down the Num Lock key for 5 seconds. This will play sounds when the Caps Lock/Num Lock/Scroll key is pressed", 9, 0, ""},
     {"accessibility-mousekeys-hotkey", "MouseKeys Hotkey (Alt+Shift+NumLock)", "Enable the keyboard shortcut to enable MouseKeys, which allows using the numeric keypad to control the mouse pointer", 9, 0, ""},
     {"accessibility-highcontrast-hotkey", "High Contrast Hotkey (Alt+Shift+PrtScn)", "To enable High Contrast mode, activate the keyboard shortcut by pressing Left Alt + Left Shift + Screen Print", 9, 0, ""},
+    {"gaming-gpu-amd-power", "AMD GPU Low-Latency Power", "Keep AMD graphics clocks and the PCIe link awake to reduce stutter and frame-time spikes. Only affects AMD GPUs; increases idle power draw and heat", 2, 0, ""},
+    {"gaming-gpu-nvidia-power", "NVIDIA GPU Low-Latency Power", "Prevent NVIDIA dynamic clock states from downclocking between frames to reduce stutter. Only affects NVIDIA GPUs; increases idle power draw and heat", 2, 0, ""},
+    {"gaming-gpu-intel-display", "Intel GPU Display Latency", "Disable Intel async flips and adaptive VSync for lower display latency. Only affects Intel GPUs", 2, 0, ""},
+    {"gaming-keyboard-repeat", "Fast Keyboard Repeat", "Remove the keyboard repeat delay and set the repeat rate to maximum for faster key repeat in games and editors", 9, 0, ""},
+    {"gaming-power-throttling-off", "Disable CPU Power Throttling", "Stop Windows from throttling background and foreground work to save power. Improves consistency on plugged-in systems; reduces battery life on laptops", 10, 0, ""},
+    {"gaming-usb-selective-suspend", "USB Selective Suspend", "Allow Windows to suspend idle USB devices to save power. Turn off to prevent mouse, keyboard, and audio dropouts and reduce input latency", 10, 0, ""},
+    {"gaming-hibernate-fast-startup", "Hibernate and Fast Startup", "Allow hibernation and Fast Startup. Turn off to reclaim several GB of disk space (hiberfil.sys) and get a clean boot", 10, 0, ""},
 }};
-inline constexpr std::array<PerformanceRegistryRule, 68> generated_performance_registry_rules{{
+inline constexpr std::array<PerformanceRegistryRule, 71> generated_performance_registry_rules{{
     {"gaming-game-mode", "Software\\Microsoft\\GameBar", "AutoGameModeEnabled", "1|__MISSING__", "0", 0, 0, -1, 0},
     {"gaming-performance-explorer-mouse-precision", "Control Panel\\Mouse", "MouseSpeed", "1", "0", 0, 1, -1, 0},
     {"gaming-performance-autostart-delay", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Serialize", "StartupDelayInMSec", "10000", "0", 0, 0, -1, 0},
@@ -186,8 +193,11 @@ inline constexpr std::array<PerformanceRegistryRule, 68> generated_performance_r
     {"accessibility-togglekeys-hotkey", "Control Panel\\Accessibility\\ToggleKeys", "Flags", "62", "34", 0, 1, -1, 0},
     {"accessibility-mousekeys-hotkey", "Control Panel\\Accessibility\\MouseKeys", "Flags", "126", "130", 0, 1, -1, 0},
     {"accessibility-highcontrast-hotkey", "Control Panel\\Accessibility\\HighContrast", "Flags", "126", "4194", 0, 1, -1, 0},
+    {"gaming-keyboard-repeat", "Control Panel\\Keyboard", "KeyboardDelay", "0", "1", 0, 1, -1, 0},
+    {"gaming-keyboard-repeat", "Control Panel\\Keyboard", "KeyboardSpeed", "31", "31", 0, 1, -1, 0},
+    {"gaming-power-throttling-off", "SYSTEM\\CurrentControlSet\\Control\\Power\\PowerThrottling", "PowerThrottlingOff", "1", "0", 1, 0, -1, 0},
 }};
-inline constexpr std::array<PerformanceProfileRule, 113> generated_performance_profile_rules{{
+inline constexpr std::array<PerformanceProfileRule, 120> generated_performance_profile_rules{{
     {"gaming-game-mode", 1, 1, -1, -1},
     {"gaming-performance-explorer-mouse-precision", 0, 1, -1, -1},
     {"gaming-performance-mouse-hover-time", -1, -1, 0, 5},
@@ -301,5 +311,12 @@ inline constexpr std::array<PerformanceProfileRule, 113> generated_performance_p
     {"accessibility-togglekeys-hotkey", 0, 1, -1, -1},
     {"accessibility-mousekeys-hotkey", 0, 1, -1, -1},
     {"accessibility-highcontrast-hotkey", 0, 1, -1, -1},
+    {"gaming-gpu-amd-power", 0, 0, -1, -1},
+    {"gaming-gpu-nvidia-power", 0, 0, -1, -1},
+    {"gaming-gpu-intel-display", 0, 0, -1, -1},
+    {"gaming-keyboard-repeat", 1, 0, -1, -1},
+    {"gaming-power-throttling-off", 1, 0, -1, -1},
+    {"gaming-usb-selective-suspend", 0, 1, -1, -1},
+    {"gaming-hibernate-fast-startup", 0, 1, -1, -1},
 }};
 }  // namespace winchisel::core

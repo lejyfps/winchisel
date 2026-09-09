@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass StartupPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        StartupPage();
+    }
+}

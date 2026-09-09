@@ -54,6 +54,7 @@
     <ClInclude Include="include\winchisel\core\registry.hpp" />
     <ClInclude Include="include\winchisel\core\settings.hpp" />
     <ClInclude Include="include\winchisel\core\tweak.hpp" />
+    <ClInclude Include="include\winchisel\core\startup.hpp" />
     <ClInclude Include="include\winchisel\core\i18n.hpp" />
   </ItemGroup>
   <ItemGroup>

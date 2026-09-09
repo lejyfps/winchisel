@@ -52,6 +52,11 @@ inline void localize_tree(winrt::Windows::Foundation::IInspectable const& root) 
     if (auto button = root.try_as<Controls::Button>()) {
         if (auto text = button.Content().try_as<hstring>()) {
             button.Content(box_value(hstring{winchisel::core::loc(std::wstring(*text))}));
+            // The template's presenter mirrors Content through a binding.
+            // Do not descend into template parts: pinning a local value there
+            // would override the binding and freeze later Content updates
+            // (e.g. PowerPlan "Active", Latency "Analyzing...").
+            return;
         }
     }
     if (auto expander = root.try_as<Controls::Expander>()) {
@@ -67,6 +72,13 @@ inline void localize_tree(winrt::Windows::Foundation::IInspectable const& root) 
     if (auto bar = root.try_as<Controls::InfoBar>()) {
         bar.Title(hstring{winchisel::core::loc(std::wstring(bar.Title()))});
         bar.Message(hstring{winchisel::core::loc(std::wstring(bar.Message()))});
+        // Title/Message are rendered through template-generated presenters bound
+        // to these properties. Do not descend: writing a local value into a
+        // template part would override its binding, so later Title/Message
+        // updates (e.g. ExtrasPage::show_result "Applied"/"Setting applied.")
+        // would no longer reach the screen and the bar would stay empty.
+        // InfoBars in this app never host localizable custom Content.
+        return;
     }
     auto element = root.try_as<DependencyObject>();
     if (!element) return;

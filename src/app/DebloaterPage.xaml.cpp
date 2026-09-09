@@ -31,6 +31,44 @@ hstring category_name(winchisel::core::DebloatCategory category) {
     }
 }
 
+// Subtle tinted brush derived from a theme brush (e.g. success green at ~18%
+// opacity) for pill badges. Text/icon keep the full-strength theme brush.
+Media::SolidColorBrush tint_brush(Media::Brush const& base, std::uint8_t alpha) {
+    auto color = Windows::UI::Colors::Transparent();
+    if (auto solid = base.try_as<Media::SolidColorBrush>()) color = solid.Color();
+    color.A = alpha;
+    return Media::SolidColorBrush(color);
+}
+
+// Pill badge with a Fluent icon and bold label.
+Controls::Border make_status_badge(Media::Brush const& tint, Media::Brush const& foreground,
+                                   wchar_t const* glyph, hstring const& text) {
+    Controls::Border badge;
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    Controls::StackPanel row;
+    row.Orientation(Controls::Orientation::Horizontal);
+    row.Spacing(6);
+    row.VerticalAlignment(VerticalAlignment::Center);
+    Controls::FontIcon icon;
+    icon.Glyph(hstring{glyph});
+    icon.FontSize(12);
+    icon.Foreground(foreground);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(icon);
+    Controls::TextBlock label;
+    label.Text(text);
+    label.Foreground(foreground);
+    label.FontSize(12);
+    label.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(label);
+    badge.Child(row);
+    return badge;
+}
+
 }  // namespace
 
 DebloaterPage::DebloaterPage() {
@@ -183,8 +221,12 @@ void DebloaterPage::render_items() {
         if (!item.can_reinstall) detail_text += " | " + winrt::to_string(winchisel::ui::tr(L"Cannot be reinstalled automatically"));
         auto detail = Controls::TextBlock(); detail.Text(to_hstring(detail_text)); detail.TextWrapping(TextWrapping::Wrap); detail.Foreground(item.can_reinstall ? secondary : critical); detail.Style(caption); text.Children().Append(detail);
         grid.Children().Append(text);
-        auto status = Controls::TextBlock(); status.Text(installed_[index] ? winchisel::ui::tr(L"Installed") : winchisel::ui::tr(L"Not installed")); status.Foreground(installed_[index] ? success : secondary); status.VerticalAlignment(VerticalAlignment::Center);
-        Controls::Grid::SetColumn(status, 1); grid.Children().Append(status);
+        auto badge = make_status_badge(
+            tint_brush(installed_[index] ? success : critical, 0x2E),
+            installed_[index] ? success : critical,
+            installed_[index] ? L"\uE73E" : L"\uE896",
+            installed_[index] ? winchisel::ui::tr(L"Installed") : winchisel::ui::tr(L"Not installed"));
+        Controls::Grid::SetColumn(badge, 1); grid.Children().Append(badge);
         row.Content(grid);
         Items().Items().Append(row);
     }

@@ -51,6 +51,7 @@ inline constexpr std::array k_performance_groups{
     TweakGroupDefinition{"scheduled_tasks", "Scheduled Tasks"},
     TweakGroupDefinition{"visual_effects", "Visual Effects"},
     TweakGroupDefinition{"accessibility", "Accessibility"},
+    TweakGroupDefinition{"power", "Power"},
 };
 
 inline constexpr std::array k_privacy_security_groups{
@@ -68,5 +69,28 @@ inline constexpr std::array k_privacy_security_groups{
     TweakGroupDefinition{"edge_ai", "Edge AI"},
     TweakGroupDefinition{"office_ai", "Office AI"},
 };
+
+// Tweaks introduced in k_new_tweaks_version carry a "NEW" badge in the UI
+// until a newer app version runs. The badges therefore stay visible for the
+// whole lifetime of the introducing release (e.g. 1.0.7) and disappear with
+// the next one (e.g. 1.0.8) without touching this list.
+inline constexpr std::string_view k_new_tweaks_version{"1.0.7"};
+inline constexpr std::array k_new_tweak_ids{
+    std::string_view{"gaming-gpu-amd-power"},
+    std::string_view{"gaming-gpu-nvidia-power"},
+    std::string_view{"gaming-gpu-intel-display"},
+    std::string_view{"gaming-keyboard-repeat"},
+    std::string_view{"gaming-power-throttling-off"},
+    std::string_view{"gaming-usb-selective-suspend"},
+    std::string_view{"gaming-hibernate-fast-startup"},
+    std::string_view{"privacy-disable-delivery-optimization"},
+    std::string_view{"privacy-disable-autologger"},
+};
+
+inline bool is_new_tweak(std::string_view id) {
+    for (auto const candidate : k_new_tweak_ids)
+        if (candidate == id) return true;
+    return false;
+}
 
 }  // namespace winchisel::core

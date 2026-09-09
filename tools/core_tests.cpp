@@ -1,6 +1,8 @@
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/settings.hpp"
 #include "winchisel/core/affinity.hpp"
+#include "winchisel/core/startup.hpp"
+#include "winchisel/core/tweak.hpp"
 
 #include <iostream>
 #include <string>
@@ -94,5 +96,32 @@ int main() {
     expect(affinity_mask(255, 0) == 255 && affinity_mask(255, 1) == 85 && affinity_mask(255, 2) == 170 && affinity_mask(255, 3) == 15 && affinity_mask(255, 4) == 240, "all five affinity presets");
     expect(affinity_mask(0x95, 3) == 0x05 && affinity_mask(0x95, 4) == 0x90, "sparse affinity halves");
     expect(affinity_mask(1, 2) == 1 && affinity_mask(0, 3) == 0, "empty affinity fallback");
+    {
+        const auto on = build_approved_data(true, 0x01C0000000000000ULL);
+        const auto off = build_approved_data(false, 0x01C0000000000000ULL);
+        expect(on[0] == 0x02 && off[0] == 0x03, "approved flag bytes");
+        expect(on.size() == 12 && off.size() == 12, "approved flag length");
+        bool time_ok = true;
+        for (std::size_t i{}; i < 8; ++i) time_ok = time_ok && on[4 + i] == off[4 + i];
+        expect(time_ok, "approved flag filetime");
+        expect(parse_approved_data({0x02, 0, 0, 0}) == std::optional<bool>{true}, "approved enabled");
+        expect(parse_approved_data({0x06, 0, 0, 0}) == std::optional<bool>{true}, "approved enabled variant");
+        expect(parse_approved_data({0x03, 0, 0, 0}) == std::optional<bool>{false}, "approved disabled");
+        expect(parse_approved_data({0x07, 0, 0, 0}) == std::optional<bool>{false}, "approved disabled variant");
+        expect(!parse_approved_data({0x01, 0, 0, 0}).has_value(), "approved unknown flag");
+        expect(!parse_approved_data({0x02, 0}).has_value(), "approved truncated");
+        expect(parse_approved_data(std::vector<std::uint8_t>(on.begin(), on.end())) == std::optional<bool>{true}, "approved roundtrip");
+        expect(parse_uwp_startup_state(2) == std::optional<bool>{true}, "uwp enabled");
+        expect(parse_uwp_startup_state(4) == std::optional<bool>{true}, "uwp enabled by policy");
+        expect(parse_uwp_startup_state(0) == std::optional<bool>{false}, "uwp disabled");
+        expect(parse_uwp_startup_state(1) == std::optional<bool>{false}, "uwp disabled by user");
+        expect(!parse_uwp_startup_state(3).has_value(), "uwp unknown state");
+        expect(is_startup_trigger(8) && is_startup_trigger(9), "boot and logon triggers");
+        expect(!is_startup_trigger(1) && !is_startup_trigger(7) && !is_startup_trigger(0), "non-startup triggers");
+        expect(is_new_tweak("gaming-gpu-amd-power") && is_new_tweak("privacy-disable-autologger"), "new tweak ids");
+        expect(!is_new_tweak("gaming-game-mode") && !is_new_tweak(""), "old tweak ids");
+        expect(k_new_tweaks_version == std::string_view{"1.0.7"}, "new tweaks version");
+        expect(k_new_tweak_ids.size() == 9, "new tweak count");
+    }
     return failed ? 1 : 0;
 }

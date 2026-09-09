@@ -9,7 +9,7 @@ std::span<PerformanceProfileRule const> get_performance_profile_rules() noexcept
 std::span<PrivacyCatalogEntry const> get_privacy_catalog() noexcept { return generated_privacy_catalog; }
 std::span<PrivacyRegistryRule const> get_privacy_registry_rules() noexcept { return generated_privacy_rules; }
 
-static_assert(k_performance_groups.size() == 10);
+static_assert(k_performance_groups.size() == 11);
 static_assert(k_privacy_security_groups.size() == 13);
 
 }  // namespace winchisel::core

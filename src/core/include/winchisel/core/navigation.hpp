@@ -12,6 +12,7 @@ enum class Screen : std::uint8_t {
     downloads,
     processes,
     latency,
+    startup,
     extras,
     settings,
 };

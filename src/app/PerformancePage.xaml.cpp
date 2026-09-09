@@ -1,7 +1,9 @@
 #include "pch.h"
 #include "AsyncSupport.hpp"
+#include "Localization.hpp"
 #include "PerformancePage.xaml.h"
 #include "winchisel/platform/system.hpp"
+#include "winchisel/platform/update.hpp"
 
 #if __has_include("PerformancePage.g.cpp")
 #include "PerformancePage.g.cpp"
@@ -52,7 +54,51 @@ std::optional<std::uint32_t> parse_dword_token(std::string_view token) {
     return value;
 }
 
-Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control) {
+Controls::Border new_badge() {
+    auto resources = Application::Current().Resources();
+    auto accent = resources.Lookup(box_value(L"AccentTextFillColorPrimaryBrush")).try_as<Media::Brush>();
+    Media::Brush tint{nullptr};
+    if (auto solid = accent.try_as<Media::SolidColorBrush>()) {
+        auto color = solid.Color();
+        color.A = 0x2E;
+        tint = Media::SolidColorBrush(color);
+    }
+    auto badge = Controls::Border();
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.Margin({8, 0, 0, 0});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    auto row = Controls::StackPanel();
+    row.Orientation(Controls::Orientation::Horizontal);
+    row.Spacing(6);
+    row.VerticalAlignment(VerticalAlignment::Center);
+    auto icon = Controls::FontIcon();
+    icon.Glyph(hstring{L"\uE735"});
+    icon.FontSize(11);
+    icon.Foreground(accent);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(icon);
+    auto label = Controls::TextBlock();
+    label.Text(winchisel::ui::tr(L"New"));
+    label.Foreground(accent);
+    label.FontSize(11);
+    label.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(label);
+    badge.Child(row);
+    return badge;
+}
+
+// "NEW" badges are shown until a version newer than the introducing one
+// runs. Dev builds without version.txt report "0.0.0" and keep the badges
+// visible for testing.
+bool show_new_badges() {
+    const auto current = winchisel::platform::current_app_version();
+    return !winchisel::platform::is_newer_version(current, winchisel::core::k_new_tweaks_version);
+}
+
+Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control, bool is_new = false) {
     auto card = Controls::Border();
     auto resources = Application::Current().Resources();
     card.Background(resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>());
@@ -71,7 +117,17 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     auto heading = Controls::TextBlock();
     heading.Text(title);
     heading.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Style>());
-    text.Children().Append(heading);
+    heading.VerticalAlignment(VerticalAlignment::Center);
+    if (!is_new) {
+        text.Children().Append(heading);
+    } else {
+        auto header_row = Controls::StackPanel();
+        header_row.Orientation(Controls::Orientation::Horizontal);
+        header_row.VerticalAlignment(VerticalAlignment::Center);
+        header_row.Children().Append(heading);
+        header_row.Children().Append(new_badge());
+        text.Children().Append(header_row);
+    }
     auto detail = Controls::TextBlock();
     detail.Text(description);
     detail.TextWrapping(TextWrapping::Wrap);
@@ -90,6 +146,7 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
 
 PerformancePage::PerformancePage() {
     InitializeComponent();
+    const bool show_new = show_new_badges();
     gaming_toggles_ = {
         {L"Game Mode", L"Optimizes Windows scheduling for games.", true, true, false, true,
          {target(Hive::current_user, "Software\\Microsoft\\GameBar", "AutoGameModeEnabled", Type::dword)},
@@ -183,7 +240,7 @@ PerformancePage::PerformancePage() {
                     toggle.MinWidth(0);
                     toggle.Width(40);
                     const auto toggle_index = catalog_toggles_.size();
-                    const bool supported = item.group==7 || std::ranges::any_of(winchisel::core::get_performance_registry_rules(), [&](auto const& rule) { return rule.id == item.id; });
+                    const bool supported = item.group==7 || winchisel::platform::is_special_performance_toggle(item.id) || std::ranges::any_of(winchisel::core::get_performance_registry_rules(), [&](auto const& rule) { return rule.id == item.id; });
                     toggle.IsEnabled(supported);
                     catalog_toggles_.push_back({std::string(item.id), toggle});
                     toggle.Toggled([this, toggle_index](auto&&, auto&&) { save_catalog_toggle(toggle_index); });
@@ -208,7 +265,7 @@ PerformancePage::PerformancePage() {
                     combo.SelectionChanged([this,selection_index](auto&&,auto&&){save_catalog_selection(selection_index);});
                     control = combo;
                 }
-                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control);
+                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id));
                 std::string_view child_id;
                 if(item.id=="gaming-virtualization-based-security")child_id="gaming-memory-integrity";
                 else if(item.id=="gaming-sysmain-service")child_id="gaming-performance-prefetch";
@@ -218,7 +275,7 @@ PerformancePage::PerformancePage() {
                     auto nested=Controls::Expander();nested.Header(card);nested.HorizontalAlignment(HorizontalAlignment::Stretch);nested.HorizontalContentAlignment(HorizontalAlignment::Stretch);
                     auto child=std::ranges::find_if(winchisel::core::get_performance_catalog(),[&](auto const& candidate){return candidate.id==child_id;});
                     if(child!=winchisel::core::get_performance_catalog().end()){
-                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle);child_card.Margin({24,8,0,0});nested.Content(child_card);
+                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle,show_new&&winchisel::core::is_new_tweak(child->id));child_card.Margin({24,8,0,0});nested.Content(child_card);
                     }
                     content.Children().Append(nested);
                 }
@@ -234,6 +291,11 @@ PerformancePage::PerformancePage() {
 void PerformancePage::load_catalog_toggles() {
     loading_gaming_toggles_ = true;
     for (auto& item : catalog_toggles_) {
+        if (winchisel::platform::is_special_performance_toggle(item.id)) {
+            if (auto state = cached_special(item.id)) item.control.IsOn(*state);
+            if (auto available = cached_available(item.id)) item.control.IsEnabled(*available);
+            continue;
+        }
         bool found{}, enabled = true;
         for (auto const& rule : winchisel::core::get_performance_registry_rules()) {
             if (rule.id != item.id) continue;
@@ -286,6 +348,15 @@ std::optional<Value> catalog_desired(auto const& rule, bool enabled, auto&& read
 void PerformancePage::save_catalog_toggle(std::size_t index) {
     if (loading_gaming_toggles_ || index >= catalog_toggles_.size()) return;
     auto const& item = catalog_toggles_[index]; const bool enabled = item.control.IsOn();
+    if (winchisel::platform::is_special_performance_toggle(item.id)) {
+        if (auto available = cached_available(item.id); available && !*available) {
+            show_write_error("This tweak is unavailable on the detected hardware and was not applied.");
+            load_catalog_toggles();
+            return;
+        }
+        submit([id = item.id, enabled] { return winchisel::platform::write_special_performance_toggle(id, enabled); });
+        return;
+    }
     std::vector<std::pair<Target,Value>> registry;
     std::vector<std::pair<std::string,bool>> tasks;
     for (auto const& rule : winchisel::core::get_performance_registry_rules()) {
@@ -296,7 +367,7 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
         if (!desired) { show_write_error("A performance catalog entry is invalid and was not applied."); load_catalog_toggles(); return; }
         registry.emplace_back(destination, std::move(*desired));
     }
-    const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;});
+    const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}) || winchisel::platform::is_special_performance_toggle(item.id);
     if(!has_registry) tasks.emplace_back(std::string(item.id), enabled);
     submit([registry=std::move(registry),tasks=std::move(tasks)]{return winchisel::platform::apply_registry_and_tasks(registry,tasks);});
 }
@@ -391,6 +462,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     loading_gaming_toggles_ = false;
     std::vector<std::pair<Target,Value>> registry;
     std::vector<std::pair<std::string,bool>> tasks;
+    std::vector<std::pair<std::string,bool>> specials;
     for (auto const& tweak : gaming_toggles_) {
         auto const& values = tweak.control.IsOn() ? tweak.enabled_values : tweak.disabled_values;
         for (std::size_t i{}; i < tweak.targets.size(); ++i) registry.emplace_back(tweak.targets[i], values[i]);
@@ -405,6 +477,11 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     for (auto& item : catalog_toggles_) {
         if (!profile_for(item.id, false)) continue;
         const bool enabled = item.control.IsOn();
+        if (winchisel::platform::is_special_performance_toggle(item.id)) {
+            if (auto available = cached_available(item.id); available && !*available) continue;
+            specials.emplace_back(item.id, enabled);
+            continue;
+        }
         bool has_registry = false;
         for (auto const& rule : winchisel::core::get_performance_registry_rules()) {
             if (rule.id != item.id) continue;
@@ -435,7 +512,17 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         else continue;
         registry.emplace_back(destination, Value{value});
     }
-    submit([registry=std::move(registry),tasks=std::move(tasks),dns]{return winchisel::platform::apply_registry_and_tasks(registry,tasks,dns);});
+    submit([registry=std::move(registry),tasks=std::move(tasks),dns,specials=std::move(specials)]{
+        if (auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,dns); !applied) return applied;
+        for (auto const& [id, enabled] : specials) {
+            if (auto written = winchisel::platform::write_special_performance_toggle(id, enabled); !written) {
+                auto faulty = written.error();
+                faulty.detail += "; applied registry changes were kept";
+                return winchisel::core::Result<void>{std::unexpected(std::move(faulty))};
+            }
+        }
+        return winchisel::core::Result<void>{};
+    });
 }
 
 void PerformancePage::load_gaming_selections() {
@@ -528,6 +615,18 @@ winchisel::core::Result<bool> PerformancePage::cached_task(std::string const& id
     return found->second;
 }
 
+winchisel::core::Result<bool> PerformancePage::cached_special(std::string const& id) const {
+    const auto found=special_state_.find(id);
+    if(found==special_state_.end())return std::unexpected(winchisel::core::Error{"State not loaded"});
+    return found->second;
+}
+
+winchisel::core::Result<bool> PerformancePage::cached_available(std::string const& id) const {
+    const auto found=special_available_.find(id);
+    if(found==special_available_.end())return std::unexpected(winchisel::core::Error{"State not loaded"});
+    return found->second;
+}
+
 void PerformancePage::submit(std::function<winchisel::core::Result<void>()> change) {
     pending_changes_.push_back(std::move(change));
     process_changes();
@@ -566,7 +665,9 @@ winrt::fire_and_forget PerformancePage::process_changes() {
         for(auto const& item:catalog_selections_)if(auto service=service_name(item.id);!service.empty())
             targets.push_back(target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword));
         std::vector<std::string> task_ids;
-        for(auto const& item:catalog_toggles_)if(!std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}))task_ids.push_back(item.id);
+        for(auto const& item:catalog_toggles_)if(!winchisel::platform::is_special_performance_toggle(item.id)&&!std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}))task_ids.push_back(item.id);
+        std::vector<std::string> special_ids;
+        for(auto const& item:catalog_toggles_)if(winchisel::platform::is_special_performance_toggle(item.id))special_ids.push_back(item.id);
         co_await winrt::resume_background();
         std::map<RegistryKey,winchisel::core::Result<Value>> registry;
         for(auto const& destination:targets) {
@@ -575,9 +676,13 @@ winrt::fire_and_forget PerformancePage::process_changes() {
         }
         std::map<std::string,winchisel::core::Result<bool>> tasks;
         for(auto const& id:task_ids)tasks.emplace(id,winchisel::platform::read_scheduled_task(id));
+        std::map<std::string,winchisel::core::Result<bool>> specials;
+        for(auto const& id:special_ids)specials.emplace(id,winchisel::platform::read_special_performance_toggle(id));
+        std::map<std::string,winchisel::core::Result<bool>> available;
+        for(auto const& id:special_ids)available.emplace(id,winchisel::platform::is_special_available(id));
         auto dns=winchisel::platform::read_dns_profile();
         co_await ui;
-        registry_state_=std::move(registry); task_state_=std::move(tasks); dns_state_=std::move(dns);
+        registry_state_=std::move(registry); task_state_=std::move(tasks); special_state_=std::move(specials); special_available_=std::move(available); dns_state_=std::move(dns);
         load_gaming_toggles(); load_gaming_selections(); load_catalog_toggles(); load_catalog_selections();
         work_running_=false; IsEnabled(true);
         if(!failure.empty())show_write_error(failure);

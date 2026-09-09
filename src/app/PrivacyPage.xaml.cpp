@@ -3,6 +3,7 @@
 #include "PrivacyPage.xaml.h"
 #include "Localization.hpp"
 #include "winchisel/platform/system.hpp"
+#include "winchisel/platform/update.hpp"
 
 #if __has_include("PrivacyPage.g.cpp")
 #include "PrivacyPage.g.cpp"
@@ -87,7 +88,51 @@ Controls::Border category_card(hstring const& title, hstring const& description)
     return card;
 }
 
-Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control) {
+Controls::Border new_badge() {
+    auto resources = Application::Current().Resources();
+    auto accent = resources.Lookup(box_value(L"AccentTextFillColorPrimaryBrush")).try_as<Media::Brush>();
+    Media::Brush tint{nullptr};
+    if (auto solid = accent.try_as<Media::SolidColorBrush>()) {
+        auto color = solid.Color();
+        color.A = 0x2E;
+        tint = Media::SolidColorBrush(color);
+    }
+    auto badge = Controls::Border();
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.Margin({8, 0, 0, 0});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    auto row = Controls::StackPanel();
+    row.Orientation(Controls::Orientation::Horizontal);
+    row.Spacing(6);
+    row.VerticalAlignment(VerticalAlignment::Center);
+    auto icon = Controls::FontIcon();
+    icon.Glyph(hstring{L"\uE735"});
+    icon.FontSize(11);
+    icon.Foreground(accent);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(icon);
+    auto label = Controls::TextBlock();
+    label.Text(winchisel::ui::tr(L"New"));
+    label.Foreground(accent);
+    label.FontSize(11);
+    label.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(label);
+    badge.Child(row);
+    return badge;
+}
+
+// "NEW" badges are shown until a version newer than the introducing one
+// runs. Dev builds without version.txt report "0.0.0" and keep the badges
+// visible for testing.
+bool show_new_badges() {
+    const auto current = winchisel::platform::current_app_version();
+    return !winchisel::platform::is_newer_version(current, winchisel::core::k_new_tweaks_version);
+}
+
+Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control, bool is_new = false) {
     auto card = category_card(title, description);
     card.Tag(box_value(title + L" " + description));
     auto layout = Controls::Grid();
@@ -102,7 +147,17 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     auto heading = Controls::TextBlock();
     heading.Text(title);
     heading.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Style>());
-    text.Children().Append(heading);
+    heading.VerticalAlignment(VerticalAlignment::Center);
+    if (!is_new) {
+        text.Children().Append(heading);
+    } else {
+        auto header_row = Controls::StackPanel();
+        header_row.Orientation(Controls::Orientation::Horizontal);
+        header_row.VerticalAlignment(VerticalAlignment::Center);
+        header_row.Children().Append(heading);
+        header_row.Children().Append(new_badge());
+        text.Children().Append(header_row);
+    }
     auto detail = Controls::TextBlock();
     detail.Text(description);
     detail.TextWrapping(TextWrapping::Wrap);
@@ -222,7 +277,7 @@ void PrivacyPage::apply_filter() {
     }
 }
 
-Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group){auto content=Controls::StackPanel();content.Spacing(8);content.HorizontalAlignment(HorizontalAlignment::Stretch);if(group==1){ads_mode_=Controls::ComboBox();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(ads_mode_,L"Ads, Suggestions and Promotional Content");for(auto option:{L"Allow",L"Deny",L"Custom"}){auto row=Controls::ComboBoxItem();row.Content(box_value(option));ads_mode_.Items().Append(row);}ads_mode_.SelectionChanged([this](auto&&,auto&&){save_ads_mode();});content.Children().Append(setting_card(L"Ads, Suggestions and Promotional Content",L"Controls all advertising, suggestions, and promotional content throughout Windows",ads_mode_));}for(auto const& item:winchisel::core::get_privacy_catalog()){if(item.group!=group)continue;auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(item.name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto index=privacy_toggles_.size();privacy_toggles_.push_back({std::string(item.id),toggle});toggle.Toggled([this,index](auto&&,auto&&){save_privacy_toggle(index);});auto card=setting_card(to_hstring(item.name),to_hstring(item.description),toggle);card.Tag(box_value(to_hstring(std::string(item.name)+" "+std::string(item.description)+" "+std::string(item.id))));content.Children().Append(card);}return content;}
+Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group){auto content=Controls::StackPanel();content.Spacing(8);content.HorizontalAlignment(HorizontalAlignment::Stretch);const bool show_new=show_new_badges();if(group==1){ads_mode_=Controls::ComboBox();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(ads_mode_,L"Ads, Suggestions and Promotional Content");for(auto option:{L"Allow",L"Deny",L"Custom"}){auto row=Controls::ComboBoxItem();row.Content(box_value(option));ads_mode_.Items().Append(row);}ads_mode_.SelectionChanged([this](auto&&,auto&&){save_ads_mode();});content.Children().Append(setting_card(L"Ads, Suggestions and Promotional Content",L"Controls all advertising, suggestions, and promotional content throughout Windows",ads_mode_));}for(auto const& item:winchisel::core::get_privacy_catalog()){if(item.group!=group)continue;auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(item.name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto index=privacy_toggles_.size();privacy_toggles_.push_back({std::string(item.id),toggle});toggle.Toggled([this,index](auto&&,auto&&){save_privacy_toggle(index);});auto card=setting_card(to_hstring(item.name),to_hstring(item.description),toggle,show_new&&winchisel::core::is_new_tweak(item.id));card.Tag(box_value(to_hstring(std::string(item.name)+" "+std::string(item.description)+" "+std::string(item.id))));content.Children().Append(card);}return content;}
 
 void PrivacyPage::save_privacy_toggle(std::size_t index){if(loading_security_||index>=privacy_toggles_.size())return;auto const& item=privacy_toggles_[index];std::vector<std::pair<Target,Value>> changes;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto token=item.control.IsOn()?rule.enabled_value:rule.disabled_value;Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else if(auto parsed=parse_dword_token(std::string_view(token)))value=*parsed;else{show_write_error("A privacy catalog entry is invalid and was not applied.");submit([] { return winchisel::core::Result<void>{}; });return;}changes.emplace_back(destination,value);}submit([changes=std::move(changes)] { return winchisel::platform::write_registry_values_atomic(changes); });}
 

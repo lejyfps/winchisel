@@ -113,6 +113,9 @@
     <ClInclude Include="LatencyPage.xaml.h">
       <DependentUpon>LatencyPage.xaml</DependentUpon>
     </ClInclude>
+    <ClInclude Include="StartupPage.xaml.h">
+      <DependentUpon>StartupPage.xaml</DependentUpon>
+    </ClInclude>
     <ClInclude Include="ExtrasPage.xaml.h">
       <DependentUpon>ExtrasPage.xaml</DependentUpon>
     </ClInclude>
@@ -157,6 +160,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="StartupPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="ExtrasPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -196,6 +203,9 @@
     </ClCompile>
     <ClCompile Include="LatencyPage.xaml.cpp">
       <DependentUpon>LatencyPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="StartupPage.xaml.cpp">
+      <DependentUpon>StartupPage.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="ExtrasPage.xaml.cpp">
       <DependentUpon>ExtrasPage.xaml</DependentUpon>
@@ -248,6 +258,9 @@
     <Midl Include="LatencyPage.idl">
       <DependentUpon>LatencyPage.xaml</DependentUpon>
     </Midl>
+    <Midl Include="StartupPage.idl">
+      <DependentUpon>StartupPage.xaml</DependentUpon>
+    </Midl>
     <Midl Include="ExtrasPage.idl">
       <DependentUpon>ExtrasPage.xaml</DependentUpon>
     </Midl>
@@ -297,6 +310,7 @@
     <Copy SourceFiles="$(OutDir)DownloadsPage.xbf" DestinationFiles="$(OutDir)DownloadsPage.xaml" />
     <Copy SourceFiles="$(OutDir)ProcessesPage.xbf" DestinationFiles="$(OutDir)ProcessesPage.xaml" />
     <Copy SourceFiles="$(OutDir)LatencyPage.xbf" DestinationFiles="$(OutDir)LatencyPage.xaml" />
+    <Copy SourceFiles="$(OutDir)StartupPage.xbf" DestinationFiles="$(OutDir)StartupPage.xaml" />
     <Copy SourceFiles="$(OutDir)ExtrasPage.xbf" DestinationFiles="$(OutDir)ExtrasPage.xaml" />
     <Copy SourceFiles="$(OutDir)SettingsPage.xbf" DestinationFiles="$(OutDir)SettingsPage.xaml" />
   </Target>

@@ -70,6 +70,9 @@
             <NavigationViewItem Content="Latency" Tag="latency">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Clock" /></NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Content="Startup" Tag="startup">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Play" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem Content="Extras" Tag="extras">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="More" /></NavigationViewItem.Icon>
             </NavigationViewItem>

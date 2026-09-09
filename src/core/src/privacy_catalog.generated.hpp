@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include <array>
 namespace winchisel::core {
-inline constexpr std::array<PrivacyCatalogEntry, 86> generated_privacy_catalog{{
+inline constexpr std::array<PrivacyCatalogEntry, 88> generated_privacy_catalog{{
     {"security-workplace-join-messages", "Workplace Join Message Prompts", "Show Allow my organization to manage my device' prompts throughout Windows", 0},
     {"security-bitlocker-auto-encryption", "BitLocker Auto Encryption", "Controls whether Windows can automatically encrypt drives with BitLocker", 0},
     {"security-wifi-sense", "WiFi-Sense", "Allow sharing WiFi passwords with contacts and connecting to suggested hotspots", 0},
@@ -88,8 +88,10 @@ inline constexpr std::array<PrivacyCatalogEntry, 86> generated_privacy_catalog{{
     {"privacy-excel-copilot", "Excel Copilot", "Controls whether Copilot AI features are available in Microsoft Excel", 12},
     {"privacy-onenote-copilot", "OneNote Copilot", "Controls whether Copilot AI features, Copilot notebooks, and Copilot skittle are available in Microsoft OneNote", 12},
     {"privacy-office-content-safety-ai", "Office AI Content Safety", "Controls whether AI content safety features for alt text, rewrite, and summarization are available in Office apps", 12},
+    {"privacy-disable-delivery-optimization", "Delivery Optimization P2P Sharing", "Allow Windows to upload downloaded updates to other PCs on the local network and internet. Turn off to save upload bandwidth", 6},
+    {"privacy-disable-autologger", "WMI AutoLogger Sessions", "Allow Windows to run background diagnostic logging sessions that consume CPU and disk and feed telemetry. Turn off to reduce background activity", 6},
 }};
-inline constexpr std::array<PrivacyRegistryRule, 125> generated_privacy_rules{{
+inline constexpr std::array<PrivacyRegistryRule, 134> generated_privacy_rules{{
     {"security-workplace-join-messages", "SOFTWARE\\Policies\\Microsoft\\Windows\\WorkplaceJoin", "BlockAADWorkplaceJoin", "__MISSING__", "1", 1, 0},
     {"security-bitlocker-auto-encryption", "SYSTEM\\CurrentControlSet\\Control\\BitLocker", "PreventDeviceEncryption", "0", "1", 1, 0},
     {"security-wifi-sense", "Software\\Microsoft\\PolicyManager\\default\\WiFi\\AllowWiFiHotSpotReporting", "Value", "1", "0", 1, 0},
@@ -215,5 +217,14 @@ inline constexpr std::array<PrivacyRegistryRule, 125> generated_privacy_rules{{
     {"privacy-onenote-copilot", "Software\\Microsoft\\Office\\16.0\\OneNote\\Options\\Other", "EnableCopilotNotebooks", "__MISSING__", "0", 0, 0},
     {"privacy-onenote-copilot", "Software\\Microsoft\\Office\\16.0\\OneNote\\Options\\Other", "EnableCopilotSkittle", "__MISSING__", "0", 0, 0},
     {"privacy-office-content-safety-ai", "Software\\Policies\\Microsoft\\office\\16.0\\common\\ai", "contentsafetyserviceenabled", "1", "0", 0, 0},
+    {"privacy-disable-delivery-optimization", "SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization", "DODownloadMode", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\AppModel", "Start", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\CloudExperienceHostOobe", "Start", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DataMarket", "Start", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DiagLog", "Start", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\Diagtrack-Listener", "Start", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\LwtNetLog", "Start", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\SQMLogger", "Start", "1", "0", 1, 0},
+    {"privacy-disable-autologger", "SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\WdiContextLog", "Start", "1", "0", 1, 0},
 }};
 }

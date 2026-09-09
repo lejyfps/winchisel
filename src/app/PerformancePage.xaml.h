@@ -30,6 +30,8 @@ private:
     using RegistryKey = std::tuple<winchisel::core::RegistryHive, std::string, std::string, winchisel::core::RegistryValueType>;
     std::map<RegistryKey, winchisel::core::Result<winchisel::core::RegistryValue>> registry_state_;
     std::map<std::string, winchisel::core::Result<bool>> task_state_;
+    std::map<std::string, winchisel::core::Result<bool>> special_state_;
+    std::map<std::string, winchisel::core::Result<bool>> special_available_;
     winchisel::core::Result<int> dns_state_{std::unexpected(winchisel::core::Error{"Not loaded"})};
     std::deque<std::function<winchisel::core::Result<void>()>> pending_changes_;
     bool work_running_{};
@@ -37,6 +39,8 @@ private:
     winrt::fire_and_forget process_changes();
     winchisel::core::Result<winchisel::core::RegistryValue> cached_value(winchisel::core::RegistryTarget const& target) const;
     winchisel::core::Result<bool> cached_task(std::string const& id) const;
+    winchisel::core::Result<bool> cached_special(std::string const& id) const;
+    winchisel::core::Result<bool> cached_available(std::string const& id) const;
     struct GamingToggle {
         winrt::hstring title;
         winrt::hstring description;
