@@ -4,6 +4,7 @@
 #include "MainWindow.xaml.g.h"
 #include <cstdint>
 #include <list>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -27,6 +28,7 @@ private:
     static constexpr std::size_t k_max_cached_pages = 4;
     void touch_page(std::wstring const& key);
     void localize_nav();
+    void update_title(std::optional<std::string> available = std::nullopt);
     void apply_theme();
     void apply_titlebar_theme();
     void update_titlebar_inset();

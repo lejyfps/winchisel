@@ -79,7 +79,7 @@ MainWindow::MainWindow() {
     SetTitleBar(AppTitleBar());
     apply_theme();
     auto app_window = app_window_from(*this);
-    AppTitleText().Text(L"Winchisel - v" + to_hstring(winchisel::platform::current_app_version()));
+    update_title();
     const auto icon = asset_path(L"logo.ico");
     app_window.SetIcon(icon.c_str());
     app_window.SetTaskbarIcon(icon.c_str());
@@ -192,8 +192,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
-    AppTitleText().Text(L"Winchisel - v" + to_hstring(winchisel::platform::current_app_version()) +
-        L" (Update available: v" + to_hstring(manifest->version) + L")");
+    update_title(manifest->version);
     if (winchisel::platform::is_packaged_install()) {
         // Store builds must update through the Store: downloading and running
         // the GitHub setup here would violate Store policy and install a
@@ -319,6 +318,25 @@ FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
         });
     }
     return page;
+}
+
+void MainWindow::update_title(std::optional<std::string> available) {
+    auto resources = Application::Current().Resources();
+    AppTitleText().Inlines().Clear();
+    Documents::Run app;
+    app.Text(L"Winchisel");
+    AppTitleText().Inlines().Append(app);
+    Documents::Run version;
+    version.Text(L" [v" + to_hstring(winchisel::platform::current_app_version()) + L"]");
+    version.Foreground(resources.Lookup(box_value(L"TextFillColorSecondaryBrush")).try_as<Media::Brush>());
+    AppTitleText().Inlines().Append(version);
+    if (available) {
+        Documents::Run update;
+        update.Text(L" (Update available: v" + to_hstring(*available) + L")");
+        update.FontWeight(Windows::UI::Text::FontWeights::Bold());
+        update.Foreground(resources.Lookup(box_value(L"SystemFillColorSuccessBrush")).try_as<Media::Brush>());
+        AppTitleText().Inlines().Append(update);
+    }
 }
 
 void MainWindow::localize_nav() {
