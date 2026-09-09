@@ -61,6 +61,8 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
         {L"Update", L"Aktualisieren"},
         {L"Later", L"Später"},
         {L"Winchisel update available", L"Winchisel-Update verfügbar"},
+        {L"Open Store", L"Store öffnen"},
+        {L"This Store version updates through the Microsoft Store. Open it now to install the update?", L"Diese Store-Version wird über den Microsoft Store aktualisiert. Store jetzt zum Aktualisieren öffnen?"},
         {L"Create Restore Point", L"Wiederherstellungspunkt erstellen"},
         {L"System Repair", L"Systemreparatur"},
         {L"Temporary Files - Remove", L"Temporäre Dateien entfernen"},

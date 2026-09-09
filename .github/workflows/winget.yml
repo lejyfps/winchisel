@@ -9,16 +9,26 @@
 # 3. Do the FIRST submission manually, because the package does not exist yet
 #    (update only works for existing packages):
 #      tools\winget-submit.cmd <version> --new
-#    After that PR is merged, every published GitHub release triggers this
-#    workflow and opens the version-update PR automatically.
+#    Until then, run updates manually from the Actions tab
+#    (Submit to winget > Run workflow) or via tools\winget-submit.cmd.
+#    After the merge, restore the automatic release trigger (see on: below).
 #
 # If the package id ever changes, update WINGET_PACKAGE_ID below.
 
 name: Submit to winget
 
+# NOTE: automatic submit is paused until the first package PR (lejy.Winchisel
+# 1.0.6) is merged - a second open PR for the same manifest would conflict.
+# Afterwards restore:
+#   on:
+#     release:
+#       types: [published]
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.6)'
+        required: true
 
 permissions:
   contents: read
@@ -42,6 +52,7 @@ jobs:
         run: |
           if (-not $env:GITHUB_TOKEN) { throw 'WINGET_GITHUB_TOKEN secret is not configured. See .github/workflows/winget.yml header.' }
           $tag = "${{ github.event.release.tag_name }}"
+          if (-not $tag) { $tag = "${{ inputs.tag }}" }
           $version = $tag.TrimStart("v")
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Unexpected tag format: $tag" }
           $url = "https://github.com/lejyfps/winchisel/releases/download/$tag/Winchisel-Setup-x64.exe"

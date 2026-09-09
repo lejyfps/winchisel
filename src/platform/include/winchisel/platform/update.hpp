@@ -39,6 +39,12 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(
 std::string current_app_version();
 bool is_newer_version(std::string_view candidate, std::string_view current);
 bool is_portable_install();
+// True when running with package identity (Microsoft Store / MSIX). Packaged
+// builds must update through the Store and never self-install GitHub builds.
+bool is_packaged_install();
+// Opens the Store downloads/updates page. Downloads and runs no code, so it
+// stays Store-policy compliant.
+bool open_store_updates_page();
 std::string_view update_artifact_id();
 winchisel::core::Result<void> launch_staged_update(
     std::filesystem::path const& staged, ReleaseArtifact const& artifact);

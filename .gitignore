@@ -20,7 +20,16 @@ packages/
 *.aps
 *.ipch
 CMakeUserPresets.json
+# Secrets - NEVER commit: signing keys, certificates, tokens, store credentials.
+# The release flow reads these from ignored local files / env vars only.
 /release-keys/
+*.pfx
+*.p12
+*.pem
+*.key
+store.cmd
+.env
+.env.*
 /release-output/
 /LOCAL_RELEASE.md
 /LOCAL_RELEASE.cmd

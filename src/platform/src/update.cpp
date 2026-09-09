@@ -1,6 +1,7 @@
 #include "winchisel/platform/update.hpp"
 
 #include <windows.h>
+#include <appmodel.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
 #include <winhttp.h>
@@ -273,6 +274,22 @@ bool is_portable_install() {
 }
 
 std::string_view update_artifact_id() { return is_portable_install() ? "portable-x64" : "setup-x64"; }
+
+bool is_packaged_install() {
+    // APPMODEL_ERROR_NO_PACKAGE means the process runs unpackaged (classic
+    // setup or portable). Any other result, including ERROR_INSUFFICIENT_BUFFER
+    // for this null-buffer query, means package identity is present (Store).
+    UINT32 length{};
+    return GetCurrentPackageFullName(&length, nullptr) != APPMODEL_ERROR_NO_PACKAGE;
+}
+
+bool open_store_updates_page() {
+    // Policy-safe fallback for Store installations: no code is downloaded or
+    // executed, the Store app itself performs the update.
+    constexpr wchar_t uri[] = L"ms-windows-store://downloadsandupdates";
+    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL));
+    return result > 32;
+}
 
 winchisel::core::Result<void> launch_staged_update(
     std::filesystem::path const& staged, ReleaseArtifact const& artifact) {

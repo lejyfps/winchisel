@@ -184,6 +184,24 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     }
     AppTitleText().Text(L"Winchisel - v" + to_hstring(winchisel::platform::current_app_version()) +
         L" (Update available: v" + to_hstring(manifest->version) + L")");
+    if (winchisel::platform::is_packaged_install()) {
+        // Store builds must update through the Store: downloading and running
+        // the GitHub setup here would violate Store policy and install a
+        // second copy next to the Store package. Notify and deep-link instead.
+        update_check_running_ = false; UpdateButton().IsEnabled(true);
+        winchisel::core::DialogSlot store_slot; if(!winchisel::ui::dialog_available(store_slot)){co_return;}
+        Controls::ContentDialog store_dialog;
+        store_dialog.XamlRoot(Content().XamlRoot());
+        store_dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
+        store_dialog.Content(box_value(L"Version " + to_hstring(manifest->version) + hstring(L" is available. ") + hstring{winchisel::core::loc(L"This Store version updates through the Microsoft Store. Open it now to install the update?")}));
+        store_dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Open Store")});
+        store_dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
+        if (co_await store_dialog.ShowAsync() == Controls::ContentDialogResult::Primary) {
+            if (!winchisel::platform::open_store_updates_page())
+                winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Winchisel", L"Could not open the Microsoft Store.");
+        }
+        co_return;
+    }
     const auto artifact_id = winchisel::platform::update_artifact_id();
     const auto artifact = std::ranges::find_if(manifest->artifacts, [artifact_id](auto const& item) { return item.id == artifact_id; });
     if (artifact == manifest->artifacts.end()) {
