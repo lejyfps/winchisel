@@ -70,8 +70,11 @@
             <NavigationViewItem Content="Latency" Tag="latency">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Clock" /></NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="Startup" Tag="startup">
+            <NavigationViewItem Content="Startup Manager" Tag="startup">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Play" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Scheduled Tasks" Tag="scheduled_tasks">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Calendar" /></NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="Extras" Tag="extras">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="More" /></NavigationViewItem.Icon>

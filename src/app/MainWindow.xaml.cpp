@@ -14,6 +14,7 @@
 #include "ProcessesPage.xaml.h"
 #include "LatencyPage.xaml.h"
 #include "StartupPage.xaml.h"
+#include "ScheduledTasksPage.xaml.h"
 #include "ExtrasPage.xaml.h"
 #include "SettingsPage.xaml.h"
 #include "Localization.hpp"
@@ -67,6 +68,7 @@ winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
     if (tag == L"processes") return winchisel::core::Screen::processes;
     if (tag == L"latency") return winchisel::core::Screen::latency;
     if (tag == L"startup") return winchisel::core::Screen::startup;
+    if (tag == L"scheduled_tasks") return winchisel::core::Screen::scheduled_tasks;
     if (tag == L"extras") return winchisel::core::Screen::extras;
     if (tag == L"settings") return winchisel::core::Screen::settings;
     return winchisel::core::Screen::home;
@@ -312,6 +314,7 @@ FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
     else if (tag == L"processes") page = make<ProcessesPage>();
     else if (tag == L"latency") page = make<LatencyPage>();
     else if (tag == L"startup") page = make<StartupPage>();
+    else if (tag == L"scheduled_tasks") page = make<ScheduledTasksPage>();
     else if (tag == L"extras") page = make<ExtrasPage>();
     else if (tag == L"settings") page = make<SettingsPage>();
     if (page) {
@@ -354,6 +357,8 @@ void MainWindow::localize_nav() {
         if (tag == L"downloads") return winchisel::core::loc(L"Downloads");
         if (tag == L"processes") return winchisel::core::loc(L"Processes");
         if (tag == L"latency") return winchisel::core::loc(L"Latency");
+        if (tag == L"startup") return winchisel::core::loc(L"Startup Manager");
+        if (tag == L"scheduled_tasks") return winchisel::core::loc(L"Scheduled Tasks");
         if (tag == L"extras") return winchisel::core::loc(L"Extras");
         if (tag == L"settings") return winchisel::core::loc(L"Settings");
         return winchisel::core::loc(L"Home");

@@ -13,6 +13,7 @@ enum class Screen : std::uint8_t {
     processes,
     latency,
     startup,
+    scheduled_tasks,
     extras,
     settings,
 };

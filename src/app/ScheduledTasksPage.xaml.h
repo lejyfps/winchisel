@@ -1,7 +1,7 @@
 #pragma once
 
-#include "StartupPage.g.h"
-#include "StartupPage.xaml.g.h"
+#include "ScheduledTasksPage.g.h"
+#include "ScheduledTasksPage.xaml.g.h"
 
 #include "winchisel/core/startup.hpp"
 #include "winchisel/core/error.hpp"
@@ -13,8 +13,8 @@
 
 namespace winrt::Winchisel::implementation {
 
-struct StartupPage : StartupPageT<StartupPage> {
-    StartupPage();
+struct ScheduledTasksPage : ScheduledTasksPageT<ScheduledTasksPage> {
+    ScheduledTasksPage();
     void Refresh_Click(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -57,6 +57,6 @@ private:
 
 namespace winrt::Winchisel::factory_implementation {
 
-struct StartupPage : StartupPageT<StartupPage, implementation::StartupPage> {};
+struct ScheduledTasksPage : ScheduledTasksPageT<ScheduledTasksPage, implementation::ScheduledTasksPage> {};
 
 }  // namespace winrt::Winchisel::factory_implementation

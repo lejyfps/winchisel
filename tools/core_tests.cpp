@@ -118,6 +118,24 @@ int main() {
         expect(!parse_uwp_startup_state(3).has_value(), "uwp unknown state");
         expect(is_startup_trigger(8) && is_startup_trigger(9), "boot and logon triggers");
         expect(!is_startup_trigger(1) && !is_startup_trigger(7) && !is_startup_trigger(0), "non-startup triggers");
+        {
+            StartupEntry ms_task{"task:\\Microsoft\\Windows\\Update\\Scheduler", "Scheduler", "", "", "\\Microsoft\\Windows\\Update\\Scheduler", StartupLocation::scheduled_task, true};
+            StartupEntry sys32{"reg:user:SecurityHealth", "SecurityHealth", "C:\\Windows\\System32\\SecurityHealthSystray.exe", "", "SecurityHealth", StartupLocation::registry_run_user, true};
+            StartupEntry third_party{"reg:user:Spotify", "Spotify", "C:\\Users\\User\\AppData\\Roaming\\Spotify\\Spotify.exe", "", "Spotify", StartupLocation::registry_run_user, true};
+            StartupEntry folder_item{"folder:user:app.lnk", "app", "C:\\Tools\\app.exe", "", "app.lnk", StartupLocation::folder_user, true};
+            expect(is_microsoft_startup_entry(ms_task), "microsoft task path");
+            expect(is_microsoft_startup_entry(sys32), "system32 command");
+            expect(!is_microsoft_startup_entry(third_party), "third party command");
+            expect(!is_microsoft_startup_entry(folder_item), "folder item");
+            StartupEntry run_key_detail{"reg:user:Discord", "Discord", "C:\\Program Files\\Discord\\Discord.exe", "Software\\Microsoft\\Windows\\CurrentVersion\\Run", "Discord", StartupLocation::registry_run_user, true};
+            StartupEntry folder_detail{"folder:user:chat.lnk", "chat", "C:\\Tools\\chat.exe", "C:\\Users\\U\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup", "chat.lnk", StartupLocation::folder_user, true};
+            StartupEntry uwp_detail{"uwp:SpotifyAB.SpotifyMusic_zpdnekdrzrea0:Startup", "SpotifyAB.SpotifyMusic_zpdnekdrzrea0 (Startup)", "SpotifyAB.SpotifyMusic_zpdnekdrzrea0", "HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppModel\\SystemAppData\\SpotifyAB.SpotifyMusic_zpdnekdrzrea0", "SpotifyAB.SpotifyMusic_zpdnekdrzrea0|Startup", StartupLocation::uwp_task, true};
+            expect(!is_microsoft_startup_entry(run_key_detail), "run key path is not microsoft");
+            expect(!is_microsoft_startup_entry(folder_detail), "startup folder path is not microsoft");
+            expect(!is_microsoft_startup_entry(uwp_detail), "appmodel hive path is not microsoft");
+            StartupEntry plain{"id", "name", "cmd", "detail", "key", StartupLocation::registry_run_user, true};
+            expect(plain.publisher.empty() && plain.file_path.empty() && plain.task_state == -1, "entry extra defaults");
+        }
         expect(is_new_tweak("gaming-gpu-amd-power") && is_new_tweak("privacy-disable-autologger"), "new tweak ids");
         expect(!is_new_tweak("gaming-game-mode") && !is_new_tweak(""), "old tweak ids");
         expect(k_new_tweaks_version == std::string_view{"1.0.7"}, "new tweaks version");

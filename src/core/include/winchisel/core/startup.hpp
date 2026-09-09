@@ -33,6 +33,14 @@ struct StartupEntry {
     std::string key;
     StartupLocation location{};
     bool enabled{};
+    // Optional extras with defaults so existing initializers keep working:
+    // publisher from the executable's version info (empty when unknown),
+    // file path backing the entry for "open location" (empty when none),
+    // scheduler state for tasks (-1 when not a task, else TASK_STATE:
+    // 0 unknown, 1 disabled, 2 queued, 3 ready, 4 running).
+    std::string publisher{};
+    int task_state{-1};
+    std::string file_path{};
 };
 
 struct StartupScan {
@@ -80,6 +88,22 @@ inline std::optional<bool> parse_uwp_startup_state(std::uint32_t state) {
         case 1: return false;
         default: return std::nullopt;
     }
+}
+
+// Heuristic for the "hide Microsoft entries" filter: matches first-party
+// locations (task paths below \Microsoft, commands from System32/SysWOW64
+// or below a Microsoft path). Only command and key are tested: detail holds
+// source paths (Run key, startup folder, AppModel hive) that legitimately
+// contain "Microsoft\Windows" for every entry. Third-party software rarely
+// lives in the matched locations, and the filter only hides rows, never
+// changes state.
+inline bool is_microsoft_startup_entry(StartupEntry const& entry) {
+    std::string haystack = entry.command + '|' + entry.key;
+    for (auto& c : haystack) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return haystack.find("microsoft") != std::string::npos || haystack.find("system32") != std::string::npos ||
+        haystack.find("syswow64") != std::string::npos;
 }
 
 }  // namespace winchisel::core

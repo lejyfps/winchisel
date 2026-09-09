@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass ScheduledTasksPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        ScheduledTasksPage();
+    }
+}

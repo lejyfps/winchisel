@@ -5,18 +5,23 @@
 #include "com_apartment.hpp"
 
 #include <Windows.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <taskschd.h>
 #include <comdef.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cwctype>
 #include <filesystem>
 #include <iterator>
+#include <optional>
+#include <vector>
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "taskschd.lib")
+#pragma comment(lib, "version.lib")
 
 namespace winchisel::platform {
 namespace {
@@ -54,6 +59,45 @@ std::wstring to_lower(std::wstring_view text) {
     std::wstring lowered(text);
     std::ranges::transform(lowered, lowered.begin(), towlower);
     return lowered;
+}
+
+std::wstring trim_quotes(std::wstring text) {
+    while (!text.empty() && (text.front() == L'"' || text.front() == L'\'' || text.front() == L' '))
+        text.erase(text.begin());
+    while (!text.empty() && (text.back() == L'"' || text.back() == L'\'' || text.back() == L' '))
+        text.pop_back();
+    return text;
+}
+
+// Extracts the executable backing a startup command: expands environment
+// variables and cuts arguments after ".exe". Returns nullopt when no
+// existing file results, so callers never show a dead "open location".
+std::optional<std::wstring> extract_executable(std::wstring command) {
+    command = trim_quotes(std::move(command));
+    if (command.empty()) return std::nullopt;
+    wchar_t expanded[32768]{};
+    if (ExpandEnvironmentStringsW(command.c_str(), expanded, static_cast<DWORD>(std::size(expanded))) != 0 && expanded[0] != L'\0')
+        command = trim_quotes(expanded);
+    const auto dot = to_lower(command).find(L".exe");
+    if (dot == std::wstring::npos) return std::nullopt;
+    auto exe = trim_quotes(command.substr(0, dot + 4));
+    if (exe.empty() || GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) return std::nullopt;
+    return exe;
+}
+
+std::string read_publisher(std::wstring const& exe_path) {
+    DWORD unused{};
+    const DWORD size = GetFileVersionInfoSizeW(exe_path.c_str(), &unused);
+    if (size == 0 || size > 4 * 1024 * 1024) return {};
+    std::vector<std::uint8_t> data(size);
+    if (!GetFileVersionInfoW(exe_path.c_str(), 0, size, data.data())) return {};
+    for (auto const* field : {L"\\StringFileInfo\\040904B0\\CompanyName", L"\\StringFileInfo\\040904B0\\FileDescription"}) {
+        wchar_t* text{};
+        UINT length{};
+        if (VerQueryValueW(data.data(), field, reinterpret_cast<void**>(&text), &length) && text != nullptr && length > 1)
+            return to_utf8({text, length - 1});
+    }
+    return {};
 }
 
 // Registry Run/RunOnce source descriptors for the scan.
@@ -437,6 +481,14 @@ winchisel::core::Result<std::vector<StartupEntry>> scan_startup_entries() {
     scan_startup_folder(false, entries);
     scan_startup_folder(true, entries);
     scan_uwp_tasks(entries);
+    std::ranges::sort(entries, [](StartupEntry const& left, StartupEntry const& right) {
+        return to_lower(to_wide(left.name)) < to_lower(to_wide(right.name));
+    });
+    return entries;
+}
+
+winchisel::core::Result<std::vector<StartupEntry>> scan_startup_tasks() {
+    std::vector<StartupEntry> entries;
     scan_scheduled_tasks(entries);
     std::ranges::sort(entries, [](StartupEntry const& left, StartupEntry const& right) {
         return to_lower(to_wide(left.name)) < to_lower(to_wide(right.name));

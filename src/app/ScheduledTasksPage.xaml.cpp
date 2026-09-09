@@ -1,12 +1,12 @@
 #include "pch.h"
 #include "AsyncSupport.hpp"
 #include "Localization.hpp"
-#include "StartupPage.xaml.h"
+#include "ScheduledTasksPage.xaml.h"
 #include "winchisel/platform/startup.hpp"
 #include "winchisel/platform/system.hpp"
 
-#if __has_include("StartupPage.g.cpp")
-#include "StartupPage.g.cpp"
+#if __has_include("ScheduledTasksPage.g.cpp")
+#include "ScheduledTasksPage.g.cpp"
 #endif
 
 #include <algorithm>
@@ -16,28 +16,8 @@ using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 
 namespace winrt::Winchisel::implementation {
-void StartupPage::show_write_error(std::string const& detail){auto message=detail.empty()?"A Windows setting could not be changed. See %APPDATA%\\Winchisel\\logs\\winchisel.log for details.":detail;ResultBar().Title(L"Could not apply setting");ResultBar().Message(to_hstring(message));ResultBar().Severity(Controls::InfoBarSeverity::Error);ResultBar().IsOpen(true);winchisel::platform::boot_log(("startup UI: "+message).c_str());}
+void ScheduledTasksPage::show_write_error(std::string const& detail){auto message=detail.empty()?"A Windows setting could not be changed. See %APPDATA%\\Winchisel\\logs\\winchisel.log for details.":detail;ResultBar().Title(L"Could not apply setting");ResultBar().Message(to_hstring(message));ResultBar().Severity(Controls::InfoBarSeverity::Error);ResultBar().IsOpen(true);winchisel::platform::boot_log(("scheduled tasks UI: "+message).c_str());}
 namespace {
-
-hstring location_label(winchisel::core::StartupLocation location) {
-    switch (location) {
-        case winchisel::core::StartupLocation::registry_run_user:
-        case winchisel::core::StartupLocation::registry_run_machine:
-        case winchisel::core::StartupLocation::registry_runonce_user:
-        case winchisel::core::StartupLocation::registry_runonce_machine:
-        case winchisel::core::StartupLocation::registry_run32_machine:
-        case winchisel::core::StartupLocation::registry_runonce32_machine:
-            return winchisel::ui::tr(L"Registry");
-        case winchisel::core::StartupLocation::folder_user:
-        case winchisel::core::StartupLocation::folder_machine:
-            return winchisel::ui::tr(L"Folder");
-        case winchisel::core::StartupLocation::uwp_task:
-            return winchisel::ui::tr(L"App");
-        case winchisel::core::StartupLocation::scheduled_task:
-            return winchisel::ui::tr(L"Scheduled task");
-    }
-    return winchisel::ui::tr(L"Registry");
-}
 
 Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control) {
     auto card = Controls::Border();
@@ -75,7 +55,7 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
 
 }  // namespace
 
-StartupPage::StartupPage() {
+ScheduledTasksPage::ScheduledTasksPage() {
     InitializeComponent();
     Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(SortBox(), winchisel::ui::tr(L"Sort by"));
     for (auto const& option : {winchisel::ui::tr(L"Name"), winchisel::ui::tr(L"Status"), winchisel::ui::tr(L"Path")}) {
@@ -85,38 +65,38 @@ StartupPage::StartupPage() {
     }
     SortBox().SelectedIndex(0);
     HideMicrosoft().Content(box_value(winchisel::ui::tr(L"Hide Microsoft entries")));
-    Status().Text(winchisel::ui::tr(L"Loading startup entries..."));
+    Status().Text(winchisel::ui::tr(L"Loading scheduled tasks..."));
     submit([] { return winchisel::core::Result<void>{}; });
 }
 
-void StartupPage::SortBox_SelectionChanged(Windows::Foundation::IInspectable const&,
+void ScheduledTasksPage::SortBox_SelectionChanged(Windows::Foundation::IInspectable const&,
     Controls::SelectionChangedEventArgs const&) {
     if (loading_) return;
     sort_mode_ = SortBox().SelectedIndex();
     render_list(current_view());
 }
 
-void StartupPage::HideMicrosoft_Changed(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+void ScheduledTasksPage::HideMicrosoft_Changed(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
     if (loading_) return;
     hide_microsoft_ = winrt::unbox_value_or<bool>(HideMicrosoft().IsChecked(), false);
     render_list(current_view());
 }
 
-void StartupPage::Refresh_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+void ScheduledTasksPage::Refresh_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
     submit([] { return winchisel::core::Result<void>{}; });
 }
 
-void StartupPage::Search_TextChanged(Windows::Foundation::IInspectable const&,
+void ScheduledTasksPage::Search_TextChanged(Windows::Foundation::IInspectable const&,
     Controls::AutoSuggestBoxTextChangedEventArgs const&) {
     apply_filter();
 }
 
-void StartupPage::submit(std::function<winchisel::core::Result<void>()> change) {
+void ScheduledTasksPage::submit(std::function<winchisel::core::Result<void>()> change) {
     pending_changes_.push_back(std::move(change));
     process_changes();
 }
 
-winrt::fire_and_forget StartupPage::process_changes() {
+winrt::fire_and_forget ScheduledTasksPage::process_changes() {
     const auto weak = get_weak();
     winrt::Microsoft::UI::Dispatching::DispatcherQueue queue{nullptr};
     try { queue = DispatcherQueue(); } catch (...) {}
@@ -138,7 +118,7 @@ winrt::fire_and_forget StartupPage::process_changes() {
             }
             if (!failure.empty()) break;
             co_await winrt::resume_background();
-            auto scan = winchisel::platform::scan_startup_entries();
+            auto scan = winchisel::platform::scan_startup_tasks();
             co_await ui;
             if (scan) {
                 entries_ = std::move(*scan);
@@ -165,7 +145,7 @@ winrt::fire_and_forget StartupPage::process_changes() {
     }
 }
 
-void StartupPage::load_entries() {
+void ScheduledTasksPage::load_entries() {
     loading_ = true;
     render_list(current_view());
     loading_ = false;
@@ -173,7 +153,7 @@ void StartupPage::load_entries() {
     apply_filter();
 }
 
-std::vector<winchisel::core::StartupEntry> StartupPage::current_view() const {
+std::vector<winchisel::core::StartupEntry> ScheduledTasksPage::current_view() const {
     std::vector<winchisel::core::StartupEntry> view;
     for (auto const& entry : entries_) {
         if (hide_microsoft_ && winchisel::core::is_microsoft_startup_entry(entry)) continue;
@@ -191,14 +171,14 @@ std::vector<winchisel::core::StartupEntry> StartupPage::current_view() const {
         });
     } else if (sort_mode_ == 2) {
         std::ranges::sort(view, [&](auto const& left, auto const& right) {
-            if (left.detail != right.detail) return lower_name(left.detail) < lower_name(right.detail);
+            if (left.key != right.key) return lower_name(left.key) < lower_name(right.key);
             return lower_name(left.name) < lower_name(right.name);
         });
     }
     return view;
 }
 
-void StartupPage::render_list(std::vector<winchisel::core::StartupEntry> const& view) {
+void ScheduledTasksPage::render_list(std::vector<winchisel::core::StartupEntry> const& view) {
     rows_.clear();
     Items().Children().Clear();
     for (auto const& entry : view) {
@@ -212,14 +192,10 @@ void StartupPage::render_list(std::vector<winchisel::core::StartupEntry> const& 
         const auto index = rows_.size();
         rows_.push_back({entry, toggle, nullptr});
         toggle.Toggled([this, index](auto&&, auto&&) { save_entry(index); });
-        std::string description = to_string(location_label(entry.location));
+        std::string description = to_string(winchisel::ui::tr(L"Scheduled task"));
         if (!entry.detail.empty()) {
             description += " | ";
             description += entry.detail;
-        }
-        if (!entry.command.empty() && entry.command != entry.name) {
-            description += " | ";
-            description += entry.command;
         }
         auto card = setting_card(to_hstring(entry.name), to_hstring(description), toggle);
         rows_.back().card = card;
@@ -230,7 +206,7 @@ void StartupPage::render_list(std::vector<winchisel::core::StartupEntry> const& 
     apply_filter();
 }
 
-void StartupPage::save_entry(std::size_t index) {
+void ScheduledTasksPage::save_entry(std::size_t index) {
     if (loading_ || index >= rows_.size()) return;
     auto entry = rows_[index].entry;
     const bool enabled = rows_[index].control.IsOn();
@@ -239,7 +215,7 @@ void StartupPage::save_entry(std::size_t index) {
     });
 }
 
-void StartupPage::apply_filter() {
+void ScheduledTasksPage::apply_filter() {
     auto query = to_string(Search().Text());
     std::ranges::transform(query, query.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     for (auto const& row : rows_) {
@@ -251,8 +227,8 @@ void StartupPage::apply_filter() {
     }
 }
 
-void StartupPage::render_status() {
-    Status().Text(hstring{std::to_wstring(entries_.size()) + L" " + std::wstring(winchisel::ui::tr(L"startup entries"))});
+void ScheduledTasksPage::render_status() {
+    Status().Text(hstring{std::to_wstring(entries_.size()) + L" " + std::wstring(winchisel::ui::tr(L"scheduled tasks"))});
 }
 
 }  // namespace winrt::Winchisel::implementation
