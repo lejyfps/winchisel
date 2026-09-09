@@ -1,0 +1,50 @@
+# Submits Winchisel to winget-pkgs after every GitHub release.
+#
+# Setup (once):
+# 1. Create a classic GitHub token with the public_repo scope:
+#    https://github.com/settings/tokens (classic, NOT fine-grained - komac
+#    cannot open PRs with fine-grained tokens).
+# 2. Store it as repository secret WINGET_GITHUB_TOKEN:
+#    Repo settings > Secrets and variables > Actions > New repository secret.
+# 3. Do the FIRST submission manually, because the package does not exist yet
+#    (update only works for existing packages):
+#      tools\winget-submit.cmd <version> --new
+#    After that PR is merged, every published GitHub release triggers this
+#    workflow and opens the version-update PR automatically.
+#
+# If the package id ever changes, update WINGET_PACKAGE_ID below.
+
+name: Submit to winget
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  WINGET_PACKAGE_ID: lejy.Winchisel
+
+jobs:
+  winget:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install komac
+        shell: powershell
+        run: winget install -e --id Komac.Komac --silent --accept-source-agreements --accept-package-agreements
+
+      - name: Submit manifest update to winget-pkgs
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+        run: |
+          if (-not $env:GITHUB_TOKEN) { throw 'WINGET_GITHUB_TOKEN secret is not configured. See .github/workflows/winget.yml header.' }
+          $tag = "${{ github.event.release.tag_name }}"
+          $version = $tag.TrimStart("v")
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Unexpected tag format: $tag" }
+          $url = "https://github.com/lejyfps/winchisel/releases/download/$tag/Winchisel-Setup-x64.exe"
+          Write-Output "Submitting $env:WINGET_PACKAGE_ID $version"
+          Write-Output "URL: $url"
+          komac update $env:WINGET_PACKAGE_ID --version $version --urls $url --submit
