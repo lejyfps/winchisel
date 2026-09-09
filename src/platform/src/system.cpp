@@ -76,6 +76,28 @@ bool is_user_an_admin() {
     return admin == TRUE;
 }
 
+// CommandLineToArgvW-compatible quoting: wraps in quotes, doubles
+// backslashes before quotes and at the end so paths with spaces, trailing
+// backslashes, or embedded quotes round-trip exactly.
+std::wstring quote_arg(std::wstring_view arg) {
+    std::wstring out;
+    out.push_back(L'"');
+    std::size_t backslashes{};
+    for (const wchar_t c : arg) {
+        if (c == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        if (c == L'"') out.append(backslashes * 2 + 1, L'\\');
+        else out.append(backslashes, L'\\');
+        backslashes = 0;
+        out.push_back(c);
+    }
+    out.append(backslashes * 2, L'\\');
+    out.push_back(L'"');
+    return out;
+}
+
 bool restart_elevated() {
     const auto path = exe_path();
     if (path.empty()) {
@@ -88,7 +110,7 @@ bool restart_elevated() {
         std::wstring host(host_size, L'\0');
         if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), host_size)) {
             if (!host.empty() && host.back() == L'\0') host.pop_back();
-            arguments = L"--portable-host \"" + host + L"\"";
+            if (!host.empty()) arguments = L"--portable-host " + quote_arg(host);
         }
     }
     const INT_PTR rc = reinterpret_cast<INT_PTR>(ShellExecuteW(
@@ -120,15 +142,26 @@ std::optional<std::wstring> autostart_host() {
 }
 
 std::wstring autostart_command() {
-    const auto host = autostart_host();
-    const auto path = host ? *host : exe_path().wstring();
-    return L"\"" + path + L"\"";
+    // Portable launches keep a self-referential --portable-host marker so the
+    // updater still recognizes the installation after a reboot. The bootstrap
+    // stub ignores unknown arguments, so this is safe to pass.
+    if (auto host = autostart_host(); host && !host->empty()) {
+        return quote_arg(*host) + L" --portable-host " + quote_arg(*host);
+    }
+    return quote_arg(exe_path().wstring());
 }
 
-bool command_matches_autostart(std::wstring value) {
-    while (!value.empty() && value.front() == L'"') value.erase(value.begin());
-    if (!value.empty() && value.back() == L'"') value.pop_back();
-    const auto stored = std::filesystem::path(value).lexically_normal();
+bool command_matches_autostart(std::wstring const& value) {
+    int count{};
+    auto argv = CommandLineToArgvW(value.c_str(), &count);
+    if (!argv || count < 1) {
+        if (argv) LocalFree(argv);
+        return false;
+    }
+    const std::wstring program(argv[0]);
+    LocalFree(argv);
+    if (program.empty()) return false;
+    const auto stored = std::filesystem::path(program).lexically_normal();
     if (stored == exe_path().lexically_normal()) return true;
     if (auto host = autostart_host()) return stored == std::filesystem::path(*host).lexically_normal();
     return false;
@@ -359,7 +392,7 @@ void emit_lines(std::string& pending, ProtectionProgress const& progress) {
     }
 }
 
-winchisel::core::Result<void> run_hidden(std::wstring command, char const* message_key) {
+winchisel::core::Result<void> run_hidden(std::wstring command, char const* message_key, DWORD timeout_ms = 10 * 60 * 1000) {
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESHOWWINDOW;
@@ -368,7 +401,7 @@ winchisel::core::Result<void> run_hidden(std::wstring command, char const* messa
     if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
         return fail(message_key, "Failed to start process");
     }
-    const auto waited = detail::wait_process(process.hProcess, 30 * 60 * 1000);
+    const auto waited = detail::wait_process(process.hProcess, timeout_ms);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     if (waited.exit_code != 0) {
@@ -460,7 +493,7 @@ winchisel::core::Result<void> run_disk_cleanup() {
     // Keep this action equivalent to the Rust version. Component-store
     // /ResetBase is destructive (installed updates can no longer be removed)
     // and must never be hidden behind ordinary disk cleanup.
-    return run_hidden(L"cleanmgr.exe /d C: /VERYLOWDISK", "settings_disk_cleanup_failed");
+    return run_hidden(L"cleanmgr.exe /d C: /VERYLOWDISK", "settings_disk_cleanup_failed", 15 * 60 * 1000);
 }
 
 winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progress) {
@@ -529,13 +562,21 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
 
     // The imported scheme is named Winchisel.  powercfg prints its GUID as part
     // of the import result; activating that exact GUID avoids changing another
-    // existing plan with the same name.
-    const auto temp = std::filesystem::temp_directory_path(ec) / L"Winchisel.pow";
-    if (ec) return fail("power_plan_failed", "Unable to resolve the temp directory");
+    // existing plan with the same name. The temp copy uses a unique name so
+    // concurrent runs cannot collide on a fixed file name.
+    std::array<wchar_t, MAX_PATH> temp_dir{}, temp_seed{};
+    if (!GetTempPathW(static_cast<DWORD>(temp_dir.size()), temp_dir.data()) ||
+        !GetTempFileNameW(temp_dir.data(), L"wci", 0, temp_seed.data())) {
+        return fail("power_plan_failed", "Unable to create a temporary file");
+    }
+    const std::filesystem::path temp = std::wstring(temp_seed.data()) + L".pow";
     std::filesystem::copy_file(plan, temp, std::filesystem::copy_options::overwrite_existing, ec);
-    if (ec) return fail("power_plan_failed", "Unable to write temporary power plan: " + ec.message());
+    const auto copy_error = ec;
+    std::filesystem::remove(temp_seed.data(), ec);
+    ec.clear();
+    if (copy_error) return fail("power_plan_failed", "Unable to write temporary power plan: " + copy_error.message());
 
-    auto [waited, output] = detail::run_captured(L"powercfg.exe /import \"" + temp.wstring() + L"\"");
+    auto [waited, output] = detail::run_captured(L"powercfg.exe /import \"" + temp.wstring() + L"\"", 2 * 60 * 1000);
     std::filesystem::remove(temp, ec);
     if (waited.exit_code != 0) return fail("power_plan_failed", command_error("powercfg /import", waited, std::move(output)));
 
@@ -543,7 +584,7 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
     std::smatch match;
     if (!std::regex_search(output, match, guid_pattern)) return fail("power_plan_failed", "powercfg /import succeeded, but returned no power plan GUID. Output: " + output);
     const auto guid = match[1].str();
-    auto [activated, activation_output] = detail::run_captured(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()));
+    auto [activated, activation_output] = detail::run_captured(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()), 2 * 60 * 1000);
     if (activated.exit_code != 0) return fail("power_plan_failed", command_error("powercfg /setactive", activated, std::move(activation_output)));
     HKEY key{};
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Winchisel", 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
@@ -559,7 +600,7 @@ winchisel::core::Result<void> set_widgets_removed(bool enabled) {
     const auto command = enabled
         ? L"winget.exe uninstall --name \"Windows Web Experience Pack\" --exact --disable-interactivity"
         : L"winget.exe install --id 9MSSGKG348SP --source msstore --accept-package-agreements --accept-source-agreements --disable-interactivity";
-    return run_hidden(command, "widgets_failed");
+    return run_hidden(command, "widgets_failed", enabled ? 10 * 60 * 1000 : 30 * 60 * 1000);
 }
 
 winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
@@ -572,7 +613,7 @@ winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
     status = RegSetValueExW(key, L"DisabledComponents", 0, REG_DWORD, reinterpret_cast<BYTE const*>(&next), sizeof(next));
     RegCloseKey(key);
     if (status != ERROR_SUCCESS) return fail("teredo_failed", "Unable to update DisabledComponents: " + std::to_string(status));
-    auto command = run_hidden(enabled ? L"netsh.exe interface teredo set state disabled" : L"netsh.exe interface teredo set state default", "teredo_failed");
+    auto command = run_hidden(enabled ? L"netsh.exe interface teredo set state disabled" : L"netsh.exe interface teredo set state default", "teredo_failed", 2 * 60 * 1000);
     if (!command) {
         HKEY rollback_key{};
         if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters", 0,
@@ -586,13 +627,41 @@ winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
     return {};
 }
 
+// Tri-state BCD read: nullopt = the query itself failed, an empty inner
+// value = no useplatformclock entry present, otherwise the parsed state.
+// bcdedit localizes boolean words, so anything unrecognized is reported as
+// unknown instead of being claimed as enabled or disabled.
+std::optional<std::optional<bool>> query_hpet_state() {
+    auto [waited, output] = detail::run_captured(L"bcdedit.exe /enum {current}", 2 * 60 * 1000);
+    if (waited.exit_code != 0) return std::nullopt;
+    static const std::regex pattern(R"(useplatformclock\s+(\S+))", std::regex::icase);
+    std::smatch match;
+    if (!std::regex_search(output, match, pattern)) return std::optional<std::optional<bool>>{std::nullopt};
+    auto value = match[1].str();
+    std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    static constexpr std::string_view disabled_words[] = {
+        "false", "no", "0", "nein", "aus", "off", "non", "falso", "nee", "niet", "nem", "ei"};
+    static constexpr std::string_view enabled_words[] = {
+        "true", "yes", "1", "ja", "an", "on", "oui", "si", "sim", "evet"};
+    for (auto word : disabled_words) if (value == word) return std::optional<std::optional<bool>>{true};
+    for (auto word : enabled_words) if (value == word) return std::optional<std::optional<bool>>{false};
+    return std::optional<std::optional<bool>>{std::nullopt};
+}
+
 winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
     auto result = enabled
-        ? run_hidden(L"bcdedit.exe /set useplatformclock false", "hpet_failed")
-        : run_hidden(L"bcdedit.exe /deletevalue useplatformclock", "hpet_failed");
-    const auto state = read_extras_command_state();
-    if (!state.hpet_disabled) return std::unexpected(winchisel::core::Error{.detail = "HPET state could not be verified"});
-    if (*state.hpet_disabled != enabled) {
+        ? run_hidden(L"bcdedit.exe /set useplatformclock false", "hpet_failed", 2 * 60 * 1000)
+        : run_hidden(L"bcdedit.exe /deletevalue useplatformclock", "hpet_failed", 2 * 60 * 1000);
+    const auto state = query_hpet_state();
+    if (!state) return std::unexpected(winchisel::core::Error{.detail = "HPET state could not be verified"});
+    if (!*state) {
+        // No entry present: the expected outcome of deletevalue, but a
+        // failure when an explicit value was just written.
+        if (!enabled) return {};
+        if (!result) return result;
+        return std::unexpected(winchisel::core::Error{.detail = "HPET state did not change"});
+    }
+    if (**state != enabled) {
         if (!result) return result;
         return std::unexpected(winchisel::core::Error{.detail = "HPET state did not change"});
     }
@@ -611,7 +680,14 @@ ExtrasCommandState read_extras_command_state() {
     const bool has_saved_guid=RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Winchisel",L"PowerPlanGuid",RRF_RT_REG_SZ,nullptr,saved_guid.data(),&saved_size)==ERROR_SUCCESS;
     std::string expected;
     if(has_saved_guid){const auto chars=WideCharToMultiByte(CP_UTF8,0,saved_guid.data(),-1,nullptr,0,nullptr,nullptr);if(chars>1){expected.resize(chars);WideCharToMultiByte(CP_UTF8,0,saved_guid.data(),-1,expected.data(),chars,nullptr,nullptr);expected.pop_back();}}
-    state.power_plan_active = power_code == 0 && !expected.empty() && power.find(expected)!=std::string::npos;
+    state.power_plan_active = false;
+    if (power_code == 0 && !expected.empty()) {
+        auto haystack = power;
+        std::ranges::transform(haystack, haystack.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        auto needle = expected;
+        std::ranges::transform(needle, needle.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        state.power_plan_active = haystack.find(needle) != std::string::npos;
+    }
     HKEY widgets{};
     state.widgets_removed = true;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Data", 0, KEY_READ, &widgets) == ERROR_SUCCESS) {
@@ -629,17 +705,10 @@ ExtrasCommandState read_extras_command_state() {
         }
         RegCloseKey(widgets);
     }
-    const auto [hpet_code, hpet] = capture(L"bcdedit.exe /enum {current}");
-    if (hpet_code == 0) {
-        const std::regex hpet_pattern(R"(useplatformclock\s+(\S+))", std::regex::icase);
-        std::smatch match;
-        if (std::regex_search(hpet, match, hpet_pattern)) {
-            auto value = match[1].str();
-            std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            state.hpet_disabled = value == "false" || value == "no" || value == "0" || value == "nein" || value == "aus";
-        } else {
-            state.hpet_disabled = false;
-        }
+    if (const auto hpet = query_hpet_state()) {
+        // Absent or unrecognized entries stay unknown instead of being
+        // claimed as enabled; callers already handle nullopt.
+        state.hpet_disabled = *hpet;
     }
     return state;
 }

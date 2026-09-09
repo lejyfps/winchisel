@@ -7,8 +7,6 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
-#include <mutex>
-#include <unordered_map>
 
 #pragma comment(lib, "dxgi.lib")
 
@@ -41,24 +39,26 @@ DWORD reg_dword(HKEY root, const wchar_t* path, const wchar_t* value) {
 }
 
 std::wstring reg_sz(HKEY root, const wchar_t* path, const wchar_t* value) {
-    static std::mutex mutex;
-    static std::unordered_map<std::wstring, std::wstring> cache;
-    const std::wstring cache_key = (root == HKEY_LOCAL_MACHINE ? L"HKLM\\" : L"HKCU\\") + std::wstring(path) + L"\\" + value;
-    std::scoped_lock lock(mutex);
-    if (const auto found = cache.find(cache_key); found != cache.end()) return found->second;
+    // No cache: a handful of reads per refresh is cheap, and cached values
+    // would go stale (e.g. after a feature update) without any invalidation.
     HKEY key{};
     if (RegOpenKeyExW(root, path, 0, KEY_READ, &key) != ERROR_SUCCESS) {
         return {};
     }
-    wchar_t buf[512]{};
-    DWORD size = sizeof(buf);
-    DWORD type = 0;
-    const auto st = RegQueryValueExW(key, value, nullptr, &type, reinterpret_cast<LPBYTE>(buf), &size);
-    RegCloseKey(key);
-    if (st != ERROR_SUCCESS) {
+    DWORD type{}, size{};
+    if (RegQueryValueExW(key, value, nullptr, &type, nullptr, &size) != ERROR_SUCCESS ||
+        (type != REG_SZ && type != REG_EXPAND_SZ) || !size || size > 32768) {
+        RegCloseKey(key);
         return {};
     }
-    return cache.emplace(cache_key, buf).first->second;
+    std::wstring text(size / sizeof(wchar_t), L'\0');
+    const auto status = RegQueryValueExW(key, value, nullptr, &type, reinterpret_cast<LPBYTE>(text.data()), &size);
+    RegCloseKey(key);
+    if (status != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ)) {
+        return {};
+    }
+    while (!text.empty() && !text.back()) text.pop_back();
+    return text;
 }
 
 float cpu_usage() {
@@ -75,9 +75,17 @@ float cpu_usage() {
     static ULONGLONG prev_idle{};
     static ULONGLONG prev_kernel{};
     static ULONGLONG prev_user{};
+    static bool first_call = true;
     const auto i = u64(idle);
     const auto k = u64(kernel);
     const auto u = u64(user);
+    if (first_call) {
+        first_call = false;
+        prev_idle = i;
+        prev_kernel = k;
+        prev_user = u;
+        return 0.f;
+    }
     const auto di = i - prev_idle;
     const auto dt = (k - prev_kernel) + (u - prev_user);
     prev_idle = i;

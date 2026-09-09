@@ -1,7 +1,9 @@
 #include <windows.h>
 #include <compressapi.h>
+#include <bcrypt.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -11,6 +13,7 @@
 #include <vector>
 
 #pragma comment(lib, "cabinet.lib")
+#pragma comment(lib, "bcrypt.lib")
 
 namespace {
 #pragma pack(push, 1)
@@ -19,7 +22,7 @@ struct Footer { char magic[8]; std::uint64_t table_offset; std::uint64_t table_s
 static_assert(sizeof(Footer) == 28);
 constexpr char k_magic[] = "WCHBNDL2";
 
-struct File { std::filesystem::path source; std::string relative; std::uint64_t offset{}; std::uint64_t size{}; std::uint64_t compressed_size{}; std::filesystem::path packed; };
+struct File { std::filesystem::path source; std::string relative; std::uint64_t offset{}; std::uint64_t size{}; std::uint64_t compressed_size{}; std::filesystem::path packed; std::array<std::byte, 32> hash{}; };
 
 // Mirrors the unpacker limits so the build fails instead of exhausting RAM
 // on an unexpectedly large stage directory.
@@ -56,12 +59,29 @@ bool append(std::ofstream& out, std::filesystem::path const& source) {
     return input.eof() && static_cast<bool>(out);
 }
 
+bool sha256_bytes(std::byte const* data, std::size_t size, std::array<std::byte, 32>& digest) {
+    BCRYPT_ALG_HANDLE algorithm{};
+    BCRYPT_HASH_HANDLE hash{};
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
+    DWORD object_size{}, returned{};
+    bool ok = BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size),
+                                sizeof(object_size), &returned, 0) >= 0 && object_size != 0;
+    std::vector<std::byte> object(object_size);
+    ok = ok && BCryptCreateHash(algorithm, &hash, reinterpret_cast<BYTE*>(object.data()), object_size, nullptr, 0, 0) >= 0;
+    ok = ok && (size == 0 || BCryptHashData(hash, reinterpret_cast<BYTE*>(const_cast<std::byte*>(data)), static_cast<ULONG>(size), 0) >= 0);
+    ok = ok && BCryptFinishHash(hash, reinterpret_cast<BYTE*>(digest.data()), static_cast<ULONG>(digest.size()), 0) >= 0;
+    if (hash) BCryptDestroyHash(hash);
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    return ok;
+}
+
 bool compress_file(COMPRESSOR_HANDLE compressor, File& file) {
     if (file.size > k_max_file_size) { std::cerr << "File too large: " << file.relative << "\n"; return false; }
     std::ifstream input(file.source, std::ios::binary);
     std::vector<std::byte> raw(static_cast<std::size_t>(file.size));
     input.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
     if (!input && !input.eof()) return false;
+    if (!sha256_bytes(raw.data(), raw.size(), file.hash)) return false;
     SIZE_T required{};
     Compress(compressor, raw.data(), raw.size(), nullptr, 0, &required);
     if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !required) return false;
@@ -105,7 +125,7 @@ int bundle(std::filesystem::path const& stub, std::filesystem::path const& stage
     }
     std::uint64_t table_size = sizeof(std::uint32_t);
     for (auto const& file : files) {
-        std::uint64_t entry = sizeof(std::uint32_t) + file.relative.size() + sizeof(std::uint64_t) * 3;
+        std::uint64_t entry = sizeof(std::uint32_t) + file.relative.size() + sizeof(std::uint64_t) * 3 + 32;
         if (!checked_add(table_size, entry, table_size)) return 2;
     }
     const auto stub_size = std::filesystem::file_size(stub, error); if (error) return 2;
@@ -118,6 +138,7 @@ int bundle(std::filesystem::path const& stub, std::filesystem::path const& stage
     for (auto const& file : files) {
         const auto length = static_cast<std::uint32_t>(file.relative.size());
         if (!write(out, &length, sizeof(length)) || !write(out, file.relative.data(), length) || !write(out, &file.offset, sizeof(file.offset)) || !write(out, &file.size, sizeof(file.size)) || !write(out, &file.compressed_size, sizeof(file.compressed_size))) return 3;
+        if (!write(out, file.hash.data(), file.hash.size())) return 3;
     }
     for (auto const& file : files) {
         if (!append(out, file.packed)) return 3;

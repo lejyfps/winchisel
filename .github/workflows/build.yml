@@ -15,8 +15,6 @@ jobs:
   production-package:
     runs-on: windows-2025
     timeout-minutes: 45
-    env:
-      WINCHISEL_PLATFORM_TOOLSET: v143
     steps:
       - uses: actions/checkout@v4
 

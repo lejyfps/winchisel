@@ -2,6 +2,7 @@
 #include "portable_cache.hpp"
 #include <commctrl.h>
 #include <compressapi.h>
+#include <bcrypt.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 
@@ -16,6 +17,7 @@
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -26,7 +28,29 @@ namespace {
 #pragma pack(push, 1)
 struct Footer { char magic[8]; std::uint64_t table_offset; std::uint64_t table_size; std::uint32_t mode; };
 #pragma pack(pop)
-struct Entry { std::wstring path; std::uint64_t offset; std::uint64_t size; std::uint64_t compressed_size; };
+struct Entry { std::wstring path; std::uint64_t offset; std::uint64_t size; std::uint64_t compressed_size; std::array<std::byte, 32> hash{}; };
+
+bool sha256_bytes(std::byte const* data, std::size_t size, std::array<std::byte, 32>& digest) {
+    BCRYPT_ALG_HANDLE algorithm{};
+    BCRYPT_HASH_HANDLE hash{};
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
+    DWORD object_size{}, returned{};
+    bool ok = BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<BYTE*>(&object_size),
+                                sizeof(object_size), &returned, 0) >= 0 && object_size != 0;
+    std::vector<std::byte> object(object_size);
+    ok = ok && BCryptCreateHash(algorithm, &hash, reinterpret_cast<BYTE*>(object.data()), object_size, nullptr, 0, 0) >= 0;
+    ok = ok && (size == 0 || BCryptHashData(hash, reinterpret_cast<BYTE*>(const_cast<std::byte*>(data)), static_cast<ULONG>(size), 0) >= 0);
+    ok = ok && BCryptFinishHash(hash, reinterpret_cast<BYTE*>(digest.data()), static_cast<ULONG>(digest.size()), 0) >= 0;
+    if (hash) BCryptDestroyHash(hash);
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    return ok;
+}
+
+bool same_hash(std::array<std::byte, 32> const& a, std::array<std::byte, 32> const& b) {
+    unsigned diff{};
+    for (std::size_t i{}; i < a.size(); ++i) diff |= static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]);
+    return diff == 0;
+}
 
 constexpr wchar_t k_uninstall_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Winchisel";
 
@@ -47,10 +71,10 @@ bool unpack(std::filesystem::path const& self,std::filesystem::path const& targe
     const auto table_end=footer.table_offset+footer.table_size;
     input.seekg(static_cast<std::streamoff>(footer.table_offset));std::uint32_t count{};input.read(reinterpret_cast<char*>(&count),sizeof(count));if(!input||count>10000||footer.table_size<4)return false;std::vector<Entry> entries;const auto payload_end=file_end-sizeof(Footer);const auto payload_begin=table_end;
     std::uint64_t table_used=4,total_raw{};
-    for(std::uint32_t i{};i<count;++i){std::uint32_t length{};input.read(reinterpret_cast<char*>(&length),sizeof(length));if(!input||!length||length>32768)return false;table_used+=4ull+length+24ull;if(table_used>footer.table_size)return false;std::string raw(length,'\0');Entry entry{};input.read(raw.data(),length);input.read(reinterpret_cast<char*>(&entry.offset),sizeof(entry.offset));input.read(reinterpret_cast<char*>(&entry.size),sizeof(entry.size));input.read(reinterpret_cast<char*>(&entry.compressed_size),sizeof(entry.compressed_size));entry.path=utf8(raw);if(!input||!safe(entry.path)||entry.size>k_max_file||entry.compressed_size>k_max_file||total_raw>k_max_total-entry.size||entry.offset<payload_begin||entry.offset>payload_end||entry.compressed_size>payload_end-entry.offset)return false;total_raw+=entry.size;entries.push_back(std::move(entry));}
+    for(std::uint32_t i{};i<count;++i){std::uint32_t length{};input.read(reinterpret_cast<char*>(&length),sizeof(length));if(!input||!length||length>32768)return false;table_used+=4ull+length+24ull+32ull;if(table_used>footer.table_size)return false;std::string raw(length,'\0');Entry entry{};input.read(raw.data(),length);input.read(reinterpret_cast<char*>(&entry.offset),sizeof(entry.offset));input.read(reinterpret_cast<char*>(&entry.size),sizeof(entry.size));input.read(reinterpret_cast<char*>(&entry.compressed_size),sizeof(entry.compressed_size));{char hash[32]{};input.read(hash,sizeof(hash));for(int b{};b<32;++b)entry.hash[static_cast<std::size_t>(b)]=static_cast<std::byte>(hash[b]);}entry.path=utf8(raw);if(!input||!safe(entry.path)||entry.size>k_max_file||entry.compressed_size>k_max_file||total_raw>k_max_total-entry.size||entry.offset<payload_begin||entry.offset>payload_end||entry.compressed_size>payload_end-entry.offset)return false;total_raw+=entry.size;entries.push_back(std::move(entry));}
     if(table_used!=footer.table_size&&table_used>footer.table_size)return false;
     DECOMPRESSOR_HANDLE decompressor{};if(!CreateDecompressor(COMPRESS_ALGORITHM_XPRESS_HUFF,nullptr,&decompressor))return false;std::error_code error;std::filesystem::create_directories(target,error);if(error){CloseDecompressor(decompressor);return false;}
-    for(auto const& entry:entries){if(!winchisel::release::safe_destination(target,entry.path)){CloseDecompressor(decompressor);return false;}const auto file=target/entry.path;std::filesystem::create_directories(file.parent_path(),error);if(error){CloseDecompressor(decompressor);return false;}try{std::vector<std::byte> packed(static_cast<std::size_t>(entry.compressed_size)),raw(static_cast<std::size_t>(entry.size));input.clear();input.seekg(static_cast<std::streamoff>(entry.offset));input.read(reinterpret_cast<char*>(packed.data()),static_cast<std::streamsize>(packed.size()));SIZE_T written{};if(!input||!Decompress(decompressor,packed.data(),packed.size(),raw.data(),raw.size(),&written)||written!=raw.size()){CloseDecompressor(decompressor);return false;}std::ofstream output(file,std::ios::binary|std::ios::trunc);output.write(reinterpret_cast<char const*>(raw.data()),static_cast<std::streamsize>(raw.size()));if(!output){CloseDecompressor(decompressor);return false;}if(installed_paths)installed_paths->push_back(entry.path);}catch(...){CloseDecompressor(decompressor);return false;}}CloseDecompressor(decompressor);return true;
+    for(auto const& entry:entries){if(!winchisel::release::safe_destination(target,entry.path)){CloseDecompressor(decompressor);return false;}const auto file=target/entry.path;std::filesystem::create_directories(file.parent_path(),error);if(error){CloseDecompressor(decompressor);return false;}try{std::vector<std::byte> packed(static_cast<std::size_t>(entry.compressed_size)),raw(static_cast<std::size_t>(entry.size));input.clear();input.seekg(static_cast<std::streamoff>(entry.offset));input.read(reinterpret_cast<char*>(packed.data()),static_cast<std::streamsize>(packed.size()));SIZE_T written{};if(!input||!Decompress(decompressor,packed.data(),packed.size(),raw.data(),raw.size(),&written)||written!=raw.size()){CloseDecompressor(decompressor);return false;}std::array<std::byte,32> digest{};if(!sha256_bytes(raw.data(),raw.size(),digest)||!same_hash(digest,entry.hash)){CloseDecompressor(decompressor);return false;}std::ofstream output(file,std::ios::binary|std::ios::trunc);output.write(reinterpret_cast<char const*>(raw.data()),static_cast<std::streamsize>(raw.size()));output.close();if(!output){CloseDecompressor(decompressor);return false;}const auto attributes=GetFileAttributesW(file.c_str());if(attributes==INVALID_FILE_ATTRIBUTES||(attributes&FILE_ATTRIBUTE_REPARSE_POINT)){DeleteFileW(file.c_str());CloseDecompressor(decompressor);return false;}if(installed_paths)installed_paths->push_back(entry.path);}catch(...){CloseDecompressor(decompressor);return false;}}CloseDecompressor(decompressor);return true;
 }
 
 bool start(std::filesystem::path const& executable) { std::wstring command=L"\""+executable.wstring()+L"\"";STARTUPINFOW info{.cb=sizeof(info)};PROCESS_INFORMATION process{};if(!CreateProcessW(executable.c_str(),command.data(),nullptr,nullptr,FALSE,0,nullptr,executable.parent_path().c_str(),&info,&process))return false;CloseHandle(process.hThread);CloseHandle(process.hProcess);return true; }
@@ -78,4 +102,4 @@ int portable(std::filesystem::path const& self){
 }
 }
 
-int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int){const auto self=module_path();if(self.empty())return failure(L"The package path could not be determined.");if(std::wstring_view(GetCommandLineW()).find(L"--uninstall")!=std::wstring_view::npos)return uninstall(self);std::ifstream input(self,std::ios::binary|std::ios::ate);Footer footer{};input.seekg(-static_cast<std::streamoff>(sizeof(footer)),std::ios::end);input.read(reinterpret_cast<char*>(&footer),sizeof(footer));if(!input||std::string_view(footer.magic,8)!="WCHBNDL2")return failure(L"The embedded package is invalid.");return footer.mode==2?install(self):portable(self);}
+int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int){const auto self=module_path();if(self.empty())return failure(L"The package path could not be determined.");if(std::wstring_view(GetCommandLineW()).find(L"--uninstall")!=std::wstring_view::npos)return uninstall(self);std::ifstream input(self,std::ios::binary|std::ios::ate);Footer footer{};input.seekg(-static_cast<std::streamoff>(sizeof(footer)),std::ios::end);input.read(reinterpret_cast<char*>(&footer),sizeof(footer));if(!input||std::string_view(footer.magic,8)!="WCHBNDL2")return failure(L"The embedded package is invalid.");if(footer.mode==2)return install(self);if(footer.mode==1)return portable(self);return failure(L"The embedded package is invalid.");}

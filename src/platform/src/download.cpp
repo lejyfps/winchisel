@@ -18,7 +18,7 @@ using Clock = std::chrono::steady_clock;
 using StringSet = std::unordered_set<std::string>;
 
 struct ScanData { StringSet ids, registry; Clock::time_point at{}; };
-struct CommandResult { DWORD exit_code{}; std::string output; };
+struct CommandResult { DWORD exit_code{}; bool timed_out{}; std::string output; };
 std::mutex cache_mutex;
 ScanData cache;
 bool cache_valid{};
@@ -33,9 +33,9 @@ std::wstring wide(std::string_view text) {
     return MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),static_cast<int>(text.size()),result.data(),count)?result:std::wstring{};
 }
 
-winchisel::core::Result<CommandResult> run_hidden(std::wstring command) {
-    auto [waited, output] = detail::run_captured(std::move(command));
-    return CommandResult{waited.exit_code, std::move(output)};
+winchisel::core::Result<CommandResult> run_hidden(std::wstring command, DWORD timeout_ms = 10 * 60 * 1000) {
+    auto [waited, output] = detail::run_captured(std::move(command), timeout_ms);
+    return CommandResult{waited.exit_code, waited.timed_out, std::move(output)};
 }
 
 StringSet registry_display_names(HKEY root,std::wstring const& path) {
@@ -45,14 +45,14 @@ StringSet registry_display_names(HKEY root,std::wstring const& path) {
 
 winchisel::core::Result<StringSet> winget_ids() {
     std::array<wchar_t,MAX_PATH> temp{},path{};if(!GetTempPathW(static_cast<DWORD>(temp.size()),temp.data())||!GetTempFileNameW(temp.data(),L"wci",0,path.data()))return std::unexpected(error("Temporary export path unavailable"));
-    auto command=run_hidden(L"winget.exe export --output \""+std::wstring(path.data())+L"\" --accept-source-agreements --nowarn --disable-interactivity");
+    auto command=run_hidden(L"winget.exe export --output \""+std::wstring(path.data())+L"\" --accept-source-agreements --nowarn --disable-interactivity", 3 * 60 * 1000);
     std::string json;
     {
         std::ifstream input(path.data(),std::ios::binary);
         json.assign(std::istreambuf_iterator<char>(input),{});
     }
     DeleteFileW(path.data());
-    if(!command)return std::unexpected(command.error());if(command->exit_code!=0)return std::unexpected(error("winget export exited with "+std::to_string(command->exit_code)));
+    if(!command)return std::unexpected(command.error());if(command->exit_code!=0)return std::unexpected(error(command->timed_out?"winget export timed out":"winget export exited with "+std::to_string(command->exit_code)));
     StringSet result;static const std::regex id(R"json("PackageIdentifier"\s*:\s*"([^"]+)")json");for(std::sregex_iterator it(json.begin(),json.end(),id),end;it!=end;++it){auto value=(*it)[1].str();std::ranges::transform(value,value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});result.insert(std::move(value));}return result;
 }
 
@@ -64,11 +64,19 @@ winchisel::core::Result<ScanData> perform_scan() {
     return ScanData{std::move(*id_result),std::move(registry_result),Clock::now()};
 }
 
-bool contains(StringSet const& values,std::string_view needle,bool exact=false){std::string lower(needle);std::ranges::transform(lower,lower.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return std::ranges::any_of(values,[&](auto const& value){return exact?value==lower:value==lower||value.find(lower)!=std::string::npos||lower.find(value)!=std::string::npos;});}
+bool contains(StringSet const& values,std::string_view needle,bool exact=false){std::string lower(needle);std::ranges::transform(lower,lower.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(lower.empty())return false;return std::ranges::any_of(values,[&](auto const& value){
+    if(value==lower)return true;
+    if(exact||value.empty())return false;
+    // Substring in either direction, but short fragments must not match:
+    // a one-letter catalog token would hit almost anything, and a tiny
+    // registry fragment (e.g. "go", "it") would match unrelated catalogs.
+    if(lower.size()>=2&&value.find(lower)!=std::string::npos)return true;
+    return value.size()>=4&&lower.find(value)!=std::string::npos;
+});}
 }
 
 winchisel::core::Result<std::vector<bool>> scan_downloads_installed(std::span<winchisel::core::DownloadCatalogEntry const> catalog,bool force_refresh){ScanData data;{std::scoped_lock lock(cache_mutex);if(!force_refresh&&cache_valid&&Clock::now()-cache.at<std::chrono::minutes(10))data=cache;}if(data.at==Clock::time_point{}){auto scanned=perform_scan();if(!scanned)return std::unexpected(scanned.error());data=std::move(*scanned);std::scoped_lock lock(cache_mutex);cache=data;cache_valid=true;}std::vector<bool> result;result.reserve(catalog.size());for(auto const& item:catalog){bool installed=contains(data.registry,item.name);std::size_t start{};while(!installed&&start<item.winget_ids.size()){auto end=item.winget_ids.find('|',start);if(end==std::string_view::npos)end=item.winget_ids.size();installed=contains(data.ids,item.winget_ids.substr(start,end-start),true);start=end+1;}result.push_back(installed);}return result;}
 
-winchisel::core::Result<DownloadInstallResult> install_downloads(std::span<winchisel::core::DownloadCatalogEntry const* const> items){DownloadInstallResult result;for(auto item:items){auto end=item->winget_ids.find('|');auto id=item->winget_ids.substr(0,end);if(id.empty()){++result.failed;result.failure_details.push_back(std::string(item->name)+": no winget ID");continue;}auto command=run_hidden(L"winget.exe install --id \""+wide(id)+L"\" --exact --accept-package-agreements --accept-source-agreements --disable-interactivity");if(command&&command->exit_code==0){++result.succeeded;std::string installed(id);std::ranges::transform(installed,installed.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});std::scoped_lock lock(cache_mutex);if(cache_valid){cache.ids.insert(std::move(installed));cache.at=Clock::now();}}else{++result.failed;result.failure_details.push_back(std::string(item->name)+": "+(command?"winget exit "+std::to_string(command->exit_code):command.error().detail));}}return result;}
+winchisel::core::Result<DownloadInstallResult> install_downloads(std::span<winchisel::core::DownloadCatalogEntry const* const> items){DownloadInstallResult result;for(auto item:items){auto end=item->winget_ids.find('|');auto id=item->winget_ids.substr(0,end);if(id.empty()){++result.failed;result.failure_details.push_back(std::string(item->name)+": no winget ID");continue;}auto command=run_hidden(L"winget.exe install --id \""+wide(id)+L"\" --exact --accept-package-agreements --accept-source-agreements --disable-interactivity", 30 * 60 * 1000);if(command&&command->exit_code==0){++result.succeeded;std::string installed(id);std::ranges::transform(installed,installed.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});std::scoped_lock lock(cache_mutex);if(cache_valid){cache.ids.insert(std::move(installed));}}else{++result.failed;result.failure_details.push_back(std::string(item->name)+": "+(command?(command->timed_out?"winget timed out":"winget exit "+std::to_string(command->exit_code)):command.error().detail));}}return result;}
 
 }  // namespace winchisel::platform

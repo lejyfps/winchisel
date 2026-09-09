@@ -1,11 +1,14 @@
 #include "winchisel/core/i18n.hpp"
 
+#include <atomic>
 #include <unordered_map>
 
 namespace winchisel::core {
 namespace {
 
-Language g_language{Language::english};
+// Atomic so background workers (log lines, progress callbacks) can read the
+// language while the UI thread switches it without a data race.
+std::atomic<Language> g_language{Language::english};
 
 std::unordered_map<std::wstring, std::wstring> const& german() {
     static const std::unordered_map<std::wstring, std::wstring> table{
@@ -260,29 +263,30 @@ Table const& thai() {
 
 }  // namespace
 
-void set_ui_language(Language language) { g_language = language; }
-Language ui_language() { return g_language; }
+void set_ui_language(Language language) { g_language.store(language); }
+Language ui_language() { return g_language.load(); }
 
 std::wstring loc(std::wstring_view english) {
-    if (g_language == Language::english) return std::wstring(english);
-    auto const& table = g_language == Language::german ? german()
-        : g_language == Language::spanish ? spanish()
-        : g_language == Language::french ? french()
-        : g_language == Language::russian ? russian()
-        : g_language == Language::simplified_chinese ? simplified_chinese()
-        : g_language == Language::portuguese_brazil ? portuguese_brazil()
-        : g_language == Language::polish ? polish()
-        : g_language == Language::turkish ? turkish()
-        : g_language == Language::japanese ? japanese()
-        : g_language == Language::korean ? korean()
-        : g_language == Language::italian ? italian()
-        : g_language == Language::dutch ? dutch()
-        : g_language == Language::ukrainian ? ukrainian()
-        : g_language == Language::czech ? czech()
-        : g_language == Language::indonesian ? indonesian()
-        : g_language == Language::vietnamese ? vietnamese()
-        : g_language == Language::arabic ? arabic()
-        : g_language == Language::traditional_chinese ? traditional_chinese() : thai();
+    const auto language = g_language.load();
+    if (language == Language::english) return std::wstring(english);
+    auto const& table = language == Language::german ? german()
+        : language == Language::spanish ? spanish()
+        : language == Language::french ? french()
+        : language == Language::russian ? russian()
+        : language == Language::simplified_chinese ? simplified_chinese()
+        : language == Language::portuguese_brazil ? portuguese_brazil()
+        : language == Language::polish ? polish()
+        : language == Language::turkish ? turkish()
+        : language == Language::japanese ? japanese()
+        : language == Language::korean ? korean()
+        : language == Language::italian ? italian()
+        : language == Language::dutch ? dutch()
+        : language == Language::ukrainian ? ukrainian()
+        : language == Language::czech ? czech()
+        : language == Language::indonesian ? indonesian()
+        : language == Language::vietnamese ? vietnamese()
+        : language == Language::arabic ? arabic()
+        : language == Language::traditional_chinese ? traditional_chinese() : thai();
     if (auto it = table.find(std::wstring(english)); it != table.end()) return it->second;
     return std::wstring(english);
 }

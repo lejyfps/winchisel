@@ -53,6 +53,20 @@ int wmain(int argc, wchar_t** argv) {
     if (!updated_io || *updated_io != next_io || !restored) { std::cerr << "FAIL io priority roundtrip\n"; return 1; }
     std::cout << "ok io priority set and read\n";
 
+    if (!winchisel::platform::read_process_io_priority(0xFFFFFFFE)) {
+        std::cout << "ok io priority bogus pid\n";
+    } else {
+        std::cerr << "FAIL io priority bogus pid\n";
+        return 1;
+    }
+    const auto ifeo_missing = winchisel::platform::remove_ifeo_dword(L"WinchiselTestNonexistentHost_xyz", L"CpuPriorityClass");
+    if (ifeo_missing) {
+        std::cout << "ok ifeo remove missing\n";
+    } else {
+        std::cerr << "FAIL ifeo remove missing: " << ifeo_missing.error().detail << '\n';
+        return 1;
+    }
+
     {
         winchisel::platform::detail::ComApartment outer;
         if (!outer || !outer.owned) { std::cerr << "FAIL com outer\n"; return 1; }

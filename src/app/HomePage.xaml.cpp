@@ -43,7 +43,7 @@ winrt::fire_and_forget HomePage::Refresh() {
     const auto queue = DispatcherQueue();
     co_await winrt::resume_background();
     auto info = winchisel::platform::query_home_info();
-    (void)winchisel::ui::enqueue_safe(queue, [weak, info = std::move(info)] {
+    if (!winchisel::ui::enqueue_safe(queue, [weak, info = std::move(info)] {
         auto self = weak.get();
         if (!self) return;
         self->refresh_running_ = false;
@@ -74,7 +74,10 @@ winrt::fire_and_forget HomePage::Refresh() {
         self->ProcessCount().Text(winrt::to_hstring(info.process_count));
         self->CpuThreads().Text(winrt::to_hstring(info.cpu_cores));
         self->ComputerName().Text(winrt::to_hstring(info.computer_name));
-    });
+    })) {
+        refresh_running_ = false;
+        co_return;
+    }
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {

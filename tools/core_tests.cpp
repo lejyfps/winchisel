@@ -25,6 +25,16 @@ int main() {
     expect(!parse_settings_json(R"({"language":"\ud800","show_console":true})").show_console, "lone high surrogate rejected");
     expect(!parse_settings_json(R"({"language":"\udc00","show_console":true})").show_console, "lone low surrogate rejected");
     expect(!parse_settings_json(R"({"language":"\ud83dX","show_console":true})").show_console, "truncated pair rejected");
+    expect(!parse_settings_json(R"({"language":"\ud83d\ude00","show_console":true})").show_console == false, "surrogate pair keeps sibling values");
+    expect(!parse_settings_json(R"({"language":"Deutsch","show_console":true,"x":"\u00"})").show_console, "truncated escape rejected");
+    expect(!parse_settings_json(R"({"language":"Deutsch","show_console":true,"x":"\q"})").show_console, "bad escape rejected");
+    {
+        std::string deep;
+        for (int i{}; i < 20; ++i) deep += R"({"k":)";
+        deep += "true";
+        for (int i{}; i < 20; ++i) deep += "}";
+        expect(!parse_settings_json(deep).show_console, "deep nesting rejected");
+    }
     expect(parse_settings_json(std::string(70000, 'x')).show_console == settings_defaults().show_console, "oversized json rejected");
     auto parsed = parse_settings_json(R"({"language":"German","theme":"Dark","show_console":true,"check_updates_on_startup":false,"autostart_enabled":true})");
     expect(parsed.language == Language::german, "german language");

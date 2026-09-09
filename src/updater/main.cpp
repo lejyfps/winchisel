@@ -105,6 +105,37 @@ bool wait_for_process(std::wstring_view pid_text) {
     const auto open_error = GetLastError();
     if (open_error == ERROR_INVALID_PARAMETER) return true;
     if (open_error != ERROR_ACCESS_DENIED) return false;
+    // Middle tier: query-limited rights are often granted where waiting is
+    // not. Poll the exit code instead of enumerating the whole snapshot.
+    if (auto query = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+        const auto query_deadline = GetTickCount64() + k_wait_timeout_ms;
+        bool gone = false;
+        while (!gone) {
+            DWORD code{};
+            gone = !GetExitCodeProcess(query, &code) || code != STILL_ACTIVE;
+            if (!gone) {
+                if (GetTickCount64() >= query_deadline) break;
+                Sleep(500);
+            }
+        }
+        CloseHandle(query);
+        if (gone) {
+            // Racy PID reuse can only delay us: verify absence once more
+            // through the snapshot before declaring the parent gone.
+            HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (snapshot != INVALID_HANDLE_VALUE) {
+                PROCESSENTRY32W entry{};
+                entry.dwSize = sizeof(entry);
+                bool still_there = false;
+                if (Process32FirstW(snapshot, &entry)) do {
+                    if (entry.th32ProcessID == pid) { still_there = true; break; }
+                } while (Process32NextW(snapshot, &entry));
+                CloseHandle(snapshot);
+                if (!still_there) return true;
+            }
+        }
+        return false;
+    }
     // Less-privileged updater, elevated parent: no handle access, so poll
     // the process snapshot until the PID disappears or we time out.
     const auto deadline = GetTickCount64() + k_wait_timeout_ms;

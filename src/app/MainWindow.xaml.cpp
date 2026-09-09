@@ -44,8 +44,17 @@ Microsoft::UI::Windowing::AppWindow app_window_from(Window const& window) {
 }
 
 std::filesystem::path asset_path(std::wstring_view name) {
-    std::wstring executable(32768, L'\0');
-    executable.resize(GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size())));
+    std::wstring executable(MAX_PATH, L'\0');
+    for (;;) {
+        const auto length = GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
+        if (!length) return {};
+        if (length < executable.size()) {
+            executable.resize(length);
+            break;
+        }
+        if (executable.size() >= 32768) return {};
+        executable.resize(executable.size() * 2, L'\0');
+    }
     return std::filesystem::path(executable).parent_path() / L"assets" / name;
 }
 
@@ -210,15 +219,19 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update unavailable", L"No compatible update package was found.");
         co_return;
     }
-    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){update_check_running_=false; UpdateButton().IsEnabled(true); co_return;}
-    Controls::ContentDialog dialog;
-    dialog.XamlRoot(Content().XamlRoot());
-    dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
-    dialog.Content(box_value(L"Version " + to_hstring(manifest->version) + L" is available. Download and install it now?"));
-    dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Update")});
-    dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
-    if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) {
-        update_check_running_ = false; UpdateButton().IsEnabled(true); co_return;
+    // The dialog slot is scoped to the prompt only so other dialogs stay
+    // available during the potentially long download and install.
+    {
+        winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){update_check_running_=false; UpdateButton().IsEnabled(true); co_return;}
+        Controls::ContentDialog dialog;
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
+        dialog.Content(box_value(L"Version " + to_hstring(manifest->version) + L" is available. Download and install it now?"));
+        dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Update")});
+        dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
+        if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) {
+            update_check_running_ = false; UpdateButton().IsEnabled(true); co_return;
+        }
     }
     co_await winrt::resume_background();
     auto staged = winchisel::platform::stage_release_artifact(*manifest, artifact_id);

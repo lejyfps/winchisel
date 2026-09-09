@@ -54,6 +54,20 @@ inline void localize_tree(winrt::Windows::Foundation::IInspectable const& root) 
             button.Content(box_value(hstring{winchisel::core::loc(std::wstring(*text))}));
         }
     }
+    if (auto expander = root.try_as<Controls::Expander>()) {
+        if (auto text = expander.Header().try_as<hstring>()) {
+            expander.Header(box_value(hstring{winchisel::core::loc(std::wstring(*text))}));
+        }
+    }
+    if (auto combo_item = root.try_as<Controls::ComboBoxItem>()) {
+        if (auto text = combo_item.Content().try_as<hstring>()) {
+            combo_item.Content(box_value(hstring{winchisel::core::loc(std::wstring(*text))}));
+        }
+    }
+    if (auto bar = root.try_as<Controls::InfoBar>()) {
+        bar.Title(hstring{winchisel::core::loc(std::wstring(bar.Title()))});
+        bar.Message(hstring{winchisel::core::loc(std::wstring(bar.Message()))});
+    }
     auto element = root.try_as<DependencyObject>();
     if (!element) return;
     const auto count = Media::VisualTreeHelper::GetChildrenCount(element);
