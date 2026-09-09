@@ -17,6 +17,7 @@ struct Settings {
     Language language{Language::english};
     Theme theme{Theme::system};
     bool autostart_enabled{false};
+    bool show_risk_badges{true};
 };
 
 Settings settings_defaults();

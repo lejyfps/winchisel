@@ -4,6 +4,7 @@
 #include "PerformancePage.xaml.h"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/update.hpp"
+#include "winchisel/application/session.hpp"
 
 #if __has_include("PerformancePage.g.cpp")
 #include "PerformancePage.g.cpp"
@@ -91,6 +92,10 @@ Controls::Border new_badge() {
 bool show_new_badges() {
     const auto current = winchisel::platform::current_app_version();
     return !winchisel::platform::is_newer_version(current, winchisel::core::k_new_tweaks_version);
+}
+
+bool risk_badges_visible() {
+    return winchisel::application::Session::instance().settings().show_risk_badges;
 }
 
 Controls::Border risk_badge(winchisel::core::TweakRisk risk) {
@@ -230,7 +235,7 @@ PerformancePage::PerformancePage() {
                 tweak.control.Width(40);
                 tweak.control.Toggled([this, index](auto&&, auto&&) { save_gaming_toggle(index); });
                 content.Children().Append(setting_card(tweak.title, tweak.description, tweak.control,
-                    false, winchisel::core::assess_registry_targets(tweak.targets), true));
+                    false, winchisel::core::assess_registry_targets(tweak.targets), risk_badges_visible()));
             }
             mouse_hover_time_ = Controls::ComboBox();
             Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(mouse_hover_time_,L"Mouse Hover Time");
@@ -241,7 +246,7 @@ PerformancePage::PerformancePage() {
             }
             mouse_hover_time_.SelectionChanged([this](auto&&, auto&&) { save_mouse_hover_time(); });
             content.Children().Append(setting_card(L"Mouse Hover Time", L"Sets how long the pointer must hover before Windows responds.", mouse_hover_time_,
-                false, winchisel::core::assess_registry_targets(std::array{target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string)}), true));
+                false, winchisel::core::assess_registry_targets(std::array{target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string)}), risk_badges_visible()));
             background_apps_ = Controls::ComboBox();
             Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(background_apps_,L"Let Apps Run in Background");
             for (auto const& option : {L"User in Control (Default)", L"Force Allow", L"Force Deny"}) {
@@ -253,7 +258,7 @@ PerformancePage::PerformancePage() {
             content.Children().Append(setting_card(L"Let Apps Run in Background", L"Controls whether apps may continue running in the background.", background_apps_,
                 false, winchisel::core::assess_registry_targets(std::array{
                     target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword),
-                    target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword)}), true));
+                    target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword)}), risk_badges_visible()));
             expander.Content(content);
         } else {
             auto content = Controls::StackPanel();
@@ -296,7 +301,7 @@ PerformancePage::PerformancePage() {
                     combo.SelectionChanged([this,selection_index](auto&&,auto&&){save_catalog_selection(selection_index);});
                     control = combo;
                 }
-                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_performance(item.id),true);
+                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_performance(item.id),risk_badges_visible());
                 std::string_view child_id;
                 if(item.id=="gaming-virtualization-based-security")child_id="gaming-memory-integrity";
                 else if(item.id=="gaming-sysmain-service")child_id="gaming-performance-prefetch";
@@ -306,7 +311,7 @@ PerformancePage::PerformancePage() {
                     auto nested=Controls::Expander();nested.Header(card);nested.HorizontalAlignment(HorizontalAlignment::Stretch);nested.HorizontalContentAlignment(HorizontalAlignment::Stretch);
                     auto child=std::ranges::find_if(winchisel::core::get_performance_catalog(),[&](auto const& candidate){return candidate.id==child_id;});
                     if(child!=winchisel::core::get_performance_catalog().end()){
-                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle,show_new&&winchisel::core::is_new_tweak(child->id),winchisel::core::assess_performance(child->id),true);child_card.Margin({24,8,0,0});nested.Content(child_card);
+                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle,show_new&&winchisel::core::is_new_tweak(child->id),winchisel::core::assess_performance(child->id),risk_badges_visible());child_card.Margin({24,8,0,0});nested.Content(child_card);
                     }
                     content.Children().Append(nested);
                 }

@@ -63,6 +63,9 @@ int main() {
     expect(!parsed.check_updates_on_startup, "updates false");
     expect(parsed.autostart_enabled, "autostart true");
     expect(parsed.theme == Theme::dark, "dark theme");
+    expect(settings_defaults().show_risk_badges, "risk badges default on");
+    expect(parse_settings_json(R"({"show_risk_badges":false})").show_risk_badges == false, "risk badges off");
+    expect(serialize_settings_json(parsed).find("show_risk_badges") != std::string::npos, "serialize risk badges");
 
     set_ui_language(Language::german);
     expect(loc(L"Settings") == L"Einstellungen", "german settings label");

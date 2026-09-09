@@ -100,6 +100,8 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
         {L"Safe", L"Sicher"},
         {L"Moderate", L"Moderat"},
         {L"Risky", L"Riskant"},
+        {L"Risk badges", L"Risiko-Badges"},
+        {L"Show Safe, Moderate, and Risky badges next to tweaks.", L"Sicher-, Moderat- und Riskant-Badges neben Tweaks anzeigen."},
         {L"All", L"Alle"},
         {L"Active", L"Aktiv"},
         {L"User", L"Benutzer"},

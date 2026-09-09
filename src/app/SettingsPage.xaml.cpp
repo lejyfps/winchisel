@@ -30,6 +30,7 @@ SettingsPage::SettingsPage() {
     CheckUpdates().IsOn(settings.check_updates_on_startup);
     ShowConsole().IsOn(settings.show_console);
     Autostart().IsOn(settings.autostart_enabled);
+    RiskBadges().IsOn(settings.show_risk_badges);
     loading_ = false;
 
     save_timer_ = DispatcherTimer();
@@ -92,8 +93,10 @@ void SettingsPage::save_settings() {
     settings.check_updates_on_startup = CheckUpdates().IsOn();
     settings.show_console = ShowConsole().IsOn();
     settings.autostart_enabled = Autostart().IsOn();
+    settings.show_risk_badges = RiskBadges().IsOn();
     const auto previous_language = winchisel::core::ui_language();
     const auto previous_theme = winchisel::application::Session::instance().settings().theme;
+    const auto previous_risk_badges = winchisel::application::Session::instance().settings().show_risk_badges;
     if (auto result = winchisel::application::Session::instance().set_settings(settings); !result) {
         loading_ = true;
         const auto& current = winchisel::application::Session::instance().settings();
@@ -102,6 +105,7 @@ void SettingsPage::save_settings() {
         CheckUpdates().IsOn(current.check_updates_on_startup);
         ShowConsole().IsOn(current.show_console);
         Autostart().IsOn(current.autostart_enabled);
+        RiskBadges().IsOn(current.show_risk_badges);
         loading_ = false;
         show_result(false, hstring{winchisel::core::loc(L"Settings could not be saved")} + L": " + to_hstring(result.error().detail));
         return;
@@ -111,6 +115,10 @@ void SettingsPage::save_settings() {
     }
     if (previous_theme != settings.theme && winchisel::ui::theme_reload()) {
         winchisel::ui::theme_reload()();
+    }
+    // Risk badges live on cached pages: rebuild them like a language switch.
+    if (previous_risk_badges != settings.show_risk_badges && winchisel::ui::language_reload()) {
+        winchisel::ui::language_reload()();
     }
 }
 

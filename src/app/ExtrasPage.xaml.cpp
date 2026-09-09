@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "AsyncSupport.hpp"
 #include "ExtrasPage.xaml.h"
+#include "winchisel/application/session.hpp"
 #include "winchisel/core/risk.hpp"
 #include "winchisel/platform/system.hpp"
 
@@ -65,6 +66,7 @@ ExtrasPage::ExtrasPage(){
         {HeaderVerboseBoot(), "verbose_boot"},
     };
     for (auto const& [header, key] : headers) {
+        if (!winchisel::application::Session::instance().settings().show_risk_badges) break;
         auto row = muxc::StackPanel();
         row.Orientation(muxc::Orientation::Horizontal);
         row.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);

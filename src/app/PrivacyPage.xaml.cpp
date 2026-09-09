@@ -4,6 +4,7 @@
 #include "Localization.hpp"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/update.hpp"
+#include "winchisel/application/session.hpp"
 
 #if __has_include("PrivacyPage.g.cpp")
 #include "PrivacyPage.g.cpp"
@@ -131,6 +132,10 @@ Controls::Border new_badge() {
 bool show_new_badges() {
     const auto current = winchisel::platform::current_app_version();
     return !winchisel::platform::is_newer_version(current, winchisel::core::k_new_tweaks_version);
+}
+
+bool risk_badges_visible() {
+    return winchisel::application::Session::instance().settings().show_risk_badges;
 }
 
 Controls::Border risk_badge(winchisel::core::TweakRisk risk) {
@@ -309,7 +314,7 @@ void PrivacyPage::apply_filter() {
     }
 }
 
-Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group){auto content=Controls::StackPanel();content.Spacing(8);content.HorizontalAlignment(HorizontalAlignment::Stretch);const bool show_new=show_new_badges();if(group==1){ads_mode_=Controls::ComboBox();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(ads_mode_,L"Ads, Suggestions and Promotional Content");for(auto option:{L"Allow",L"Deny",L"Custom"}){auto row=Controls::ComboBoxItem();row.Content(box_value(option));ads_mode_.Items().Append(row);}ads_mode_.SelectionChanged([this](auto&&,auto&&){save_ads_mode();});content.Children().Append(setting_card(L"Ads, Suggestions and Promotional Content",L"Controls all advertising, suggestions, and promotional content throughout Windows",ads_mode_));}for(auto const& item:winchisel::core::get_privacy_catalog()){if(item.group!=group)continue;auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(item.name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto index=privacy_toggles_.size();privacy_toggles_.push_back({std::string(item.id),toggle});toggle.Toggled([this,index](auto&&,auto&&){save_privacy_toggle(index);});auto card=setting_card(to_hstring(item.name),to_hstring(item.description),toggle,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_privacy(item.id),true);card.Tag(box_value(to_hstring(std::string(item.name)+" "+std::string(item.description)+" "+std::string(item.id))));content.Children().Append(card);}return content;}
+Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group){auto content=Controls::StackPanel();content.Spacing(8);content.HorizontalAlignment(HorizontalAlignment::Stretch);const bool show_new=show_new_badges();if(group==1){ads_mode_=Controls::ComboBox();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(ads_mode_,L"Ads, Suggestions and Promotional Content");for(auto option:{L"Allow",L"Deny",L"Custom"}){auto row=Controls::ComboBoxItem();row.Content(box_value(option));ads_mode_.Items().Append(row);}ads_mode_.SelectionChanged([this](auto&&,auto&&){save_ads_mode();});content.Children().Append(setting_card(L"Ads, Suggestions and Promotional Content",L"Controls all advertising, suggestions, and promotional content throughout Windows",ads_mode_));}for(auto const& item:winchisel::core::get_privacy_catalog()){if(item.group!=group)continue;auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(item.name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto index=privacy_toggles_.size();privacy_toggles_.push_back({std::string(item.id),toggle});toggle.Toggled([this,index](auto&&,auto&&){save_privacy_toggle(index);});auto card=setting_card(to_hstring(item.name),to_hstring(item.description),toggle,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_privacy(item.id),risk_badges_visible());card.Tag(box_value(to_hstring(std::string(item.name)+" "+std::string(item.description)+" "+std::string(item.id))));content.Children().Append(card);}return content;}
 
 void PrivacyPage::save_privacy_toggle(std::size_t index){if(loading_security_||index>=privacy_toggles_.size())return;auto const& item=privacy_toggles_[index];std::vector<std::pair<Target,Value>> changes;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto token=item.control.IsOn()?rule.enabled_value:rule.disabled_value;Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else if(auto parsed=parse_dword_token(std::string_view(token)))value=*parsed;else{show_write_error("A privacy catalog entry is invalid and was not applied.");submit([] { return winchisel::core::Result<void>{}; });return;}changes.emplace_back(destination,value);}submit([changes=std::move(changes)] { return winchisel::platform::write_registry_values_atomic(changes); });}
 
@@ -340,7 +345,7 @@ Controls::StackPanel PrivacyPage::security_content() {
         tweak.control.Width(40);
         tweak.control.Toggled([this, index](auto&&, auto&&) { save_security_toggle(index); });
         content.Children().Append(setting_card(tweak.title, tweak.description, tweak.control,
-            false, winchisel::core::assess_registry_targets(tweak.targets), true));
+            false, winchisel::core::assess_registry_targets(tweak.targets), risk_badges_visible()));
     }
     return content;
 }
