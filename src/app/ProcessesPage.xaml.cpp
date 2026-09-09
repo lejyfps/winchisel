@@ -111,7 +111,7 @@ void ProcessesPage::render_processes(){
         muxc::Grid grid;grid.Tag(winrt::box_value(row->pid));grid.Padding({12,6,12,6});for(auto width:{80.0,0.0,80.0,120.0,120.0,100.0}){muxc::ColumnDefinition col;col.Width(width==0?mux::GridLength{1,mux::GridUnitType::Star}:mux::GridLength{width,mux::GridUnitType::Pixel});grid.ColumnDefinitions().Append(col);}
         Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(grid,L"Process "+row->name+L", PID "+std::to_wstring(row->pid));muxc::StackPanel pid_panel;pid_panel.Orientation(muxc::Orientation::Horizontal);pid_panel.Spacing(4);auto pid=row->pid;if(row->has_children){muxc::Button expand;expand.Padding({0,0,0,0});expand.Width(20);expand.Height(20);expand.MinWidth(0);expand.MinHeight(0);expand.CornerRadius({2});muxc::FontIcon chevron;chevron.Glyph(expanded_.contains(row->pid)?L"\uE70D":L"\uE76C");chevron.FontSize(10);expand.Content(chevron);Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(expand,(expanded_.contains(row->pid)?L"Collapse ":L"Expand ")+row->name);auto weak=get_weak();expand.Click([weak,pid](auto&&,auto&&){if(auto self=weak.get()){if(!self->expanded_.insert(pid).second)self->expanded_.erase(pid);self->DispatcherQueue().TryEnqueue([weak]{if(auto page=weak.get())page->render_processes();});}});pid_panel.Children().Append(expand);}else{muxc::Border spacer;spacer.Width(20);pid_panel.Children().Append(spacer);}muxc::TextBlock pid_text;pid_text.Text(std::to_wstring(row->pid));pid_text.VerticalAlignment(mux::VerticalAlignment::Center);pid_panel.Children().Append(pid_text);grid.Children().Append(pid_panel);
         auto add=[&](std::wstring const& text,int column,double left=0){muxc::TextBlock block;block.Text(text);block.Margin({left,0,0,0});block.TextTrimming(mux::TextTrimming::CharacterEllipsis);block.VerticalAlignment(mux::VerticalAlignment::Center);if(column==1&&!row->path.empty())muxc::ToolTipService::SetToolTip(block,winrt::box_value(row->path));muxc::Grid::SetColumn(block,column);grid.Children().Append(block);};
-        wchar_t cpu[24]{};swprintf_s(cpu,L"%.1f%%",row->cpu);add(row->name,1,row->depth*16.0);add(cpu,2);add(row->priority,3);add(row->affinity,4);add(row->status,5);auto weak=get_weak();grid.RightTapped([weak,pid=row->pid](auto const& sender,auto const& args){if(auto self=weak.get()){self->request_process_menu(sender.template as<mux::FrameworkElement>(),pid);args.Handled(true);}});ProcessList().Items().Append(grid);if(row->pid==selected_pid_)selected_grid=grid;
+        wchar_t cpu[24]{};swprintf_s(cpu,L"%.1f%%",row->cpu);add(row->name,1,row->depth*16.0);add(cpu,2);add(row->priority,3);add(row->affinity,4);add(row->status,5);auto weak=get_weak();grid.RightTapped([weak,pid=row->pid](auto const&,auto const& args){if(auto self=weak.get()){self->request_process_menu(pid);args.Handled(true);}});ProcessList().Items().Append(grid);if(row->pid==selected_pid_)selected_grid=grid;
     }
     if(selected_grid)ProcessList().SelectedItem(selected_grid);else selected_pid_=0;restoring_selection_=false;
     wchar_t total[32]{};swprintf_s(total,L"%.1f%%",total_cpu);StatusText().Text(L"Visible: "+std::to_wstring(visible.size())+L"   Processes: "+std::to_wstring(rows_.size())+L"   Total CPU: "+total+L"   •   Right-click a process for actions");
@@ -140,7 +140,7 @@ void ProcessesPage::add_process_menu(mux::FrameworkElement const& element,Proces
     add(affinity,L"All cores",row.affinity==L"All cores",[mode](auto&&,auto&&){mode(0);});add(affinity,L"Even logical CPUs",false,[mode](auto&&,auto&&){mode(1);});add(affinity,L"Odd logical CPUs",false,[mode](auto&&,auto&&){mode(2);});add(affinity,L"First half",false,[mode](auto&&,auto&&){mode(3);});add(affinity,L"Second half",false,[mode](auto&&,auto&&){mode(4);});element.ContextFlyout(menu);
 }
 
-winrt::fire_and_forget ProcessesPage::request_process_menu(mux::FrameworkElement const& element,std::uint32_t pid){
+winrt::fire_and_forget ProcessesPage::request_process_menu(std::uint32_t pid){
     auto error_weak=get_weak();
     winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
     try { error_queue=DispatcherQueue(); } catch (...) {}
@@ -160,8 +160,21 @@ winrt::fire_and_forget ProcessesPage::request_process_menu(mux::FrameworkElement
         if(process){DWORD_PTR current{},system{};if(GetProcessAffinityMask(process,&current,&system)){snap.affinity_current=current;snap.affinity_system=system;snap.affinity_ok=true;}CloseHandle(process);}
     }
     co_await ui;
-    add_process_menu(element,row,snap);
-    if(auto flyout=element.ContextFlyout())flyout.ShowAt(element);
+    // The list may have been rebuilt (auto-refresh) or the page navigated
+    // away while the snapshot was read. Never show a menu on a stale or
+    // detached element: that throws RPC_E_SERVERFAULT. Re-anchor to the
+    // live row, or bail out gracefully when the process is gone.
+    auto fresh = std::ranges::find(rows_, pid, &ProcessRow::pid);
+    if (fresh == rows_.end()) { StatusText().Text(L"The selected process is no longer running."); co_return; }
+    muxc::Grid anchor{nullptr};
+    for (auto const& child : ProcessList().Items()) {
+        if (auto grid = child.try_as<muxc::Grid>()) {
+            if (winrt::unbox_value_or<std::uint32_t>(grid.Tag(), 0u) == pid) { anchor = grid; break; }
+        }
+    }
+    if (!anchor || !anchor.XamlRoot()) { StatusText().Text(L"The process list changed. Right-click the process again."); co_return; }
+    add_process_menu(anchor, *fresh, snap);
+    if (auto flyout = anchor.ContextFlyout()) flyout.ShowAt(anchor);
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
             if (auto self=error_weak.get()) { self->StatusText().Text(text); }
@@ -177,7 +190,7 @@ winrt::fire_and_forget ProcessesPage::confirm_realtime(std::uint32_t pid){
         auto error_lifetime=get_strong();
     winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
 
-auto lifetime=get_strong();++open_overlays_;muxc::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(winrt::box_value(L"Realtime priority"));dialog.Content(winrt::box_value(L"Realtime priority can make Windows unresponsive. Apply it only when you understand the risk."));dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");auto result=co_await dialog.ShowAsync();if(open_overlays_)--open_overlays_;refresh_pending_=false;if(result==muxc::ContentDialogResult::Primary)set_priority(pid,REALTIME_PRIORITY_CLASS);else load_processes();
+auto lifetime=get_strong();++open_overlays_;if(!XamlRoot()){if(open_overlays_)--open_overlays_;refresh_pending_=false;StatusText().Text(L"The process view is no longer active.");co_return;}muxc::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(winrt::box_value(L"Realtime priority"));dialog.Content(winrt::box_value(L"Realtime priority can make Windows unresponsive. Apply it only when you understand the risk."));dialog.PrimaryButtonText(L"Apply");dialog.CloseButtonText(L"Cancel");auto result=co_await dialog.ShowAsync();if(open_overlays_)--open_overlays_;refresh_pending_=false;if(result==muxc::ContentDialogResult::Primary)set_priority(pid,REALTIME_PRIORITY_CLASS);else load_processes();
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
             if (auto self=error_weak.get()) { self->open_overlays_=0; self->refresh_pending_=false; self->StatusText().Text(text); }
@@ -194,7 +207,7 @@ winrt::fire_and_forget ProcessesPage::edit_affinity(std::uint32_t pid,std::wstri
     winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
 
 
-    auto lifetime=get_strong();++open_overlays_;if(!current||!system){if(open_overlays_)--open_overlays_;StatusText().Text(L"Could not read process affinity.");co_return;}
+    auto lifetime=get_strong();++open_overlays_;if(!current||!system){if(open_overlays_)--open_overlays_;StatusText().Text(L"Could not read process affinity.");co_return;}if(!XamlRoot()){if(open_overlays_)--open_overlays_;refresh_pending_=false;StatusText().Text(L"The process view is no longer active.");co_return;}
     auto selected=std::make_shared<DWORD_PTR>(current);auto boxes=std::make_shared<std::vector<std::pair<muxc::CheckBox,DWORD_PTR>>>();muxc::StackPanel content;content.Spacing(8);muxc::TextBlock hint;hint.Text(L"Choose at least one logical processor:");content.Children().Append(hint);muxc::Grid grid;for(int i=0;i<4;++i){muxc::ColumnDefinition column;column.Width({1,mux::GridUnitType::Star});grid.ColumnDefinitions().Append(column);}int n{};
     for(unsigned i=0;i<sizeof(DWORD_PTR)*8;++i)if(system&(DWORD_PTR{1}<<i)){muxc::CheckBox box;box.Content(winrt::box_value(L"CPU "+std::to_wstring(i)));box.IsChecked((current&(DWORD_PTR{1}<<i))!=0);auto bit=DWORD_PTR{1}<<i;box.Checked([selected,bit](auto&&,auto&&){*selected|=bit;});box.Unchecked([selected,bit](auto&&,auto&&){*selected&=~bit;});muxc::Grid::SetColumn(box,n%4);muxc::Grid::SetRow(box,n/4);if(n%4==0){muxc::RowDefinition row;row.Height(mux::GridLengthHelper::Auto());grid.RowDefinitions().Append(row);}grid.Children().Append(box);boxes->emplace_back(box,bit);++n;}content.Children().Append(grid);
     muxc::StackPanel tools;tools.Orientation(muxc::Orientation::Horizontal);tools.Spacing(8);muxc::Button invert;invert.Content(winrt::box_value(L"Invert"));invert.Click([selected,boxes,system](auto&&,auto&&){*selected=(~*selected)&system;if(!*selected)*selected=system;for(auto const& [box,bit]:*boxes)box.IsChecked((*selected&bit)!=0);});tools.Children().Append(invert);muxc::Button all;all.Content(winrt::box_value(L"All cores"));all.Click([selected,boxes,system](auto&&,auto&&){*selected=system;for(auto const& [box,bit]:*boxes)box.IsChecked(true);});tools.Children().Append(all);content.Children().Append(tools);

@@ -51,8 +51,7 @@ private:
         DWORD_PTR affinity_system{};
         bool affinity_ok{};
     };
-    winrt::fire_and_forget request_process_menu(
-        winrt::Microsoft::UI::Xaml::FrameworkElement const&, std::uint32_t pid);
+    winrt::fire_and_forget request_process_menu(std::uint32_t pid);
     void add_process_menu(winrt::Microsoft::UI::Xaml::FrameworkElement const&, ProcessRow const&, MenuSnapshot const&);
     bool set_priority(std::uint32_t,DWORD);
     bool set_affinity(std::uint32_t,DWORD_PTR);
