@@ -10,6 +10,7 @@
 #endif
 
 #include "winchisel/core/tweak.hpp"
+#include "winchisel/core/risk.hpp"
 #include "winchisel/platform/registry.hpp"
 #include "winchisel/platform/performance.hpp"
 
@@ -33,12 +34,6 @@ using Target = winchisel::core::RegistryTarget;
 using Value = winchisel::core::RegistryValue;
 
 std::string lower(std::string value) { std::ranges::transform(value,value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return value; }
-
-std::string_view service_name(std::string_view id) {
-    static constexpr std::pair<std::string_view,std::string_view> values[]{
-        {"gaming-sysmain-service","SysMain"},{"gaming-windows-search-service","WSearch"},{"gaming-print-spooler-service","Spooler"},{"gaming-telemetry-service","DiagTrack"},{"gaming-connected-devices-platform-service","CDPSvc"},{"gaming-compatibility-assistant-service","PcaSvc"},{"gaming-error-reporting-service","WerSvc"},{"gaming-geolocation-service","lfsvc"},{"gaming-retail-demo-service","RetailDemo"},{"gaming-insider-service","wisvc"},{"gaming-phone-service","PhoneSvc"},{"gaming-wallet-service","WalletService"},{"gaming-smart-card-services","SCardSvr"},{"gaming-maps-broker-service","MapsBroker"},{"gaming-fax-service","Fax"},{"gaming-wmp-network-service","WMPNetworkSvc"},{"gaming-mixed-reality-service","MixedRealityOpenXRSvc"},{"gaming-mobile-hotspot-service","icssvc"},{"gaming-sms-router-service","SmsRouter"},{"gaming-parental-controls-service","WpcMonSvc"},{"gaming-payments-nfc-service","SEMgrSvc"},{"gaming-spot-verifier-service","svsvc"},{"gaming-remote-access-manager","RasMan"},{"gaming-remote-access-auto","RasAuto"},{"gaming-remote-desktop-services","TermService"},{"gaming-remote-desktop-configuration","SessionEnv"},{"gaming-remote-desktop-port-redirector","UmRdpService"},{"gaming-xbox-auth-manager","XblAuthManager"},{"gaming-xbox-game-save","XblGameSave"},{"gaming-xbox-networking","XboxNetApiSvc"},{"gaming-biometric-service","WbioSrvc"},{"gaming-touch-keyboard-service","TabletInputService"},{"gaming-sensor-monitoring-service","SensrSvc"},{"gaming-sensor-data-service","SensorDataService"},{"gaming-ai-fabric-service","AIFabricSvc"}};
-    for(auto const& [key,name]:values)if(key==id)return name;return {};
-}
 
 Target target(Hive hive, char const* key, char const* name, Type type) {
     return {.hive = hive, .key_path = key, .value_name = name, .type = type};
@@ -98,7 +93,37 @@ bool show_new_badges() {
     return !winchisel::platform::is_newer_version(current, winchisel::core::k_new_tweaks_version);
 }
 
-Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control, bool is_new = false) {
+Controls::Border risk_badge(winchisel::core::TweakRisk risk) {
+    auto resources = Application::Current().Resources();
+    hstring brush_key = L"TextFillColorTertiaryBrush";
+    if (risk == winchisel::core::TweakRisk::moderate) brush_key = L"SystemFillColorCautionBrush";
+    else if (risk == winchisel::core::TweakRisk::risky) brush_key = L"SystemFillColorCriticalBrush";
+    auto accent = resources.Lookup(box_value(brush_key)).try_as<Media::Brush>();
+    Media::Brush tint{nullptr};
+    if (auto solid = accent.try_as<Media::SolidColorBrush>()) {
+        auto color = solid.Color();
+        color.A = 0x2E;
+        tint = Media::SolidColorBrush(color);
+    }
+    auto badge = Controls::Border();
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.Margin({8, 0, 0, 0});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    auto label = Controls::TextBlock();
+    const auto risk_key = winchisel::core::risk_label_key(risk);
+    label.Text(winchisel::ui::tr(std::wstring(risk_key.begin(), risk_key.end())));
+    label.Foreground(accent);
+    label.FontSize(11);
+    label.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(VerticalAlignment::Center);
+    badge.Child(label);
+    return badge;
+}
+
+Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control,
+    bool is_new = false, winchisel::core::TweakRisk risk = winchisel::core::TweakRisk::safe, bool show_risk = false) {
     auto card = Controls::Border();
     auto resources = Application::Current().Resources();
     card.Background(resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>());
@@ -118,14 +143,15 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     heading.Text(title);
     heading.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Style>());
     heading.VerticalAlignment(VerticalAlignment::Center);
-    if (!is_new) {
+    if (!is_new && !show_risk) {
         text.Children().Append(heading);
     } else {
         auto header_row = Controls::StackPanel();
         header_row.Orientation(Controls::Orientation::Horizontal);
         header_row.VerticalAlignment(VerticalAlignment::Center);
         header_row.Children().Append(heading);
-        header_row.Children().Append(new_badge());
+        if (is_new) header_row.Children().Append(new_badge());
+        if (show_risk) header_row.Children().Append(risk_badge(risk));
         text.Children().Append(header_row);
     }
     auto detail = Controls::TextBlock();
@@ -203,7 +229,8 @@ PerformancePage::PerformancePage() {
                 tweak.control.MinWidth(0);
                 tweak.control.Width(40);
                 tweak.control.Toggled([this, index](auto&&, auto&&) { save_gaming_toggle(index); });
-                content.Children().Append(setting_card(tweak.title, tweak.description, tweak.control));
+                content.Children().Append(setting_card(tweak.title, tweak.description, tweak.control,
+                    false, winchisel::core::assess_registry_targets(tweak.targets), true));
             }
             mouse_hover_time_ = Controls::ComboBox();
             Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(mouse_hover_time_,L"Mouse Hover Time");
@@ -213,7 +240,8 @@ PerformancePage::PerformancePage() {
                 mouse_hover_time_.Items().Append(item);
             }
             mouse_hover_time_.SelectionChanged([this](auto&&, auto&&) { save_mouse_hover_time(); });
-            content.Children().Append(setting_card(L"Mouse Hover Time", L"Sets how long the pointer must hover before Windows responds.", mouse_hover_time_));
+            content.Children().Append(setting_card(L"Mouse Hover Time", L"Sets how long the pointer must hover before Windows responds.", mouse_hover_time_,
+                false, winchisel::core::assess_registry_targets(std::array{target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string)}), true));
             background_apps_ = Controls::ComboBox();
             Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(background_apps_,L"Let Apps Run in Background");
             for (auto const& option : {L"User in Control (Default)", L"Force Allow", L"Force Deny"}) {
@@ -222,7 +250,10 @@ PerformancePage::PerformancePage() {
                 background_apps_.Items().Append(item);
             }
             background_apps_.SelectionChanged([this](auto&&, auto&&) { save_background_apps(); });
-            content.Children().Append(setting_card(L"Let Apps Run in Background", L"Controls whether apps may continue running in the background.", background_apps_));
+            content.Children().Append(setting_card(L"Let Apps Run in Background", L"Controls whether apps may continue running in the background.", background_apps_,
+                false, winchisel::core::assess_registry_targets(std::array{
+                    target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword),
+                    target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword)}), true));
             expander.Content(content);
         } else {
             auto content = Controls::StackPanel();
@@ -265,7 +296,7 @@ PerformancePage::PerformancePage() {
                     combo.SelectionChanged([this,selection_index](auto&&,auto&&){save_catalog_selection(selection_index);});
                     control = combo;
                 }
-                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id));
+                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_performance(item.id),true);
                 std::string_view child_id;
                 if(item.id=="gaming-virtualization-based-security")child_id="gaming-memory-integrity";
                 else if(item.id=="gaming-sysmain-service")child_id="gaming-performance-prefetch";
@@ -275,7 +306,7 @@ PerformancePage::PerformancePage() {
                     auto nested=Controls::Expander();nested.Header(card);nested.HorizontalAlignment(HorizontalAlignment::Stretch);nested.HorizontalContentAlignment(HorizontalAlignment::Stretch);
                     auto child=std::ranges::find_if(winchisel::core::get_performance_catalog(),[&](auto const& candidate){return candidate.id==child_id;});
                     if(child!=winchisel::core::get_performance_catalog().end()){
-                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle,show_new&&winchisel::core::is_new_tweak(child->id));child_card.Margin({24,8,0,0});nested.Content(child_card);
+                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle,show_new&&winchisel::core::is_new_tweak(child->id),winchisel::core::assess_performance(child->id),true);child_card.Margin({24,8,0,0});nested.Content(child_card);
                     }
                     content.Children().Append(nested);
                 }
@@ -381,7 +412,7 @@ void PerformancePage::load_catalog_selections() {
         if (item.id=="gaming-win32-priority") destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);
         else if(item.id=="gaming-performance-svchost-split-threshold") destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);
         else if(item.id=="visual-effects-mode") destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);
-        else if(auto service=service_name(item.id);!service.empty()) destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);
+        else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()) destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);
         else continue;
         auto current=cached_value(destination);if(current)if(auto dword=std::get_if<std::uint32_t>(&*current)){value=*dword;found=true;}if(!found)continue;
         int selected=0;
@@ -400,7 +431,7 @@ void PerformancePage::save_catalog_selection(std::size_t index) {
     if(item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
     else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))return;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
     else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
-    else if(auto service=service_name(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
+    else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
     else return;
     submit([destination,value]{return winchisel::platform::write_registry_value(destination,Value{value});});
 }
@@ -508,7 +539,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         if (item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
         else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))continue;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
         else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
-        else if(auto service=service_name(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
+        else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
         else continue;
         registry.emplace_back(destination, Value{value});
     }
@@ -662,7 +693,7 @@ winrt::fire_and_forget PerformancePage::process_changes() {
         for(auto const& item:gaming_toggles_)targets.insert(targets.end(),item.targets.begin(),item.targets.end());
         for(auto const& rule:winchisel::core::get_performance_registry_rules())
             targets.push_back(target(rule.root==0?Hive::current_user:Hive::local_machine,rule.path.data(),rule.name.data(),rule.kind==0?Type::dword:rule.kind==1?Type::string:Type::binary));
-        for(auto const& item:catalog_selections_)if(auto service=service_name(item.id);!service.empty())
+        for(auto const& item:catalog_selections_)if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty())
             targets.push_back(target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword));
         std::vector<std::string> task_ids;
         for(auto const& item:catalog_toggles_)if(!winchisel::platform::is_special_performance_toggle(item.id)&&!std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}))task_ids.push_back(item.id);

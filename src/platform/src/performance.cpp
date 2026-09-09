@@ -1,4 +1,5 @@
 #include "winchisel/platform/performance.hpp"
+#include "winchisel/core/risk.hpp"
 #include "winchisel/platform/registry.hpp"
 #include "winchisel/platform/system.hpp"
 #include "process_wait.hpp"
@@ -20,8 +21,6 @@
 #pragma comment(lib, "taskschd.lib")
 #pragma comment(lib, "ole32.lib")
 namespace winchisel::platform { namespace {
-std::string_view task_path(std::string_view id){static constexpr std::pair<std::string_view,std::string_view> tasks[]{
-{"CompatibilityAppraiserTask","\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser"},{"ProgramDataUpdaterTask","\\Microsoft\\Windows\\Application Experience\\ProgramDataUpdater"},{"CEIPConsolidatorTask","\\Microsoft\\Windows\\Customer Experience Improvement Program\\Consolidator"},{"UsbCeipTask","\\Microsoft\\Windows\\Customer Experience Improvement Program\\UsbCeip"},{"DiskDiagnosticTask","\\Microsoft\\Windows\\DiskDiagnostic\\Microsoft-Windows-DiskDiagnosticDataCollector"},{"FeedbackDmClientTask","\\Microsoft\\Windows\\Feedback\\Siuf\\DmClient"},{"FeedbackDmClientDownloadTask","\\Microsoft\\Windows\\Feedback\\Siuf\\DmClientOnScenarioDownload"},{"ErrorReportingQueueTask","\\Microsoft\\Windows\\Windows Error Reporting\\QueueReporting"},{"SqmTask","\\Microsoft\\Windows\\PI\\Sqm-Tasks"},{"MareBackupTask","\\Microsoft\\Windows\\Application Experience\\MareBackup"},{"StartupAppTask","\\Microsoft\\Windows\\Application Experience\\StartupAppTask"},{"MapsUpdateTask","\\Microsoft\\Windows\\Maps\\MapsUpdateTask"},{"AutochkProxyTask","\\Microsoft\\Windows\\Autochk\\Proxy"},{"FamilySafetyTask","\\Microsoft\\Windows\\Shell\\FamilySafetyMonitor"},{"PowerEfficiencyTask","\\Microsoft\\Windows\\Power Efficiency Diagnostics\\AnalyzeSystem"},{"WindowsAIRecallConfig","\\Microsoft\\Windows\\WindowsAI\\RecallConfiguration"},{"WindowsAIRecallPipeline","\\Microsoft\\Windows\\WindowsAI\\RecallPipeline"},{"OfficeActionsServer","\\Microsoft\\Office\\Office Actions Server"}};for(auto const&[key,path]:tasks)if(key==id)return path;return{};}
 struct NetshResult { DWORD code{}; bool timed_out{}; std::string output; };
 NetshResult run_netsh(std::wstring command, DWORD timeout_ms = 60 * 1000) {
     auto [waited, out] = detail::run_captured(std::move(command), timeout_ms);
@@ -361,8 +360,8 @@ auto with_registered_task(std::string_view full, Work work) {
     task->Release();
     return result;
 }
-winchisel::core::Result<bool> read_scheduled_task(std::string_view id){auto full=task_path(id);if(full.empty())return std::unexpected(error("unknown scheduled task"));return with_registered_task(full,[](IRegisteredTask* task)->winchisel::core::Result<bool>{VARIANT_BOOL enabled{};auto hr=task->get_Enabled(&enabled);if(FAILED(hr))return std::unexpected(error(std::to_string(hr)));return enabled==VARIANT_TRUE;});}
-winchisel::core::Result<void> write_scheduled_task(std::string_view id,bool enabled){auto full=task_path(id);if(full.empty())return std::unexpected(error("unknown scheduled task"));return with_registered_task(full,[enabled](IRegisteredTask* task)->winchisel::core::Result<void>{auto hr=task->put_Enabled(enabled?VARIANT_TRUE:VARIANT_FALSE);if(FAILED(hr))return std::unexpected(error(std::to_string(hr)));return{};});}
+winchisel::core::Result<bool> read_scheduled_task(std::string_view id){auto full=winchisel::core::task_path_for_id(id);if(full.empty())return std::unexpected(error("unknown scheduled task"));return with_registered_task(full,[](IRegisteredTask* task)->winchisel::core::Result<bool>{VARIANT_BOOL enabled{};auto hr=task->get_Enabled(&enabled);if(FAILED(hr))return std::unexpected(error(std::to_string(hr)));return enabled==VARIANT_TRUE;});}
+winchisel::core::Result<void> write_scheduled_task(std::string_view id,bool enabled){auto full=winchisel::core::task_path_for_id(id);if(full.empty())return std::unexpected(error("unknown scheduled task"));return with_registered_task(full,[enabled](IRegisteredTask* task)->winchisel::core::Result<void>{auto hr=task->put_Enabled(enabled?VARIANT_TRUE:VARIANT_FALSE);if(FAILED(hr))return std::unexpected(error(std::to_string(hr)));return{};});}
 
 winchisel::core::Result<void> apply_registry_and_tasks(
     std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& registry,

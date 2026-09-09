@@ -47,7 +47,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderModernStandby">
                                 <TextBlock Text="Disable Modern Standby" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Disable S0 Modern Standby to prevent battery drain and heat in sleep."
                                            TextWrapping="Wrap"
@@ -75,7 +75,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderSyncProvider">
                                 <TextBlock Text="Disable Sync Provider Notifications" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Disable sync provider notifications in Windows File Explorer."
                                            TextWrapping="Wrap"
@@ -103,7 +103,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderBrave">
                                 <TextBlock Text="Brave Browser - Debloat" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Toggle Brave policy debloat on or off."
                                            TextWrapping="Wrap"
@@ -131,7 +131,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderEdge">
                                 <TextBlock Text="Microsoft Edge - Debloat" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Toggle Microsoft Edge policy debloat on or off."
                                            TextWrapping="Wrap"
@@ -196,7 +196,7 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel>
+                                    <StackPanel x:Name="HeaderCtfmon">
                                         <TextBlock Text="Disable Microsoft input services" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                         <TextBlock Text="Disable the input service values that can intercept CTFMON."
                                                    TextWrapping="Wrap"
@@ -223,7 +223,7 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel>
+                                    <StackPanel x:Name="HeaderCtfmonDll">
                                         <TextBlock Text="Patch TextInputManagementService" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                         <TextBlock Text="Switch ServiceDll between TabSvc.dll and MSCTF.DLL."
                                                    TextWrapping="Wrap"
@@ -253,7 +253,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderTimerResolution">
                                 <TextBlock Text="Windows 11 Timer Resolution" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Restore global timer resolution requests for games and apps."
                                            TextWrapping="Wrap"
@@ -281,7 +281,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderIpv6">
                                 <TextBlock Text="IPv6 - Set IPv4 as Preferred" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Prefer IPv4 on networks where IPv6 is not configured."
                                            TextWrapping="Wrap"
@@ -337,7 +337,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderPs7">
                                 <TextBlock Text="PowerShell 7 Telemetry - Disable" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Disable PowerShell 7 telemetry on this machine."
                                            TextWrapping="Wrap"
@@ -365,7 +365,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderLongPaths">
                                 <TextBlock Text="Long Paths Support" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Allow applications to use file paths longer than 260 characters."
                                            TextWrapping="Wrap"
@@ -393,7 +393,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderDeveloperMode">
                                 <TextBlock Text="Developer Mode" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Allow installing apps from any source, including unsigned packages."
                                            TextWrapping="Wrap"
@@ -421,7 +421,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <StackPanel x:Name="HeaderVerboseBoot">
                                 <TextBlock Text="Verbose Boot Messages" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Show detailed status messages during startup and shutdown."
                                            TextWrapping="Wrap"

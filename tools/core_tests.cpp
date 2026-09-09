@@ -3,6 +3,7 @@
 #include "winchisel/core/affinity.hpp"
 #include "winchisel/core/startup.hpp"
 #include "winchisel/core/tweak.hpp"
+#include "winchisel/core/risk.hpp"
 
 #include <iostream>
 #include <string>
@@ -140,6 +141,30 @@ int main() {
         expect(!is_new_tweak("gaming-game-mode") && !is_new_tweak(""), "old tweak ids");
         expect(k_new_tweaks_version == std::string_view{"1.0.7"}, "new tweaks version");
         expect(k_new_tweak_ids.size() == 9, "new tweak count");
+        expect(assess_performance("gaming-memory-integrity") == TweakRisk::risky, "risk hvci");
+        expect(assess_performance("gaming-virtualization-based-security") == TweakRisk::risky, "risk vbs");
+        expect(assess_performance("gaming-telemetry-service") == TweakRisk::moderate, "risk service disable");
+        expect(assess_performance("gaming-performance-explorer-mouse-precision") == TweakRisk::safe, "risk hkcu");
+        expect(assess_performance("gaming-gpu-amd-power") == TweakRisk::moderate, "risk gpu special");
+        expect(assess_performance("gaming-keyboard-repeat") == TweakRisk::safe, "risk keyboard");
+        expect(assess_performance("visual-effects-mode") == TweakRisk::safe, "risk visual override");
+        expect(assess_performance("gaming-win32-priority") == TweakRisk::moderate, "risk win32 priority");
+        expect(assess_performance("CompatibilityAppraiserTask") == TweakRisk::safe, "risk telemetry task");
+        expect(assess_performance("AutochkProxyTask") == TweakRisk::moderate, "risk system task");
+        expect(assess_performance("gaming-dns-server") == TweakRisk::moderate, "risk dns");
+        expect(assess_service("Dnscache", true) == TweakRisk::risky, "risk critical service");
+        expect(assess_service("Spooler", true) == TweakRisk::moderate, "risk plain service");
+        expect(assess_service("Spooler", false) == TweakRisk::safe, "risk manual service");
+        expect(assess_service("SensrSvc", true) == TweakRisk::moderate, "risk sensor service");
+        expect(assess_performance("DiskDiagnosticTask") == TweakRisk::safe, "risk disk diagnostic task");
+        expect(assess_privacy("privacy-diagnostics") == TweakRisk::moderate, "risk diagnostics");
+        expect(assess_privacy("privacy-advertising-id") == TweakRisk::moderate, "risk advertising");
+        expect(assess_privacy("privacy-speech-recognition") == TweakRisk::moderate, "risk speech");
+        expect(assess_privacy("security-developer-mode") == TweakRisk::moderate, "risk devmode override");
+        expect(assess_extras("timer_resolution") == TweakRisk::safe, "risk extras safe");
+        expect(assess_extras("ipv6") == TweakRisk::moderate, "risk extras moderate");
+        expect(assess_extras("unknown-key") == TweakRisk::moderate, "risk extras fallback");
+        expect(risk_label_key(TweakRisk::risky) == std::string_view{"Risky"}, "risk label");
     }
     return failed ? 1 : 0;
 }

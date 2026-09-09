@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "AsyncSupport.hpp"
 #include "ExtrasPage.xaml.h"
+#include "winchisel/core/risk.hpp"
 #include "winchisel/platform/system.hpp"
 
 #if __has_include("ExtrasPage.g.cpp")
@@ -9,6 +10,7 @@
 
 namespace winrt::Winchisel::implementation {
 namespace muxc=Microsoft::UI::Xaml::Controls;
+namespace muxm=Microsoft::UI::Xaml::Media;
 namespace {
 constexpr wchar_t policy_backup_path[]=L"SOFTWARE\\Winchisel\\PolicyBackup";
 std::wstring backup_name(std::wstring_view group,std::wstring_view name,std::wstring_view suffix){return std::wstring(group)+L"."+std::wstring(name)+L"."+std::wstring(suffix);}
@@ -17,9 +19,63 @@ bool backup_dword(std::wstring_view group,wchar_t const* path,wchar_t const* nam
 bool restore_dword(std::wstring_view group,wchar_t const* path,wchar_t const* name){HKEY backup{};if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,policy_backup_path,0,KEY_QUERY_VALUE|KEY_SET_VALUE,&backup)!=ERROR_SUCCESS)return false;auto marker=backup_name(group,name,L"present"),saved=backup_name(group,name,L"value");DWORD present{},value{},size=sizeof(DWORD);if(RegQueryValueExW(backup,marker.c_str(),nullptr,nullptr,reinterpret_cast<BYTE*>(&present),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}if(present){size=sizeof(value);if(RegQueryValueExW(backup,saved.c_str(),nullptr,nullptr,reinterpret_cast<BYTE*>(&value),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}}HKEY target{};bool ok=RegCreateKeyExW(HKEY_LOCAL_MACHINE,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&target,nullptr)==ERROR_SUCCESS;if(ok){const auto result=present?RegSetValueExW(target,name,0,REG_DWORD,reinterpret_cast<BYTE*>(&value),sizeof(value)):RegDeleteValueW(target,name);ok=result==ERROR_SUCCESS||(!present&&result==ERROR_FILE_NOT_FOUND);RegCloseKey(target);}if(ok){RegDeleteValueW(backup,marker.c_str());RegDeleteValueW(backup,saved.c_str());}RegCloseKey(backup);return ok;}
 bool backup_string(std::wstring_view group,wchar_t const* path,wchar_t const* name){HKEY backup{};if(RegCreateKeyExW(HKEY_LOCAL_MACHINE,policy_backup_path,0,nullptr,0,KEY_QUERY_VALUE|KEY_SET_VALUE,nullptr,&backup,nullptr)!=ERROR_SUCCESS)return false;auto marker=backup_name(group,name,L"present"),saved=backup_name(group,name,L"value");if(backup_complete(backup,marker,saved,true)){RegCloseKey(backup);return true;}DWORD size=0;const auto status=RegGetValueW(HKEY_LOCAL_MACHINE,path,name,RRF_RT_REG_SZ,nullptr,nullptr,&size);if(status!=ERROR_SUCCESS&&status!=ERROR_FILE_NOT_FOUND){RegCloseKey(backup);return false;}const bool present=status==ERROR_SUCCESS;std::vector<BYTE> value(size);if(present&&RegGetValueW(HKEY_LOCAL_MACHINE,path,name,RRF_RT_REG_SZ,nullptr,value.data(),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}DWORD flag=present?1:0;bool ok=true;if(present)ok=RegSetValueExW(backup,saved.c_str(),0,REG_SZ,value.data(),size)==ERROR_SUCCESS;if(ok)ok=RegSetValueExW(backup,marker.c_str(),0,REG_DWORD,reinterpret_cast<BYTE*>(&flag),sizeof(flag))==ERROR_SUCCESS;RegCloseKey(backup);return ok;}
 bool restore_string(std::wstring_view group,wchar_t const* path,wchar_t const* name){HKEY backup{};if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,policy_backup_path,0,KEY_QUERY_VALUE|KEY_SET_VALUE,&backup)!=ERROR_SUCCESS)return false;auto marker=backup_name(group,name,L"present"),saved=backup_name(group,name,L"value");DWORD present{},size=sizeof(present);if(RegQueryValueExW(backup,marker.c_str(),nullptr,nullptr,reinterpret_cast<BYTE*>(&present),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}std::vector<BYTE> value;if(present){size=0;if(RegQueryValueExW(backup,saved.c_str(),nullptr,nullptr,nullptr,&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}value.resize(size);if(RegQueryValueExW(backup,saved.c_str(),nullptr,nullptr,value.data(),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}}HKEY target{};bool ok=RegCreateKeyExW(HKEY_LOCAL_MACHINE,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&target,nullptr)==ERROR_SUCCESS;if(ok){const auto result=present?RegSetValueExW(target,name,0,REG_SZ,value.data(),size):RegDeleteValueW(target,name);ok=result==ERROR_SUCCESS||(!present&&result==ERROR_FILE_NOT_FOUND);RegCloseKey(target);}if(ok){RegDeleteValueW(backup,marker.c_str());RegDeleteValueW(backup,saved.c_str());}RegCloseKey(backup);return ok;}
+muxc::Border risk_badge(winchisel::core::TweakRisk risk) {
+    auto resources = winrt::Microsoft::UI::Xaml::Application::Current().Resources();
+    winrt::hstring brush_key = L"TextFillColorTertiaryBrush";
+    if (risk == winchisel::core::TweakRisk::moderate) brush_key = L"SystemFillColorCautionBrush";
+    else if (risk == winchisel::core::TweakRisk::risky) brush_key = L"SystemFillColorCriticalBrush";
+    auto accent = resources.Lookup(winrt::box_value(brush_key)).try_as<muxm::Brush>();
+    muxm::Brush tint{nullptr};
+    if (auto solid = accent.try_as<muxm::SolidColorBrush>()) {
+        auto color = solid.Color();
+        color.A = 0x2E;
+        tint = muxm::SolidColorBrush(color);
+    }
+    muxc::Border badge;
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+    badge.Background(tint);
+    muxc::TextBlock label;
+    const auto risk_key = winchisel::core::risk_label_key(risk);
+    label.Text(winrt::hstring{winchisel::core::loc(std::wstring(risk_key.begin(), risk_key.end()))});
+    label.Foreground(accent);
+    label.FontSize(11);
+    label.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+    badge.Child(label);
+    return badge;
+}
 }
 
-ExtrasPage::ExtrasPage(){InitializeComponent();load_states();load_command_states();}
+ExtrasPage::ExtrasPage(){
+    InitializeComponent();
+    const std::pair<muxc::StackPanel, char const*> headers[]{
+        {HeaderModernStandby(), "modern_standby"},
+        {HeaderSyncProvider(), "sync_provider"},
+        {HeaderBrave(), "brave"},
+        {HeaderEdge(), "edge"},
+        {HeaderCtfmon(), "ctfmon"},
+        {HeaderCtfmonDll(), "ctfmon_dll"},
+        {HeaderTimerResolution(), "timer_resolution"},
+        {HeaderIpv6(), "ipv6"},
+        {HeaderPs7(), "ps7"},
+        {HeaderLongPaths(), "long_paths"},
+        {HeaderDeveloperMode(), "developer_mode"},
+        {HeaderVerboseBoot(), "verbose_boot"},
+    };
+    for (auto const& [header, key] : headers) {
+        auto row = muxc::StackPanel();
+        row.Orientation(muxc::Orientation::Horizontal);
+        row.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+        auto title = header.Children().GetAt(0);
+        header.Children().RemoveAt(0);
+        if (title) row.Children().Append(title);
+        row.Children().Append(risk_badge(winchisel::core::assess_extras(key)));
+        header.Children().InsertAt(0, row);
+    }
+    load_states();load_command_states();
+}
 bool ExtrasPage::read_dword(HKEY root,wchar_t const* path,wchar_t const* name,DWORD& value){DWORD size=sizeof(value);return RegGetValueW(root,path,name,RRF_RT_REG_DWORD,nullptr,&value,&size)==ERROR_SUCCESS;}
 bool ExtrasPage::read_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring& value){DWORD size{};if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,nullptr,&size)!=ERROR_SUCCESS)return false;value.resize(size/sizeof(wchar_t));if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,value.data(),&size)!=ERROR_SUCCESS)return false;if(!value.empty()&&!value.back())value.pop_back();return true;}
 bool ExtrasPage::write_dword(HKEY root,wchar_t const* path,wchar_t const* name,std::optional<DWORD> value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;LSTATUS result=value?RegSetValueExW(key,name,0,REG_DWORD,reinterpret_cast<BYTE const*>(&*value),sizeof(DWORD)):RegDeleteValueW(key,name);RegCloseKey(key);return result==ERROR_SUCCESS||(!value&&result==ERROR_FILE_NOT_FOUND);}
