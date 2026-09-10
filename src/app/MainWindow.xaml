@@ -20,19 +20,19 @@
                         ToolTipService.ToolTip="Check for updates" AutomationProperties.Name="Check for updates">
                     <Viewbox Width="10" Height="10"><SymbolIcon Symbol="Sync" /></Viewbox>
                 </Button>
-                <Border x:Name="UpdateStatusPill"
-                        Padding="8,4" CornerRadius="4"
-                        BorderBrush="{ThemeResource TextFillColorSecondaryBrush}"
-                        BorderThickness="1"
+                <Button x:Name="UpdateProgressButton" Height="28" Padding="8,0" CornerRadius="4" BorderThickness="0" FontSize="12"
+                        Style="{StaticResource AccentButtonStyle}" IsEnabled="False"
+                        AutomationProperties.Name="Update progress"
                         Visibility="Collapsed">
-                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
                         <ProgressRing x:Name="UpdateDownloadRing" Width="14" Height="14"
                                       Minimum="0" Maximum="100" Value="0" IsIndeterminate="True"
+                                      Foreground="White"
                                       AutomationProperties.Name="Update progress" />
                         <TextBlock x:Name="UpdateStatusLabel" FontSize="12"
                                    VerticalAlignment="Center" />
                     </StackPanel>
-                </Border>
+                </Button>
                 <Button x:Name="UpdateRestartButton" Click="UpdateRestart_Click" Height="28" Padding="8,0" CornerRadius="4" BorderThickness="0" FontSize="12"
                         Style="{StaticResource AccentButtonStyle}"
                         ToolTipService.ToolTip="Restart to install the update" AutomationProperties.Name="Restart to update"

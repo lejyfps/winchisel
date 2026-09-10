@@ -224,7 +224,7 @@ void MainWindow::show_update_idle() {
     update_check_running_ = false;
     UpdateButton().Visibility(Visibility::Visible);
     UpdateButton().IsEnabled(true);
-    UpdateStatusPill().Visibility(Visibility::Collapsed);
+    UpdateProgressButton().Visibility(Visibility::Collapsed);
     UpdateRestartButton().Visibility(Visibility::Collapsed);
     UpdateDismissButton().Visibility(Visibility::Collapsed);
 }
@@ -235,24 +235,22 @@ void MainWindow::show_update_busy(hstring const& label) {
     UpdateDismissButton().Visibility(Visibility::Collapsed);
     UpdateStatusLabel().Text(label);
     UpdateDownloadRing().IsIndeterminate(true);
-    UpdateStatusPill().Visibility(Visibility::Visible);
+    UpdateProgressButton().Visibility(Visibility::Visible);
 }
 
-void MainWindow::show_update_progress(unsigned percent, hstring const& version) {
+void MainWindow::show_update_progress(unsigned percent) {
     UpdateButton().Visibility(Visibility::Collapsed);
     UpdateRestartButton().Visibility(Visibility::Collapsed);
     UpdateDismissButton().Visibility(Visibility::Collapsed);
-    UpdateStatusLabel().Text(L"Downloading update …");
+    UpdateStatusLabel().Text(L"Downloading update … " + to_hstring(percent) + L"%");
     UpdateDownloadRing().IsIndeterminate(false);
     UpdateDownloadRing().Value(static_cast<double>(percent));
-    UpdateStatusPill().Visibility(Visibility::Visible);
-    Controls::ToolTipService::SetToolTip(UpdateStatusPill(),
-        box_value(L"Update to Version: " + version + L" (" + to_hstring(percent) + L"% downloaded)"));
+    UpdateProgressButton().Visibility(Visibility::Visible);
 }
 
 void MainWindow::show_update_ready(hstring const& version) {
     UpdateButton().Visibility(Visibility::Collapsed);
-    UpdateStatusPill().Visibility(Visibility::Collapsed);
+    UpdateProgressButton().Visibility(Visibility::Collapsed);
     Controls::ToolTipService::SetToolTip(UpdateRestartButton(), box_value(L"Update to Version: " + version));
     UpdateRestartButton().Visibility(Visibility::Visible);
     UpdateDismissButton().Visibility(Visibility::Visible);
@@ -459,18 +457,18 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
             show_update_idle(); co_return;
         }
     }
-    show_update_progress(0, version_text);
+    show_update_progress(0);
     auto ui_queue = DispatcherQueue();
     auto progress_weak = get_weak();
     winchisel::platform::boot_log(("update stage begin v" + manifest->version).c_str());
     co_await winrt::resume_background();
     auto staged = winchisel::platform::stage_release_artifact(*manifest, artifact_id,
-        [ui_queue, progress_weak, version_text](std::uint64_t done, std::uint64_t total) {
-            (void)winchisel::ui::enqueue_safe(ui_queue, [progress_weak, version_text, done, total] {
+        [ui_queue, progress_weak](std::uint64_t done, std::uint64_t total) {
+            (void)winchisel::ui::enqueue_safe(ui_queue, [progress_weak, done, total] {
                 if (auto self = progress_weak.get()) {
                     if (!total) return;
                     const auto percent = static_cast<unsigned>(done * 100 / total);
-                    self->show_update_progress(percent, version_text);
+                    self->show_update_progress(percent);
                 }
             });
         });

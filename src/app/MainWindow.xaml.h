@@ -40,11 +40,12 @@ private:
     winrt::fire_and_forget install_pending_update();
     void notify_if_updated();
     // Title-bar update states (Zed-style): the check button, a labeled
-    // status pill (spinner/ring + text, like Zed's UpdateButton) and the
-    // restart button swap dynamically so no separate status card is needed.
+    // progress button (disabled while busy, like the final restart button)
+    // and the restart button swap dynamically so no separate status card
+    // is needed.
     void show_update_idle();
     void show_update_busy(winrt::hstring const& label);
-    void show_update_progress(unsigned percent, winrt::hstring const& version);
+    void show_update_progress(unsigned percent);
     void show_update_ready(winrt::hstring const& version);
     bool update_check_running_{};
     // A staged update waiting for the user's restart (Zed-style: download in
