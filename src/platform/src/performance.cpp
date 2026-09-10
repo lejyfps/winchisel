@@ -7,6 +7,7 @@
 #include <Windows.h>
 #include <taskschd.h>
 #include <comdef.h>
+#include <Wbemidl.h>
 #include <array>
 #include <algorithm>
 #include <cctype>
@@ -20,6 +21,7 @@
 #include <utility>
 #pragma comment(lib, "taskschd.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "wbemuuid.lib")
 namespace winchisel::platform { namespace {
 struct NetshResult { DWORD code{}; bool timed_out{}; std::string output; };
 NetshResult run_netsh(std::wstring command, DWORD timeout_ms = 60 * 1000) {
@@ -333,6 +335,255 @@ winchisel::core::Result<void> write_dns_profile(int index){
     return {};
 }
 
+// Windows Update policy selection. All policy keys are plain registry values
+// (HKCU+HKLM ...\WindowsUpdate\AU, HKLM ...\WindowsUpdate\UX\Settings), so the
+// whole selection is one atomic registry batch. -1 on read means a custom mix.
+namespace {
+constexpr char const* k_update_au = "SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU";
+constexpr char const* k_update_ux = "SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings";
+constexpr std::array<char const*, 6> k_update_au_dwords{"NoAutoUpdate", "AUOptions", "NoAUShutdownOption",
+    "AlwaysAutoRebootAtScheduledTime", "AutoInstallMinorUpdates", "UseWUServer"};
+constexpr std::array<char const*, 8> k_update_ux_dwords{"BranchReadinessLevel", "DeferFeatureUpdates",
+    "DeferFeatureUpdatesPeriodInDays", "DeferQualityUpdates", "DeferQualityUpdatesPeriodInDays",
+    "FlightSettingsMaxPauseDays", "PausedFeatureStatus", "PausedQualityStatus"};
+constexpr std::array<char const*, 8> k_update_ux_strings{"PauseFeatureUpdatesStartTime", "PauseFeatureUpdatesEndTime",
+    "PauseQualityUpdatesStartTime", "PauseQualityUpdatesEndTime", "PauseUpdatesStartTime", "PauseUpdatesExpiryTime",
+    "PausedQualityDate", "PausedFeatureDate"};
+using winchisel::core::RegistryHive;
+using winchisel::core::RegistryTarget;
+using winchisel::core::RegistryValue;
+using winchisel::core::RegistryValueType;
+RegistryTarget au_target(bool machine, char const* name) {
+    return {machine ? RegistryHive::local_machine : RegistryHive::current_user, k_update_au, name, RegistryValueType::dword};
+}
+RegistryTarget ux_target(char const* name, RegistryValueType type) {
+    return {RegistryHive::local_machine, k_update_ux, name, type};
+}
+std::optional<std::uint32_t> update_au_dword(char const* name) {
+    // Set in either hive counts as set; HKCU wins on conflict.
+    if (auto user = read_registry_value(au_target(false, name))) {
+        if (auto dword = std::get_if<std::uint32_t>(&*user)) return *dword;
+        if (!std::holds_alternative<std::monostate>(*user)) return std::nullopt;
+    }
+    if (auto machine = read_registry_value(au_target(true, name))) {
+        if (auto dword = std::get_if<std::uint32_t>(&*machine)) return *dword;
+    }
+    return std::nullopt;
+}
+std::optional<std::uint32_t> update_ux_dword(char const* name) {
+    auto value = read_registry_value(ux_target(name, RegistryValueType::dword));
+    if (!value) return std::nullopt;
+    if (auto dword = std::get_if<std::uint32_t>(&*value)) return *dword;
+    return std::nullopt;
+}
+std::optional<std::string> update_ux_string(char const* name) {
+    auto value = read_registry_value(ux_target(name, RegistryValueType::string));
+    if (!value) return std::nullopt;
+    if (auto text = std::get_if<std::string>(&*value)) return *text;
+    return std::nullopt;
+}
+bool update_any_set() {
+    for (auto name : k_update_au_dwords) {
+        for (bool machine : {false, true}) {
+            auto value = read_registry_value(au_target(machine, name));
+            if (value && !std::holds_alternative<std::monostate>(*value)) return true;
+        }
+    }
+    for (auto name : k_update_ux_dwords) {
+        auto value = read_registry_value(ux_target(name, RegistryValueType::dword));
+        if (value && !std::holds_alternative<std::monostate>(*value)) return true;
+    }
+    for (auto name : k_update_ux_strings) {
+        auto value = read_registry_value(ux_target(name, RegistryValueType::string));
+        if (value && !std::holds_alternative<std::monostate>(*value)) return true;
+    }
+    return false;
+}
+void update_erase(std::vector<std::pair<RegistryTarget, RegistryValue>>& changes) {
+    for (auto name : k_update_au_dwords)
+        for (bool machine : {false, true}) changes.emplace_back(au_target(machine, name), RegistryValue{std::monostate{}});
+    for (auto name : k_update_ux_dwords) changes.emplace_back(ux_target(name, RegistryValueType::dword), RegistryValue{std::monostate{}});
+    for (auto name : k_update_ux_strings) changes.emplace_back(ux_target(name, RegistryValueType::string), RegistryValue{std::monostate{}});
+}
+void update_set_au(std::vector<std::pair<RegistryTarget, RegistryValue>>& changes, char const* name, std::uint32_t value) {
+    for (bool machine : {false, true}) changes.emplace_back(au_target(machine, name), RegistryValue{value});
+}
+void update_set_ux_dword(std::vector<std::pair<RegistryTarget, RegistryValue>>& changes, char const* name, std::uint32_t value) {
+    changes.emplace_back(ux_target(name, RegistryValueType::dword), RegistryValue{value});
+}
+void update_set_ux_string(std::vector<std::pair<RegistryTarget, RegistryValue>>& changes, char const* name, char const* value) {
+    changes.emplace_back(ux_target(name, RegistryValueType::string), RegistryValue{std::string{value}});
+}
+}  // namespace
+winchisel::core::Result<int> read_update_policy() {
+    auto is = [](std::optional<std::uint32_t> value, std::uint32_t expected) { return value && *value == expected; };
+    auto ux_start = update_ux_string("PauseUpdatesExpiryTime");
+    const bool paused = is(update_ux_dword("PausedFeatureStatus"), 1) && is(update_ux_dword("PausedQualityStatus"), 1) &&
+        ux_start && ux_start->rfind("2051", 0) == 0;
+    if (paused) return 2;
+    if (is(update_au_dword("NoAutoUpdate"), 1) && is(update_au_dword("AUOptions"), 1)) return 3;
+    if (is(update_au_dword("AUOptions"), 2) && is(update_ux_dword("DeferFeatureUpdates"), 1) &&
+        is(update_ux_dword("DeferFeatureUpdatesPeriodInDays"), 365) && is(update_ux_dword("DeferQualityUpdates"), 1) &&
+        is(update_ux_dword("DeferQualityUpdatesPeriodInDays"), 7)) return 1;
+    if (!update_any_set()) return 0;
+    return -1;
+}
+winchisel::core::Result<void> write_update_policy(int index) {
+    if (index == 4) return {};
+    if (index < 0 || index > 3) return std::unexpected(error("invalid update policy"));
+    std::vector<std::pair<RegistryTarget, RegistryValue>> changes;
+    if (index == 1) {
+        update_set_au(changes, "AUOptions", 2);
+        update_set_ux_dword(changes, "BranchReadinessLevel", 20);
+        update_set_ux_dword(changes, "DeferFeatureUpdates", 1);
+        update_set_ux_dword(changes, "DeferFeatureUpdatesPeriodInDays", 365);
+        update_set_ux_dword(changes, "DeferQualityUpdates", 1);
+        update_set_ux_dword(changes, "DeferQualityUpdatesPeriodInDays", 7);
+        // AUOptions is set above; every other policy key is cleared.
+        for (auto name : k_update_au_dwords) {
+            if (std::strcmp(name, "AUOptions") == 0) continue;
+            for (bool machine : {false, true}) changes.emplace_back(au_target(machine, name), RegistryValue{std::monostate{}});
+        }
+        for (auto name : k_update_ux_dwords) {
+            if (std::strcmp(name, "BranchReadinessLevel") == 0 || std::strcmp(name, "DeferFeatureUpdates") == 0 ||
+                std::strcmp(name, "DeferFeatureUpdatesPeriodInDays") == 0 || std::strcmp(name, "DeferQualityUpdates") == 0 ||
+                std::strcmp(name, "DeferQualityUpdatesPeriodInDays") == 0) continue;
+            changes.emplace_back(ux_target(name, RegistryValueType::dword), RegistryValue{std::monostate{}});
+        }
+        for (auto name : k_update_ux_strings) changes.emplace_back(ux_target(name, RegistryValueType::string), RegistryValue{std::monostate{}});
+    } else if (index == 2) {
+        update_set_au(changes, "NoAutoUpdate", 1);
+        update_set_au(changes, "AUOptions", 1);
+        update_set_au(changes, "NoAUShutdownOption", 1);
+        update_set_au(changes, "AlwaysAutoRebootAtScheduledTime", 0);
+        update_set_au(changes, "AutoInstallMinorUpdates", 0);
+        update_set_au(changes, "UseWUServer", 0);
+        update_set_ux_dword(changes, "FlightSettingsMaxPauseDays", 10023);
+        update_set_ux_dword(changes, "PausedFeatureStatus", 1);
+        update_set_ux_dword(changes, "PausedQualityStatus", 1);
+        update_set_ux_string(changes, "PauseFeatureUpdatesStartTime", "2025-01-01T00:00:00Z");
+        update_set_ux_string(changes, "PauseFeatureUpdatesEndTime", "2051-12-31T00:00:00Z");
+        update_set_ux_string(changes, "PauseQualityUpdatesStartTime", "2025-01-01T00:00:00Z");
+        update_set_ux_string(changes, "PauseQualityUpdatesEndTime", "2051-12-31T00:00:00Z");
+        update_set_ux_string(changes, "PauseUpdatesStartTime", "2025-01-01T00:00:00Z");
+        update_set_ux_string(changes, "PauseUpdatesExpiryTime", "2051-12-31T00:00:00Z");
+        update_set_ux_string(changes, "PausedQualityDate", "2025-01-01T00:00:00Z");
+        update_set_ux_string(changes, "PausedFeatureDate", "2025-01-01T00:00:00Z");
+        for (auto name : k_update_ux_dwords) {
+            if (std::strcmp(name, "FlightSettingsMaxPauseDays") == 0 || std::strcmp(name, "PausedFeatureStatus") == 0 ||
+                std::strcmp(name, "PausedQualityStatus") == 0) continue;
+            changes.emplace_back(ux_target(name, RegistryValueType::dword), RegistryValue{std::monostate{}});
+        }
+    } else if (index == 3) {
+        update_set_au(changes, "NoAutoUpdate", 1);
+        update_set_au(changes, "AUOptions", 1);
+        update_set_au(changes, "UseWUServer", 0);
+        for (auto name : k_update_au_dwords) {
+            if (std::strcmp(name, "NoAutoUpdate") == 0 || std::strcmp(name, "AUOptions") == 0 || std::strcmp(name, "UseWUServer") == 0) continue;
+            for (bool machine : {false, true}) changes.emplace_back(au_target(machine, name), RegistryValue{std::monostate{}});
+        }
+        for (auto name : k_update_ux_dwords) changes.emplace_back(ux_target(name, RegistryValueType::dword), RegistryValue{std::monostate{}});
+        for (auto name : k_update_ux_strings) changes.emplace_back(ux_target(name, RegistryValueType::string), RegistryValue{std::monostate{}});
+    } else {
+        update_erase(changes);
+    }
+    return write_registry_values_atomic(changes);
+}
+// System Protection (restore points) has no registry switch: state is the
+// presence of protected volumes below SPP\Clients, toggling goes through the
+// native WMI SystemRestore class (what Enable/Disable-ComputerRestore wrap).
+winchisel::core::Result<bool> read_system_protection() {
+    HKEY clients{};
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\SPP\\Clients",
+            0, KEY_ENUMERATE_SUB_KEYS, &clients) != ERROR_SUCCESS) return false;
+    DWORD subkeys{};
+    const auto status = RegQueryInfoKeyW(clients, nullptr, nullptr, nullptr, &subkeys, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr);
+    RegCloseKey(clients);
+    if (status != ERROR_SUCCESS) return std::unexpected(error("system protection state unreadable: " + std::to_string(status)));
+    return subkeys > 0;
+}
+winchisel::core::Result<void> write_system_protection(bool enabled) {
+    detail::ComApartment com;
+    if (!com) return std::unexpected(error("system protection change failed: COM unavailable"));
+    IWbemLocator* locator{};
+    HRESULT hr = CoCreateInstance(CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator,
+        reinterpret_cast<void**>(&locator));
+    if (FAILED(hr) || !locator) return std::unexpected(error("system protection change failed: " + std::to_string(hr)));
+    BSTR server = SysAllocString(L"ROOT\\DEFAULT");
+    IWbemServices* services{};
+    hr = locator->ConnectServer(server, nullptr, nullptr, nullptr, 0, nullptr, nullptr, &services);
+    SysFreeString(server);
+    locator->Release();
+    if (FAILED(hr) || !services) return std::unexpected(error("system protection change failed: " + std::to_string(hr)));
+    hr = CoSetProxyBlanket(services, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, nullptr, RPC_C_AUTHN_LEVEL_CALL,
+        RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_NONE);
+    if (FAILED(hr)) {
+        services->Release();
+        return std::unexpected(error("system protection change failed: " + std::to_string(hr)));
+    }
+    const wchar_t* method = enabled ? L"Enable" : L"Disable";
+    BSTR path = SysAllocString(L"SystemRestore");
+    IWbemClassObject* cls{};
+    hr = services->GetObject(path, 0, nullptr, &cls, nullptr);
+    SysFreeString(path);
+    if (FAILED(hr) || !cls) {
+        services->Release();
+        return std::unexpected(error("system protection unavailable: " + std::to_string(hr)));
+    }
+    BSTR method_name = SysAllocString(method);
+    IWbemClassObject* signature{};
+    hr = cls->GetMethod(method_name, 0, &signature, nullptr);
+    SysFreeString(method_name);
+    cls->Release();
+    if (FAILED(hr) || !signature) {
+        services->Release();
+        return std::unexpected(error("system protection change failed: " + std::to_string(hr)));
+    }
+    IWbemClassObject* args{};
+    hr = signature->SpawnInstance(0, &args);
+    signature->Release();
+    if (FAILED(hr) || !args) {
+        services->Release();
+        return std::unexpected(error("system protection change failed: " + std::to_string(hr)));
+    }
+    VARIANT drive;
+    VariantInit(&drive);
+    drive.vt = VT_BSTR;
+    drive.bstrVal = SysAllocString(L"C:\\");
+    BSTR drive_name = SysAllocString(L"Drive");
+    hr = args->Put(drive_name, 0, &drive, 0);
+    SysFreeString(drive_name);
+    VariantClear(&drive);
+    if (FAILED(hr)) {
+        args->Release();
+        services->Release();
+        return std::unexpected(error("system protection change failed: " + std::to_string(hr)));
+    }
+    BSTR object_path = SysAllocString(L"SystemRestore");
+    BSTR call = SysAllocString(method);
+    IWbemClassObject* out{};
+    hr = services->ExecMethod(object_path, call, 0, nullptr, args, &out, nullptr);
+    SysFreeString(object_path);
+    SysFreeString(call);
+    args->Release();
+    services->Release();
+    if (FAILED(hr)) return std::unexpected(error("system protection change failed: " + std::to_string(hr)));
+    DWORD code = 1;
+    if (out) {
+        VARIANT result;
+        VariantInit(&result);
+        if (SUCCEEDED(out->Get(L"ReturnValue", 0, &result, nullptr, nullptr))) {
+            if (result.vt == VT_I4) code = static_cast<DWORD>(result.lVal);
+            else if (result.vt == VT_UI4) code = result.ulVal;
+        }
+        VariantClear(&result);
+        out->Release();
+    }
+    if (code != 0) return std::unexpected(error("system protection change rejected by Windows (" + std::to_string(code) + ")"));
+    return {};
+}
+
 template<typename Work>
 auto with_registered_task(std::string_view full, Work work) {
     detail::ComApartment com;
@@ -366,7 +617,8 @@ winchisel::core::Result<void> write_scheduled_task(std::string_view id,bool enab
 winchisel::core::Result<void> apply_registry_and_tasks(
     std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& registry,
     std::vector<std::pair<std::string, bool>> const& tasks,
-    std::optional<int> dns_profile) {
+    std::optional<int> dns_profile,
+    std::optional<int> update_policy) {
     std::vector<std::pair<winchisel::core::RegistryTarget, RegistryNativeValue>> previous_registry;
     previous_registry.reserve(registry.size());
     for (auto const& [target, _] : registry) {
@@ -387,6 +639,12 @@ winchisel::core::Result<void> apply_registry_and_tasks(
         if (!dns) return std::unexpected(dns.error());
         previous_dns = *dns;
     }
+    std::optional<int> previous_update;
+    if (update_policy) {
+        auto policy = read_update_policy();
+        if (!policy) return std::unexpected(policy.error());
+        previous_update = *policy;
+    }
     auto restore = [&] {
         bool ok = true;
         for (auto it = previous_registry.rbegin(); it != previous_registry.rend(); ++it)
@@ -394,6 +652,7 @@ winchisel::core::Result<void> apply_registry_and_tasks(
         for (auto it = previous_tasks.rbegin(); it != previous_tasks.rend(); ++it)
             ok = static_cast<bool>(write_scheduled_task(it->first, it->second)) && ok;
         if (previous_dns) ok = static_cast<bool>(write_dns_profile(*previous_dns)) && ok;
+        if (previous_update && *previous_update >= 0) ok = static_cast<bool>(write_update_policy(*previous_update)) && ok;
         return ok;
     };
     if (auto written = write_registry_values_atomic(registry); !written) return written;
@@ -412,26 +671,37 @@ winchisel::core::Result<void> apply_registry_and_tasks(
             return std::unexpected(std::move(original));
         }
     }
+    if (update_policy) {
+        auto result = write_update_policy(*update_policy);
+        if (!result) {
+            auto original = result.error();
+            original.detail += restore() ? "; rolled back" : "; rollback incomplete";
+            return std::unexpected(std::move(original));
+        }
+    }
     return {};
 }
 bool is_special_performance_toggle(std::string_view id) {
-    return gpu_vendor_for(id).has_value() || id == "gaming-usb-selective-suspend" || id == "gaming-hibernate-fast-startup";
+    return gpu_vendor_for(id).has_value() || id == "gaming-usb-selective-suspend" ||
+        id == "gaming-hibernate-fast-startup" || id == "updates-system-protection";
 }
 winchisel::core::Result<bool> read_special_performance_toggle(std::string_view id) {
     if (auto vendor = gpu_vendor_for(id)) return read_gpu_vendor_tweak(*vendor);
     if (id == "gaming-usb-selective-suspend") return read_usb_selective_suspend();
     if (id == "gaming-hibernate-fast-startup") return read_hibernate();
+    if (id == "updates-system-protection") return read_system_protection();
     return std::unexpected(error("unknown special performance toggle"));
 }
 winchisel::core::Result<void> write_special_performance_toggle(std::string_view id, bool enabled) {
     if (auto vendor = gpu_vendor_for(id)) return write_gpu_vendor_tweak(*vendor, enabled);
     if (id == "gaming-usb-selective-suspend") return write_usb_selective_suspend(enabled);
     if (id == "gaming-hibernate-fast-startup") return write_hibernate(enabled);
+    if (id == "updates-system-protection") return write_system_protection(enabled);
     return std::unexpected(error("unknown special performance toggle"));
 }
 winchisel::core::Result<bool> is_special_available(std::string_view id) {
     if (auto vendor = gpu_vendor_for(id)) return !gpu_adapter_subkeys(*vendor).empty();
-    if (id == "gaming-usb-selective-suspend" || id == "gaming-hibernate-fast-startup") return true;
+    if (id == "gaming-usb-selective-suspend" || id == "gaming-hibernate-fast-startup" || id == "updates-system-protection") return true;
     return std::unexpected(error("unknown special performance toggle"));
 }
 }

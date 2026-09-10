@@ -608,6 +608,18 @@ void PerformancePage::load_catalog_selections() {
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
         if(item.id=="gaming-dns-server"){auto profile=dns_state_;item.control.SelectedIndex(profile&&*profile<static_cast<int>(item.options.size())?*profile:-1);if(item.rec_badge){const auto selected=item.control.SelectedIndex();update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);}continue;}
+        if(item.id=="updates-policy-mode"){auto policy=update_policy_state_;int selected=4;if(policy&&*policy>=0&&*policy<static_cast<int>(item.options.size()))selected=*policy;item.control.SelectedIndex(selected);if(item.rec_badge)update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);continue;}
+        if(item.id=="updates-delivery-optimization"){
+            const auto user_value=cached_value(target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword));
+            const auto machine_value=cached_value(target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword));
+            const auto* mode=user_value?std::get_if<std::uint32_t>(&*user_value):nullptr;
+            if(!mode&&machine_value)mode=std::get_if<std::uint32_t>(&*machine_value);
+            int selected=0;
+            if(mode)selected=*mode==1?1:*mode==3?2:*mode==99?3:-1;
+            item.control.SelectedIndex(selected);
+            if(item.rec_badge)update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);
+            continue;
+        }
         std::uint32_t value{}; bool found{};
         Target destination;
         if (item.id=="gaming-win32-priority") destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);
@@ -615,7 +627,11 @@ void PerformancePage::load_catalog_selections() {
         else if(item.id=="visual-effects-mode") destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);
         else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()) destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);
         else continue;
-        auto current=cached_value(destination);if(current)if(auto dword=std::get_if<std::uint32_t>(&*current)){value=*dword;found=true;}if(!found)continue;
+        auto current=cached_value(destination);
+        if(current)if(auto dword=std::get_if<std::uint32_t>(&*current)){value=*dword;found=true;}
+        // Service Start values are DWORDs, but tolerate a stray REG_SZ ("2"/"3"/"4") for display.
+        if(!found&&current)if(auto text=std::get_if<std::string>(&*current)){if(*text=="4"||*text=="3"||*text=="2"){value=static_cast<std::uint32_t>((*text)[0]-'0');found=true;}}
+        if(!found)continue;
         int selected=0;
         if(item.id=="gaming-win32-priority")selected=value==24?1:value==38?0:-1;
         else if(item.id=="gaming-performance-svchost-split-threshold"){selected=10;constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};for(std::size_t i{};i<values.size();++i)if(values[i]==value)selected=static_cast<int>(i);}
@@ -630,6 +646,8 @@ void PerformancePage::load_catalog_selections() {
 void PerformancePage::save_catalog_selection(std::size_t index) {
     if(loading_gaming_selections_||index>=catalog_selections_.size())return;auto const& item=catalog_selections_[index];auto selected=item.control.SelectedIndex();if(selected<0)return;Target destination;std::uint32_t value{};
     if(item.id=="gaming-dns-server"){submit([selected]{return winchisel::platform::write_dns_profile(selected);});return;}
+    if(item.id=="updates-policy-mode"){submit([selected]{return winchisel::platform::write_update_policy(selected);});return;}
+    if(item.id=="updates-delivery-optimization"){const auto user=target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const auto machine=target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const Value mode=selected==1?Value{std::uint32_t{1}}:selected==2?Value{std::uint32_t{3}}:selected==3?Value{std::uint32_t{99}}:Value{std::monostate{}};submit([user,machine,mode]{return winchisel::platform::write_registry_values_atomic({{user,mode},{machine,mode}});});return;}
     if(item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
     else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))return;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
     else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
@@ -731,10 +749,18 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     }
     loading_gaming_selections_ = false;
     std::optional<int> dns;
+    std::optional<int> update_policy;
     for (auto const& item : catalog_selections_) {
         auto selected = item.control.SelectedIndex();
         if (selected < 0 || !profile_for(item.id, true)) continue;
         if (item.id == "gaming-dns-server") { if (selected != 7) dns = selected; continue; }
+        if (item.id == "updates-policy-mode") { if (selected != 4) update_policy = selected; continue; }
+        if (item.id == "updates-delivery-optimization") {
+            const Value mode = selected == 1 ? Value{std::uint32_t{1}} : selected == 2 ? Value{std::uint32_t{3}} : selected == 3 ? Value{std::uint32_t{99}} : Value{std::monostate{}};
+            registry.emplace_back(target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization", "DODownloadMode", Type::dword), mode);
+            registry.emplace_back(target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization", "DODownloadMode", Type::dword), mode);
+            continue;
+        }
         Target destination; std::uint32_t value{};
         if (item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
         else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))continue;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
@@ -743,8 +769,8 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         else continue;
         registry.emplace_back(destination, Value{value});
     }
-    submit([registry=std::move(registry),tasks=std::move(tasks),dns,specials=std::move(specials)]{
-        if (auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,dns); !applied) return applied;
+    submit([registry=std::move(registry),tasks=std::move(tasks),dns,update_policy,specials=std::move(specials)]{
+        if (auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,dns,update_policy); !applied) return applied;
         for (auto const& [id, enabled] : specials) {
             if (auto written = winchisel::platform::write_special_performance_toggle(id, enabled); !written) {
                 auto faulty = written.error();
@@ -894,7 +920,9 @@ winrt::fire_and_forget PerformancePage::process_changes() {
             target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword),
             target(Hive::current_user,"Control Panel\\Mouse","MouseHoverTime",Type::string),
             target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy","LetAppsRunInBackground",Type::dword),
-            target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy","LetAppsRunInBackground",Type::dword)};
+            target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy","LetAppsRunInBackground",Type::dword),
+            target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword),
+            target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword)};
         for(auto const& item:gaming_toggles_)targets.insert(targets.end(),item.targets.begin(),item.targets.end());
         for(auto const& rule:winchisel::core::get_performance_registry_rules())
             targets.push_back(target(rule.root==0?Hive::current_user:Hive::local_machine,rule.path.data(),rule.name.data(),rule.kind==0?Type::dword:rule.kind==1?Type::string:Type::binary));
@@ -917,8 +945,9 @@ winrt::fire_and_forget PerformancePage::process_changes() {
         std::map<std::string,winchisel::core::Result<bool>> available;
         for(auto const& id:special_ids)available.emplace(id,winchisel::platform::is_special_available(id));
         auto dns=winchisel::platform::read_dns_profile();
+        auto update_policy=winchisel::platform::read_update_policy();
         co_await ui;
-        registry_state_=std::move(registry); task_state_=std::move(tasks); special_state_=std::move(specials); special_available_=std::move(available); dns_state_=std::move(dns);
+        registry_state_=std::move(registry); task_state_=std::move(tasks); special_state_=std::move(specials); special_available_=std::move(available); dns_state_=std::move(dns); update_policy_state_=std::move(update_policy);
         load_gaming_toggles(); load_gaming_selections(); load_catalog_toggles(); load_catalog_selections();
         work_running_=false; IsEnabled(true);
         if(!failure.empty())show_write_error(failure);

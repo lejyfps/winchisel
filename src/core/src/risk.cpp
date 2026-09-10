@@ -90,6 +90,9 @@ constexpr std::pair<std::string_view, TweakRisk> kCatalogOverrides[] = {
     {"visual-effects-mode", TweakRisk::safe},
     {"gaming-performance-explorer-mouse-hover-time", TweakRisk::safe},
     {"gaming-dns-server", TweakRisk::moderate},
+    // Only hides Defender notification toasts; protection itself is untouched,
+    // so the "defender" security keyword must not rate it risky.
+    {"notifications-windows-security", TweakRisk::moderate},
 };
 
 // Hand-built Extras toggles have no catalog rules, so they are rated here.
@@ -181,6 +184,7 @@ constexpr std::string_view kSpecialIds[] = {
     "gaming-gpu-intel-display",
     "gaming-usb-selective-suspend",
     "gaming-hibernate-fast-startup",
+    "updates-system-protection",
 };
 
 bool offers_disabled(std::string_view id) {

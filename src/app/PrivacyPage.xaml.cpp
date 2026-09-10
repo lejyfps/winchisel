@@ -169,7 +169,8 @@ Controls::Border risk_badge(winchisel::core::TweakRisk risk) {
 }
 
 Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control, bool is_new = false,
-    winchisel::core::TweakRisk risk = winchisel::core::TweakRisk::safe, bool show_risk = false) {
+    winchisel::core::TweakRisk risk = winchisel::core::TweakRisk::safe, bool show_risk = false,
+    Controls::Border const& rec_badge = nullptr, Controls::Border const& def_badge = nullptr) {
     auto card = category_card(title, description);
     card.Tag(box_value(title + L" " + description));
     auto layout = Controls::Grid();
@@ -186,7 +187,7 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     heading.Text(title);
     heading.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Style>());
     heading.VerticalAlignment(VerticalAlignment::Center);
-    if (!is_new && !show_risk) {
+    if (!is_new && !show_risk && !rec_badge && !def_badge) {
         text.Children().Append(heading);
     } else {
         auto header_row = Controls::StackPanel();
@@ -195,6 +196,8 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
         header_row.Children().Append(heading);
         if (is_new) header_row.Children().Append(new_badge());
         if (show_risk) header_row.Children().Append(risk_badge(risk));
+        if (rec_badge) header_row.Children().Append(rec_badge);
+        if (def_badge) header_row.Children().Append(def_badge);
         text.Children().Append(header_row);
     }
     auto detail = Controls::TextBlock();
@@ -265,6 +268,61 @@ hstring toggle_tip(bool recommended, bool state) {
 hstring selection_tip(bool recommended, std::wstring_view option) {
     const auto prefix = recommended ? winchisel::ui::tr(L"Recommended") : winchisel::ui::tr(L"Defaults");
     return hstring{std::wstring(prefix) + L": " + std::wstring(option)};
+}
+
+// State pill showing whether the current value matches Recommended or the
+// Windows default. Starts hidden; apply_snapshot() refreshes it. Profile:
+// toggles recommended = Off / default = On, combos carry explicit indices.
+Controls::Border state_badge(bool recommended) {
+    auto resources = Application::Current().Resources();
+    const wchar_t* brush_key = recommended ? L"AccentTextFillColorPrimaryBrush" : L"TextFillColorSecondaryBrush";
+    auto accent = resources.Lookup(box_value(brush_key)).try_as<Media::Brush>();
+    Media::Brush tint{nullptr};
+    if (auto solid = accent.try_as<Media::SolidColorBrush>()) {
+        auto color = solid.Color();
+        color.A = 0x2E;
+        tint = Media::SolidColorBrush(color);
+    }
+    auto badge = Controls::Border();
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.Margin({8, 0, 0, 0});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    badge.Visibility(Visibility::Collapsed);
+    auto label = Controls::TextBlock();
+    label.Text(recommended ? winchisel::ui::tr(L"Recommended") : winchisel::ui::tr(L"Default"));
+    label.Foreground(accent);
+    label.FontSize(11);
+    label.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(VerticalAlignment::Center);
+    if (recommended) {
+        auto row = Controls::StackPanel();
+        row.Orientation(Controls::Orientation::Horizontal);
+        row.Spacing(6);
+        row.VerticalAlignment(VerticalAlignment::Center);
+        auto icon = Controls::FontIcon();
+        icon.Glyph(hstring{L"\uE735"});
+        icon.FontSize(11);
+        icon.Foreground(accent);
+        icon.VerticalAlignment(VerticalAlignment::Center);
+        row.Children().Append(icon);
+        row.Children().Append(label);
+        badge.Child(row);
+    } else {
+        badge.Child(label);
+    }
+    return badge;
+}
+
+bool state_badges_visible() {
+    return winchisel::application::Session::instance().settings().show_state_badges;
+}
+
+void update_state_badges(Controls::Border const& rec, Controls::Border const& def, bool is_rec, bool is_def) {
+    const bool show = state_badges_visible();
+    if (rec) rec.Visibility(show && is_rec ? Visibility::Visible : Visibility::Collapsed);
+    if (def) def.Visibility(show && is_def ? Visibility::Visible : Visibility::Collapsed);
 }
 
 }  // namespace
@@ -387,11 +445,14 @@ Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group) {
         }
         ads_mode_.SelectionChanged([this](auto&&, auto&&) { save_ads_mode(); });
         // Profile: recommended = Deny (1), default = Allow (0).
-        auto trailing = with_quick_set(ads_mode_, selection_tip(true, L"Deny"), selection_tip(false, L"Allow"),
+        ads_rec_ = state_badge(true);
+        ads_def_ = state_badge(false);
+        auto ads_trailing = with_quick_set(ads_mode_, selection_tip(true, L"Deny"), selection_tip(false, L"Allow"),
             [this] { if (!loading_uac_ && ads_mode_) ads_mode_.SelectedIndex(1); },
             [this] { if (!loading_uac_ && ads_mode_) ads_mode_.SelectedIndex(0); });
         content.Children().Append(setting_card(L"Ads, Suggestions and Promotional Content",
-            L"Controls all advertising, suggestions, and promotional content throughout Windows", trailing));
+            L"Controls all advertising, suggestions, and promotional content throughout Windows", ads_trailing,
+            false, winchisel::core::TweakRisk::safe, false, ads_rec_, ads_def_));
     }
     for (auto const& item : winchisel::core::get_privacy_catalog()) {
         if (item.group != group) continue;
@@ -403,13 +464,17 @@ Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group) {
         toggle.Width(40);
         auto index = privacy_toggles_.size();
         privacy_toggles_.push_back({std::string(item.id), toggle});
+        auto& stored = privacy_toggles_.back();
+        stored.rec_badge = state_badge(true);
+        stored.def_badge = state_badge(false);
         toggle.Toggled([this, index](auto&&, auto&&) { save_privacy_toggle(index); });
         // Profile: recommended = Off (hardened), default = On (Windows stock).
         auto trailing = with_quick_set(toggle, toggle_tip(true, false), toggle_tip(false, true),
             [this, index] { if (!loading_security_) privacy_toggles_[index].control.IsOn(false); },
             [this, index] { if (!loading_security_) privacy_toggles_[index].control.IsOn(true); });
         auto card = setting_card(to_hstring(item.name), to_hstring(item.description), trailing,
-            show_new && winchisel::core::is_new_tweak(item.id), winchisel::core::assess_privacy(item.id), risk_badges_visible());
+            show_new && winchisel::core::is_new_tweak(item.id), winchisel::core::assess_privacy(item.id), risk_badges_visible(),
+            stored.rec_badge, stored.def_badge);
         card.Tag(box_value(to_hstring(std::string(item.name) + " " + std::string(item.description) + " " + std::string(item.id))));
         content.Children().Append(card);
     }
@@ -431,28 +496,37 @@ Controls::StackPanel PrivacyPage::security_content() {
     }
     uac_level_.SelectionChanged([this](auto&&, auto&&) { save_uac_level(); });
     // Profile: recommended = Never notify (4), default = notify without dimming (2).
+    uac_rec_ = state_badge(true);
+    uac_def_ = state_badge(false);
     {
         auto trailing = with_quick_set(uac_level_, selection_tip(true, L"Never notify"), selection_tip(false, L"Default: notify without dimming"),
             [this] { if (!loading_uac_) uac_level_.SelectedIndex(4); },
             [this] { if (!loading_uac_) uac_level_.SelectedIndex(2); });
-        content.Children().Append(setting_card(L"User Account Control", L"Choose how Windows asks before apps make system-wide changes.", trailing));
+        content.Children().Append(setting_card(L"User Account Control", L"Choose how Windows asks before apps make system-wide changes.", trailing,
+            false, winchisel::core::TweakRisk::safe, false, uac_rec_, uac_def_));
     }
 
     smart_app_control_=Controls::ComboBox();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(smart_app_control_,L"Smart App Control");for(auto option:{L"Off",L"On (Enforced)",L"Evaluation Mode"}){auto item=Controls::ComboBoxItem();item.Content(box_value(option));smart_app_control_.Items().Append(item);}smart_app_control_.SelectionChanged([this](auto&&,auto&&){save_smart_app_control();});
     // Profile: recommended = Off (0), default = Evaluation Mode (2).
+    sac_rec_ = state_badge(true);
+    sac_def_ = state_badge(false);
     {
         auto trailing = with_quick_set(smart_app_control_, selection_tip(true, L"Off"), selection_tip(false, L"Evaluation Mode"),
             [this] { if (!loading_uac_ && smart_app_control_) smart_app_control_.SelectedIndex(0); },
             [this] { if (!loading_uac_ && smart_app_control_) smart_app_control_.SelectedIndex(2); });
-        content.Children().Append(setting_card(L"Smart App Control",L"Controls the Smart App Control feature which blocks untrusted applications",trailing));
+        content.Children().Append(setting_card(L"Smart App Control",L"Controls the Smart App Control feature which blocks untrusted applications",trailing,
+            false, winchisel::core::TweakRisk::safe, false, sac_rec_, sac_def_));
     }
     powershell_policy_=Controls::ComboBox();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(powershell_policy_,L"PowerShell Execution Policy");for(auto option:{L"Restricted",L"AllSigned",L"RemoteSigned",L"Unrestricted",L"Bypass"}){auto item=Controls::ComboBoxItem();item.Content(box_value(option));powershell_policy_.Items().Append(item);}powershell_policy_.SelectionChanged([this](auto&&,auto&&){save_powershell_policy();});
     // Profile: recommended = RemoteSigned (2), default = Restricted (0).
+    ps_rec_ = state_badge(true);
+    ps_def_ = state_badge(false);
     {
         auto trailing = with_quick_set(powershell_policy_, selection_tip(true, L"RemoteSigned"), selection_tip(false, L"Restricted"),
             [this] { if (!loading_uac_ && powershell_policy_) powershell_policy_.SelectedIndex(2); },
             [this] { if (!loading_uac_ && powershell_policy_) powershell_policy_.SelectedIndex(0); });
-        content.Children().Append(setting_card(L"PowerShell Execution Policy",L"Controls whether PowerShell scripts are allowed to run and under what conditions",trailing));
+        content.Children().Append(setting_card(L"PowerShell Execution Policy",L"Controls whether PowerShell scripts are allowed to run and under what conditions",trailing,
+            false, winchisel::core::TweakRisk::safe, false, ps_rec_, ps_def_));
     }
 
     for (std::size_t index = 0; index < security_toggles_.size(); ++index) {
@@ -464,12 +538,15 @@ Controls::StackPanel PrivacyPage::security_content() {
         tweak.control.MinWidth(0);
         tweak.control.Width(40);
         tweak.control.Toggled([this, index](auto&&, auto&&) { save_security_toggle(index); });
+        tweak.rec_badge = state_badge(true);
+        tweak.def_badge = state_badge(false);
         // Profile: recommended = Off, default = On (matches build_profile_plan).
         auto trailing = with_quick_set(tweak.control, toggle_tip(true, false), toggle_tip(false, true),
             [this, index] { if (!loading_security_) security_toggles_[index].control.IsOn(false); },
             [this, index] { if (!loading_security_) security_toggles_[index].control.IsOn(true); });
         content.Children().Append(setting_card(tweak.title, tweak.description, trailing,
-            false, winchisel::core::assess_registry_targets(tweak.targets), risk_badges_visible()));
+            false, winchisel::core::assess_registry_targets(tweak.targets), risk_badges_visible(),
+            tweak.rec_badge, tweak.def_badge));
     }
     return content;
 }
@@ -548,16 +625,24 @@ void PrivacyPage::apply_snapshot(PrivacySnapshot const& snapshot) {
     loading_security_ = true;
     for (std::size_t index{}; index < privacy_toggles_.size() && index < snapshot.privacy.size(); ++index) {
         privacy_toggles_[index].control.IsOn(snapshot.privacy[index]);
+        const bool on = snapshot.privacy[index];
+        update_state_badges(privacy_toggles_[index].rec_badge, privacy_toggles_[index].def_badge, !on, on);
     }
     for (std::size_t index{}; index < security_toggles_.size() && index < snapshot.security.size(); ++index) {
         security_toggles_[index].control.IsOn(snapshot.security[index]);
+        const bool on = snapshot.security[index];
+        update_state_badges(security_toggles_[index].rec_badge, security_toggles_[index].def_badge, !on, on);
     }
     loading_security_ = false;
     loading_uac_ = true;
     uac_level_.SelectedIndex(snapshot.uac);
+    update_state_badges(uac_rec_, uac_def_, snapshot.uac == 4, snapshot.uac == 2);
     if (smart_app_control_) smart_app_control_.SelectedIndex(snapshot.smart_app_control);
+    update_state_badges(sac_rec_, sac_def_, snapshot.smart_app_control == 0, snapshot.smart_app_control == 2);
     if (powershell_policy_) powershell_policy_.SelectedIndex(snapshot.powershell);
+    update_state_badges(ps_rec_, ps_def_, snapshot.powershell == 2, snapshot.powershell == 0);
     if (ads_mode_) ads_mode_.SelectedIndex(snapshot.ads);
+    update_state_badges(ads_rec_, ads_def_, snapshot.ads == 1, snapshot.ads == 0);
     loading_uac_ = false;
 }
 

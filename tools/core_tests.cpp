@@ -146,7 +146,7 @@ int main() {
         expect(is_new_tweak("gaming-gpu-amd-power") && is_new_tweak("privacy-disable-autologger"), "new tweak ids");
         expect(!is_new_tweak("gaming-game-mode") && !is_new_tweak(""), "old tweak ids");
         expect(k_new_tweaks_version == std::string_view{"1.0.8"}, "new tweaks version");
-        expect(k_new_tweak_ids.size() == 9, "new tweak count");
+        expect(k_new_tweak_ids.size() == 40, "new tweak count");
         expect(assess_performance("gaming-memory-integrity") == TweakRisk::risky, "risk hvci");
         expect(assess_performance("gaming-virtualization-based-security") == TweakRisk::risky, "risk vbs");
         expect(assess_performance("gaming-telemetry-service") == TweakRisk::moderate, "risk service disable");
@@ -158,6 +158,9 @@ int main() {
         expect(assess_performance("CompatibilityAppraiserTask") == TweakRisk::safe, "risk telemetry task");
         expect(assess_performance("AutochkProxyTask") == TweakRisk::moderate, "risk system task");
         expect(assess_performance("gaming-dns-server") == TweakRisk::moderate, "risk dns");
+        expect(assess_performance("updates-driver-controls") == TweakRisk::moderate, "risk hklm update policy");
+        expect(assess_performance("notifications-push") == TweakRisk::safe, "risk hkcu notification");
+        expect(assess_performance("notifications-windows-security") == TweakRisk::moderate, "risk notification override");
         expect(assess_service("Dnscache", true) == TweakRisk::risky, "risk critical service");
         expect(assess_service("Spooler", true) == TweakRisk::moderate, "risk plain service");
         expect(assess_service("Spooler", false) == TweakRisk::safe, "risk manual service");

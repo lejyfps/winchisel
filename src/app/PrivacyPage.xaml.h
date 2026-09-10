@@ -31,8 +31,15 @@ private:
         std::vector<winchisel::core::RegistryValue> enabled_values;
         std::vector<winchisel::core::RegistryValue> disabled_values;
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border rec_badge{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border def_badge{nullptr};
     };
-    struct PrivacyToggle { std::string id; winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr}; };
+    struct PrivacyToggle {
+        std::string id;
+        winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border rec_badge{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border def_badge{nullptr};
+    };
 
     void render_groups();
     void apply_filter();
@@ -82,6 +89,14 @@ private:
     winrt::Microsoft::UI::Xaml::Controls::ComboBox smart_app_control_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox powershell_policy_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox ads_mode_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border uac_rec_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border uac_def_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border sac_rec_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border sac_def_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border ps_rec_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border ps_def_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border ads_rec_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border ads_def_{nullptr};
     bool loading_security_{};
     bool loading_uac_{};
     winrt::Microsoft::UI::Xaml::DispatcherTimer search_timer_{nullptr};

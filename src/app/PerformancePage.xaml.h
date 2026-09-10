@@ -34,6 +34,7 @@ private:
     std::map<std::string, winchisel::core::Result<bool>> special_state_;
     std::map<std::string, winchisel::core::Result<bool>> special_available_;
     winchisel::core::Result<int> dns_state_{std::unexpected(winchisel::core::Error{"Not loaded"})};
+    winchisel::core::Result<int> update_policy_state_{std::unexpected(winchisel::core::Error{"Not loaded"})};
     std::deque<std::function<winchisel::core::Result<void>()>> pending_changes_;
     bool work_running_{};
     void submit(std::function<winchisel::core::Result<void>()> change);
