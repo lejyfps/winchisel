@@ -21,6 +21,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void CheckForUpdates(bool manual);
     void Update_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UpdateRestart_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void UpdateDismiss_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void BugReport_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Donate_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
@@ -38,13 +39,13 @@ private:
     winrt::fire_and_forget check_for_updates(bool manual);
     winrt::fire_and_forget install_pending_update();
     void notify_if_updated();
-    // Title-bar update states (Zed-style): the check button, a compact
-    // progress ring and the restart button swap dynamically so no separate
-    // status card is needed.
+    // Title-bar update states (Zed-style): the check button, a labeled
+    // status pill (spinner/ring + text, like Zed's UpdateButton) and the
+    // restart button swap dynamically so no separate status card is needed.
     void show_update_idle();
-    void show_update_busy(winrt::hstring const& status);
-    void show_update_progress(double percent, winrt::hstring const& status);
-    void show_update_ready(winrt::hstring const& status);
+    void show_update_busy(winrt::hstring const& label);
+    void show_update_progress(unsigned percent, winrt::hstring const& version);
+    void show_update_ready(winrt::hstring const& version);
     bool update_check_running_{};
     // A staged update waiting for the user's restart (Zed-style: download in
     // the background, install on explicit restart instead of auto-closing).

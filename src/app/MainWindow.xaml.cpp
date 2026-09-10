@@ -224,39 +224,61 @@ void MainWindow::show_update_idle() {
     update_check_running_ = false;
     UpdateButton().Visibility(Visibility::Visible);
     UpdateButton().IsEnabled(true);
-    UpdateProgressRing().Visibility(Visibility::Collapsed);
+    UpdateStatusPill().Visibility(Visibility::Collapsed);
     UpdateRestartButton().Visibility(Visibility::Collapsed);
+    UpdateDismissButton().Visibility(Visibility::Collapsed);
 }
 
-void MainWindow::show_update_busy(hstring const& status) {
+void MainWindow::show_update_busy(hstring const& label) {
     UpdateButton().Visibility(Visibility::Collapsed);
     UpdateRestartButton().Visibility(Visibility::Collapsed);
-    UpdateProgressRing().IsIndeterminate(true);
-    UpdateProgressRing().Visibility(Visibility::Visible);
-    Controls::ToolTipService::SetToolTip(UpdateProgressRing(), box_value(status));
+    UpdateDismissButton().Visibility(Visibility::Collapsed);
+    UpdateStatusLabel().Text(label);
+    UpdateDownloadRing().IsIndeterminate(true);
+    UpdateStatusPill().Visibility(Visibility::Visible);
 }
 
-void MainWindow::show_update_progress(double percent, hstring const& status) {
+void MainWindow::show_update_progress(unsigned percent, hstring const& version) {
     UpdateButton().Visibility(Visibility::Collapsed);
     UpdateRestartButton().Visibility(Visibility::Collapsed);
-    UpdateProgressRing().IsIndeterminate(false);
-    UpdateProgressRing().Value(percent);
-    UpdateProgressRing().Visibility(Visibility::Visible);
-    Controls::ToolTipService::SetToolTip(UpdateProgressRing(), box_value(status));
+    UpdateDismissButton().Visibility(Visibility::Collapsed);
+    UpdateStatusLabel().Text(L"Downloading update …");
+    UpdateDownloadRing().IsIndeterminate(false);
+    UpdateDownloadRing().Value(static_cast<double>(percent));
+    UpdateStatusPill().Visibility(Visibility::Visible);
+    Controls::ToolTipService::SetToolTip(UpdateStatusPill(),
+        box_value(L"Update to Version: " + version + L" (" + to_hstring(percent) + L"% downloaded)"));
 }
 
-void MainWindow::show_update_ready(hstring const& status) {
+void MainWindow::show_update_ready(hstring const& version) {
     UpdateButton().Visibility(Visibility::Collapsed);
-    UpdateProgressRing().Visibility(Visibility::Collapsed);
-    Controls::ToolTipService::SetToolTip(UpdateRestartButton(), box_value(status));
+    UpdateStatusPill().Visibility(Visibility::Collapsed);
+    Controls::ToolTipService::SetToolTip(UpdateRestartButton(), box_value(L"Update to Version: " + version));
     UpdateRestartButton().Visibility(Visibility::Visible);
+    UpdateDismissButton().Visibility(Visibility::Visible);
 }
 
 void MainWindow::UpdateRestart_Click(IInspectable const&, RoutedEventArgs const&) {
     if (!update_ready_ || update_check_running_ || pending_staged_.empty()) return;
     update_ready_ = false;
-    show_update_busy(L"Installing update ...");
+    show_update_busy(L"Installing update …");
     install_pending_update();
+}
+
+void MainWindow::UpdateDismiss_Click(IInspectable const&, RoutedEventArgs const&) {
+    // Zed's dismiss (×) on the ready pill: stand down and snooze this
+    // version for automatic checks, like declining the download dialog.
+    // A manual check still offers it again; staged files stay for reuse.
+    if (!update_ready_ || update_check_running_ || pending_staged_.empty()) return;
+    winchisel::platform::boot_log(("update dismissed v" + pending_version_).c_str());
+    update_ready_ = false;
+    auto dismissed = winchisel::application::Session::instance().settings();
+    dismissed.dismissed_update_version = pending_version_;
+    (void)winchisel::application::Session::instance().set_settings(dismissed);
+    pending_staged_.clear();
+    pending_artifact_ = winchisel::platform::ReleaseArtifact{};
+    pending_version_.clear();
+    show_update_idle();
 }
 
 winrt::fire_and_forget MainWindow::install_pending_update() {
@@ -339,7 +361,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
 
     auto lifetime = get_strong();
     update_check_running_ = true;
-    show_update_busy(L"Checking for updates ...");
+    show_update_busy(L"Checking for updates …");
     const bool nightly_channel = winchisel::application::Session::instance().settings().nightly_updates;
     winrt::apartment_context ui_thread;
     co_await winrt::resume_background();
@@ -434,7 +456,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
             show_update_idle(); co_return;
         }
     }
-    show_update_progress(0, L"Downloading version " + version_text + L" ...");
+    show_update_progress(0, version_text);
     auto ui_queue = DispatcherQueue();
     auto progress_weak = get_weak();
     winchisel::platform::boot_log(("update stage begin v" + manifest->version).c_str());
@@ -445,8 +467,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
                 if (auto self = progress_weak.get()) {
                     if (!total) return;
                     const auto percent = static_cast<unsigned>(done * 100 / total);
-                    self->show_update_progress(static_cast<double>(percent),
-                        L"Downloading version " + version_text + L" ... " + to_hstring(percent) + L"%");
+                    self->show_update_progress(percent, version_text);
                 }
             });
         });
@@ -461,7 +482,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     pending_version_ = manifest->version;
     update_ready_ = true;
     update_check_running_ = false;
-    show_update_ready(L"Version " + version_text + L" is ready. Restart Winchisel to install it.");
+    show_update_ready(version_text);
     winchisel::platform::boot_log("update staged, waiting for restart");
 
     } catch (...) {
