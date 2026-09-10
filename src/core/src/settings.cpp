@@ -154,7 +154,7 @@ bool parse_root_object(std::string_view json, Settings& settings) {
         text.remove_prefix(1);
         text = trim(text);
         if (text.empty()) return false;
-        if (*key == "show_console" || *key == "check_updates_on_startup" || *key == "nightly_updates" || *key == "autostart_enabled" || *key == "show_risk_badges" || *key == "show_state_badges") {
+        if (*key == "show_console" || *key == "check_updates_on_startup" || *key == "nightly_updates" || *key == "poll_for_updates" || *key == "autostart_enabled" || *key == "show_risk_badges" || *key == "show_state_badges") {
             bool value{};
             if (text.starts_with("true")) { value = true; text.remove_prefix(4); }
             else if (text.starts_with("false")) { value = false; text.remove_prefix(5); }
@@ -162,6 +162,7 @@ bool parse_root_object(std::string_view json, Settings& settings) {
             if (*key == "show_console") settings.show_console = value;
             else if (*key == "check_updates_on_startup") settings.check_updates_on_startup = value;
             else if (*key == "nightly_updates") settings.nightly_updates = value;
+            else if (*key == "poll_for_updates") settings.poll_for_updates = value;
             else if (*key == "show_risk_badges") settings.show_risk_badges = value;
             else if (*key == "show_state_badges") settings.show_state_badges = value;
             else settings.autostart_enabled = value;
@@ -309,6 +310,7 @@ std::string serialize_settings_json(const Settings& settings) {
     out << "{\n";
     out << "  \"check_updates_on_startup\": " << (settings.check_updates_on_startup ? "true" : "false") << ",\n";
     out << "  \"nightly_updates\": " << (settings.nightly_updates ? "true" : "false") << ",\n";
+    out << "  \"poll_for_updates\": " << (settings.poll_for_updates ? "true" : "false") << ",\n";
     out << "  \"dismissed_update_version\": \"" << settings.dismissed_update_version << "\",\n";
     out << "  \"show_console\": " << (settings.show_console ? "true" : "false") << ",\n";
     out << "  \"language\": \"" << language_to_string(settings.language) << "\",\n";

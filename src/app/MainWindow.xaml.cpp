@@ -188,6 +188,13 @@ MainWindow::MainWindow() {
     toast_timer_.Interval(std::chrono::seconds(3));
     toast_timer_.IsRepeating(false);
     toast_timer_.Tick([weak = get_weak()](auto&&, auto&&) { if (auto self = weak.get()) self->ToastBar().IsOpen(false); });
+    // Background update poller (Zed-style): silent check every 5 minutes,
+    // title bar only, never a dialog. Toggleable in Settings.
+    update_poll_timer_ = DispatcherQueue().CreateTimer();
+    update_poll_timer_.Interval(std::chrono::minutes(5));
+    update_poll_timer_.IsRepeating(true);
+    update_poll_timer_.Tick([poll_weak = get_weak()](auto&&, auto&&) { if (auto self = poll_weak.get()) self->poll_for_updates(); });
+    update_poll_timer_.Start();
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
         const auto weak = get_weak();
@@ -350,10 +357,16 @@ void MainWindow::CheckForUpdates(bool manual) {
         if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Informational, L"Winchisel", L"An update check is already running.");
         return;
     }
-    check_for_updates(manual);
+    check_for_updates(manual ? UpdateCheckMode::Manual : UpdateCheckMode::Automatic);
 }
 
-winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
+void MainWindow::poll_for_updates() {
+    if (update_check_running_ || update_ready_) return;
+    if (!winchisel::application::Session::instance().settings().poll_for_updates) return;
+    check_for_updates(UpdateCheckMode::Silent);
+}
+
+winrt::fire_and_forget MainWindow::check_for_updates(UpdateCheckMode mode) {
     auto error_weak=get_weak();
     winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
     try { error_queue=DispatcherQueue(); } catch (...) {}
@@ -371,7 +384,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     co_await ui_thread;
     if (!manifest) {
         show_update_idle();
-        if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update check failed", L"The latest release could not be checked.");
+        if (mode == UpdateCheckMode::Manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update check failed", L"The latest release could not be checked.");
         co_return;
     }
     // Defense in depth: the stable channel (/releases/latest) excludes
@@ -379,7 +392,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     // not opt in, even if one is returned.
     if (!nightly_channel && winchisel::platform::is_prerelease_version(manifest->version)) {
         show_update_idle();
-        winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
+        if (mode != UpdateCheckMode::Silent) winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
     const std::string current_version = winchisel::platform::current_app_version();
@@ -394,12 +407,12 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         && winchisel::platform::is_newer_version(manifest->version, "0.0.0");
     if (!newer && !downgrade_to_stable) {
         show_update_idle();
-        winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
+        if (mode != UpdateCheckMode::Silent) winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
     // A dismissed version stays dismissed for automatic checks: no nagging
     // on every restart. Manual checks bypass this and offer it again.
-    if (!manual && winchisel::application::Session::instance().settings().dismissed_update_version == manifest->version) {
+    if (mode != UpdateCheckMode::Manual && winchisel::application::Session::instance().settings().dismissed_update_version == manifest->version) {
         winchisel::platform::boot_log(("update prompt dismissed, skipping v" + manifest->version).c_str());
         show_update_idle();
         co_return;
@@ -409,8 +422,13 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     if (winchisel::platform::is_packaged_install()) {
         // Store builds must update through the Store: downloading and running
         // the GitHub setup here would violate Store policy and install a
-        // second copy next to the Store package. Notify and deep-link instead.
+        // second copy next to the Store package. The silent poller never
+        // prompts; it just logs and stands down (the Store updates itself).
         show_update_idle();
+        if (mode == UpdateCheckMode::Silent) {
+            winchisel::platform::boot_log("update skipped for packaged install (silent poll)");
+            co_return;
+        }
         winchisel::core::DialogSlot store_slot; if(!winchisel::ui::dialog_available(store_slot)){co_return;}
         Controls::ContentDialog store_dialog;
         store_dialog.XamlRoot(Content().XamlRoot());
@@ -428,14 +446,16 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     const auto artifact = std::ranges::find_if(manifest->artifacts, [artifact_id](auto const& item) { return item.id == artifact_id; });
     if (artifact == manifest->artifacts.end()) {
         show_update_idle();
-        if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update unavailable", L"No compatible update package was found.");
+        if (mode == UpdateCheckMode::Manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update unavailable", L"No compatible update package was found.");
         co_return;
     }
     // The slot covers the confirm prompt only. The download itself is
     // non-modal (Zed-style): the title-bar ring tracks progress and the
     // update installs on explicit restart instead of auto-closing the app.
-    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){show_update_idle(); co_return;}
+    // The silent poller skips the prompt and downloads straight away.
     const hstring version_text = to_hstring(manifest->version);
+    if (mode != UpdateCheckMode::Silent) {
+        winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){show_update_idle(); co_return;}
     {
         Controls::ContentDialog dialog;
         dialog.XamlRoot(Content().XamlRoot());
@@ -457,6 +477,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
             show_update_idle(); co_return;
         }
     }
+    }
     show_update_progress(0);
     auto ui_queue = DispatcherQueue();
     auto progress_weak = get_weak();
@@ -476,7 +497,8 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     if (!staged) {
         winchisel::platform::boot_log(("update stage failed: " + staged.error().detail).c_str());
         show_update_idle();
-        winchisel::platform::show_error_message(L"The update could not be downloaded or verified."); co_return;
+        if (mode != UpdateCheckMode::Silent) winchisel::platform::show_error_message(L"The update could not be downloaded or verified.");
+        co_return;
     }
     pending_staged_ = *staged;
     pending_artifact_ = *artifact;
@@ -484,6 +506,10 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     update_ready_ = true;
     update_check_running_ = false;
     show_update_ready(version_text);
+    // The poller found and staged this on its own: one toast so the ready
+    // button in the title bar is not a silent surprise. Later polls skip
+    // while update_ready_ holds, so this fires once per version.
+    if (mode == UpdateCheckMode::Silent) winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Update ready", L"Version " + version_text + L" is ready. Restart Winchisel to install it.");
     winchisel::platform::boot_log("update staged, waiting for restart");
 
     } catch (...) {

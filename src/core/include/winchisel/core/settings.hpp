@@ -14,6 +14,9 @@ enum class Theme { system, light, dark };
 struct Settings {
     bool check_updates_on_startup{true};
     bool nightly_updates{false};
+    // Background update poller: silent check every 5 minutes (title bar
+    // only, never a dialog). Found updates download automatically.
+    bool poll_for_updates{true};
     // Version whose update prompt was dismissed with "Later". Automatic
     // (startup) checks skip it quietly; manual checks still offer it.
     std::string dismissed_update_version;

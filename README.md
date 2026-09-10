@@ -116,7 +116,7 @@ The installer puts Winchisel in Program Files for all users. The portable build 
 Enable **Settings → Nightly updates**. Pre-release builds are then offered through the auto-updater; declining one ("Later") won't nag you on every restart. Turn the toggle off to switch back to the latest stable release.
 
 **Does Winchisel collect data?**
-No usage telemetry, no accounts, no phone-home. The only network access is the optional release check on startup (toggleable in Settings) plus downloads you explicitly start (winget packages, updates).
+No usage telemetry, no accounts, no phone-home. The only network access is the release check on startup plus automatic background update checks (both toggleable in Settings) plus downloads you explicitly start (winget packages, updates).
 
 **How do I undo a change?**
 Flip the toggle back, use the per-tweak Default button, apply a Defaults profile, or restore the system restore point you created first.

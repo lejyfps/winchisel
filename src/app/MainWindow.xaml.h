@@ -19,6 +19,10 @@ struct MainWindow : MainWindowT<MainWindow> {
         winrt::Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const&);
     void reload_language();
     void CheckForUpdates(bool manual);
+    // Manual: full feedback (toasts + confirm dialog). Automatic (startup):
+    // toasts but same dialog. Silent (poller): title bar only, downloads
+    // automatically, never a dialog.
+    enum class UpdateCheckMode { Manual, Automatic, Silent };
     void Update_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UpdateRestart_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UpdateDismiss_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -36,9 +40,10 @@ private:
     void apply_theme();
     void apply_titlebar_theme();
     void update_titlebar_inset();
-    winrt::fire_and_forget check_for_updates(bool manual);
+    winrt::fire_and_forget check_for_updates(UpdateCheckMode mode);
     winrt::fire_and_forget install_pending_update();
     void notify_if_updated();
+    void poll_for_updates();
     // Title-bar update states (Zed-style): the check button, a labeled
     // progress button (disabled while busy, like the final restart button)
     // and the restart button swap dynamically so no separate status card
@@ -55,6 +60,7 @@ private:
     winchisel::platform::ReleaseArtifact pending_artifact_;
     std::string pending_version_;
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer_{nullptr};
+    winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer update_poll_timer_{nullptr};
     winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);
 };
 
