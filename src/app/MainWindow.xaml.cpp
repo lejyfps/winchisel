@@ -509,7 +509,10 @@ winrt::fire_and_forget MainWindow::check_for_updates(UpdateCheckMode mode) {
     // The poller found and staged this on its own: one toast so the ready
     // button in the title bar is not a silent surprise. Later polls skip
     // while update_ready_ holds, so this fires once per version.
-    if (mode == UpdateCheckMode::Silent) winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Update ready", L"Version " + version_text + L" is ready. Restart Winchisel to install it.");
+    if (mode == UpdateCheckMode::Silent) {
+        const hstring ready_text = L"Version " + version_text + L" is ready. Restart Winchisel to install it.";
+        winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Update ready", std::wstring(ready_text.c_str()));
+    }
     winchisel::platform::boot_log("update staged, waiting for restart");
 
     } catch (...) {
