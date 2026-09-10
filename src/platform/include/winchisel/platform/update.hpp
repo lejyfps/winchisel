@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -37,6 +38,12 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(
 // the separately downloaded manifest before returning any update metadata.
 winchisel::core::Result<ReleaseManifest> check_github_latest_release();
 
+// Lists recent releases (stable and pre-releases) and returns the newest
+// verified manifest. Used only when the user opted into nightly updates in
+// Settings; stable releases are included so nightly installs graduate to
+// the next stable release automatically.
+winchisel::core::Result<ReleaseManifest> check_github_nightly_release();
+
 // Progress while staging an artifact: downloaded bytes vs expected total
 // (total > 0). Invoked on a background thread; must not touch UI directly.
 using UpdateProgress = std::function<void(std::uint64_t downloaded_bytes, std::uint64_t total_bytes)>;
@@ -49,6 +56,9 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(
 
 std::string current_app_version();
 bool is_newer_version(std::string_view candidate, std::string_view current);
+// True for pre-release versions (MAJOR.MINOR.PATCH-nightly.YYYYMMDD.BUILD).
+// Stable-channel checks ignore such manifests even if one is returned.
+bool is_prerelease_version(std::string_view version);
 bool is_portable_install();
 // True when running with package identity (Microsoft Store / MSIX). Packaged
 // builds must update through the Store and never self-install GitHub builds.
@@ -60,7 +70,15 @@ std::string_view update_artifact_id();
 winchisel::core::Result<void> launch_staged_update(
     std::filesystem::path const& staged, ReleaseArtifact const& artifact);
 
+// Marker written before handing off a portable update; consumed on the next
+// start to confirm the new version is actually running (Zed-style "Updated
+// to X" toast). The setup installer reports back nothing, so no note there.
+void note_pending_update(std::string_view version);
+std::optional<std::string> take_pending_update_note();
+
 inline constexpr std::string_view k_github_latest_release_api =
     "https://api.github.com/repos/lejyfps/winchisel/releases/latest";
+inline constexpr std::string_view k_github_releases_api =
+    "https://api.github.com/repos/lejyfps/winchisel/releases?per_page=30";
 
 }  // namespace winchisel::platform

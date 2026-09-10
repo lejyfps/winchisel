@@ -109,18 +109,36 @@ int sign(std::filesystem::path const& private_path, std::filesystem::path const&
     std::ofstream output(manifest_path.string() + ".sig", std::ios::binary | std::ios::trunc); output << encoded << "\n"; return output ? 0 : 1;
 }
 
-bool valid_version(std::string_view version) {
+bool valid_dotted(std::string_view value, int min_parts, int max_parts) {
     int parts{};
     std::size_t pos{};
     while (true) {
-        const auto dot = version.find('.', pos);
-        const auto token = version.substr(pos, dot == std::string_view::npos ? dot : dot - pos);
+        const auto dot = value.find('.', pos);
+        const auto token = value.substr(pos, dot == std::string_view::npos ? dot : dot - pos);
         if (token.empty() || token.size() > 5) return false;
         for (const char c : token) if (c < '0' || c > '9') return false;
-        if (++parts > 3) return false;
-        if (dot == std::string_view::npos) return parts == 3;
+        if (++parts > max_parts) return false;
+        if (dot == std::string_view::npos) return parts >= min_parts;
         pos = dot + 1;
     }
+}
+
+bool valid_version(std::string_view version) {
+    // Optional "-nightly.YYYYMMDD.BUILD" suffix on a 3-part base, like t3code
+    // (e.g. 1.0.9-nightly.20260910.1). Anything else with '-' is rejected.
+    if (const auto dash = version.find('-'); dash != std::string_view::npos) {
+        constexpr std::string_view marker{"-nightly."};
+        if (version.size() < dash + marker.size() || version.compare(dash, marker.size(), marker) != 0) return false;
+        const auto rest = version.substr(dash + marker.size());
+        const auto dot = rest.find('.');
+        if (dot == std::string_view::npos) return false;
+        const auto date = rest.substr(0, dot), build = rest.substr(dot + 1);
+        if (date.size() != 8 || build.empty() || build.size() > 5) return false;
+        for (const char c : date) if (c < '0' || c > '9') return false;
+        for (const char c : build) if (c < '0' || c > '9') return false;
+        return valid_dotted(version.substr(0, dash), 3, 3);
+    }
+    return valid_dotted(version, 3, 4);
 }
 
 bool safe_json_name(std::string const& name) {

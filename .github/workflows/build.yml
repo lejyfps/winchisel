@@ -3,7 +3,7 @@ name: Build Winchisel
 on:
   push:
     branches: [master]
-    tags: ["v*.*.*"]
+    tags: ["v*.*.*", "v*.*.*.*", "v*-nightly.*"]
   pull_request:
     branches: [master]
   workflow_dispatch:

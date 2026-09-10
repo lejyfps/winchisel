@@ -45,7 +45,7 @@ Platform code translates Win32 and process errors into clear feature-level resul
 
 ## Updates
 
-The update service reads the latest GitHub release only as a discovery source. Before an update is accepted, Winchisel verifies all of the following:
+The update service reads the latest GitHub release only as a discovery source (the release list when the user opted into nightly updates in Settings). Before an update is accepted, Winchisel verifies all of the following:
 
 1. `release.json` has a valid ECDSA P-256 signature for the public key embedded in the application.
 2. The offered version is newer than the running version.

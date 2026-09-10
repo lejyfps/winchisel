@@ -28,6 +28,7 @@ SettingsPage::SettingsPage() {
     Language().SelectedIndex(static_cast<int>(settings.language));
     Theme().SelectedIndex(static_cast<int>(settings.theme));
     CheckUpdates().IsOn(settings.check_updates_on_startup);
+    NightlyUpdates().IsOn(settings.nightly_updates);
     ShowConsole().IsOn(settings.show_console);
     Autostart().IsOn(settings.autostart_enabled);
     RiskBadges().IsOn(settings.show_risk_badges);
@@ -92,6 +93,7 @@ void SettingsPage::save_settings() {
     settings.language = static_cast<winchisel::core::Language>(std::max(Language().SelectedIndex(), 0));
     settings.theme = static_cast<winchisel::core::Theme>(std::max(Theme().SelectedIndex(), 0));
     settings.check_updates_on_startup = CheckUpdates().IsOn();
+    settings.nightly_updates = NightlyUpdates().IsOn();
     settings.show_console = ShowConsole().IsOn();
     settings.autostart_enabled = Autostart().IsOn();
     settings.show_risk_badges = RiskBadges().IsOn();
@@ -106,6 +108,7 @@ void SettingsPage::save_settings() {
         Language().SelectedIndex(static_cast<int>(current.language));
         Theme().SelectedIndex(static_cast<int>(current.theme));
         CheckUpdates().IsOn(current.check_updates_on_startup);
+        NightlyUpdates().IsOn(current.nightly_updates);
         ShowConsole().IsOn(current.show_console);
         Autostart().IsOn(current.autostart_enabled);
         RiskBadges().IsOn(current.show_risk_badges);

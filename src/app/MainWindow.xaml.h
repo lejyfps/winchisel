@@ -2,7 +2,9 @@
 
 #include "MainWindow.g.h"
 #include "MainWindow.xaml.g.h"
+#include "winchisel/platform/update.hpp"
 #include <cstdint>
+#include <filesystem>
 #include <list>
 #include <optional>
 #include <string>
@@ -18,6 +20,8 @@ struct MainWindow : MainWindowT<MainWindow> {
     void reload_language();
     void CheckForUpdates(bool manual);
     void Update_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void UpdateLater_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void UpdateRestart_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void BugReport_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Donate_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
@@ -33,7 +37,15 @@ private:
     void apply_titlebar_theme();
     void update_titlebar_inset();
     winrt::fire_and_forget check_for_updates(bool manual);
+    winrt::fire_and_forget install_pending_update();
+    void notify_if_updated();
     bool update_check_running_{};
+    // A staged update waiting for the user's restart (Zed-style: download in
+    // the background, install on explicit restart instead of auto-closing).
+    bool update_ready_{};
+    std::filesystem::path pending_staged_;
+    winchisel::platform::ReleaseArtifact pending_artifact_;
+    std::string pending_version_;
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer_{nullptr};
     winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);
 };

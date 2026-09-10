@@ -69,6 +69,10 @@ int main() {
     expect(settings_defaults().show_state_badges, "state badges default on");
     expect(parse_settings_json(R"({"show_state_badges":false})").show_state_badges == false, "state badges off");
     expect(serialize_settings_json(parsed).find("show_state_badges") != std::string::npos, "serialize state badges");
+    expect(!settings_defaults().nightly_updates, "nightly updates default off");
+    expect(parse_settings_json(R"({"nightly_updates":true})").nightly_updates, "nightly updates on");
+    expect(parse_settings_json(R"({"nightly_updates":false})").nightly_updates == false, "nightly updates off");
+    expect(serialize_settings_json(parse_settings_json(R"({"nightly_updates":true})")).find("\"nightly_updates\": true") != std::string::npos, "serialize nightly updates");
 
     set_ui_language(Language::german);
     expect(loc(L"Settings") == L"Einstellungen", "german settings label");

@@ -12,6 +12,7 @@
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -48,15 +49,22 @@ std::optional<std::filesystem::path> absolute_existing_file(std::wstring const& 
     return path;
 }
 
-std::optional<std::filesystem::path> absolute_target(std::wstring const& value) {
+std::optional<std::filesystem::path> absolute_exe(std::wstring const& value) {
     std::error_code error;
     auto path = std::filesystem::weakly_canonical(std::filesystem::path(value), error);
     if (error || !path.is_absolute() || _wcsicmp(path.extension().c_str(), L".exe") != 0) return std::nullopt;
+    return path;
+}
+
+std::optional<std::filesystem::path> absolute_target(std::wstring const& value) {
+    const auto path = absolute_exe(value);
+    if (!path) return std::nullopt;
     std::array<wchar_t, 32768> current{};
     const auto length = GetModuleFileNameW(nullptr, current.data(), static_cast<DWORD>(current.size()));
     if (!length || length == static_cast<DWORD>(current.size())) return std::nullopt;
+    std::error_code error;
     const auto self = std::filesystem::weakly_canonical(std::filesystem::path(std::wstring(current.data(), length)), error);
-    if (error || _wcsicmp(path.c_str(), self.c_str()) == 0) return std::nullopt;
+    if (error || _wcsicmp(path->c_str(), self.c_str()) == 0) return std::nullopt;
     return path;
 }
 
@@ -166,11 +174,11 @@ bool wait_for_process(std::wstring_view pid_text) {
     }
 }
 
-bool launch(std::filesystem::path const& target) {
-    // Forward the portable-host marker so the new stub still recognizes the
-    // installation even if the environment block was lost along the way
-    // (the bootstrap stub ignores unknown arguments).
-    std::wstring command = L"\"" + target.wstring() + L"\" --portable-host \"" + target.wstring() + L"\"";
+bool launch(std::filesystem::path const& target, std::filesystem::path const& host) {
+    // Forward the exact host marker the old app was using (Zed preserves
+    // launch arguments across restarts). The bootstrap stub ignores unknown
+    // arguments, so this never changes stub behavior.
+    std::wstring command = L"\"" + target.wstring() + L"\" --portable-host \"" + host.wstring() + L"\"";
     STARTUPINFOW startup{.cb = sizeof(startup)};
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(target.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, target.parent_path().c_str(), &startup, &process)) return false;
@@ -338,12 +346,49 @@ void updater_log(std::string const& line) {
 
 // Small "something is happening" window shown while the app is closed and the
 // replacement runs. It lives on its own thread so the file work never blocks
-// it, has no close button, and closes itself when the update finishes.
+// it, has no close button, and closes itself when the update finishes. The
+// bar is determinate: one step per completed phase (Zed steps per job).
 struct ProgressWindow {
     HANDLE thread{};
     DWORD thread_id{};
     HANDLE ready{};
+    HWND window{};
 };
+
+namespace {
+constexpr UINT WM_UPDATE_STEP = WM_USER + 1;
+constexpr int k_bar_control_id = 1001;
+constexpr int k_update_steps = 9;
+}  // namespace
+
+LRESULT CALLBACK progress_wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_UPDATE_STEP) {
+        if (HWND bar = GetDlgItem(hwnd, k_bar_control_id)) SendMessageW(bar, PBM_STEPIT, 0, 0);
+        return 0;
+    }
+    if (message == WM_CLOSE) return 0;  // No close button; never dismiss early.
+    return DefWindowProcW(hwnd, message, wparam, lparam);
+}
+
+// Transient locks (virus scanner, indexer, Explorer) fail the first move;
+// retry briefly like Zed's job engine instead of giving up immediately.
+// GetLastError is preserved for the caller on final failure.
+bool retry_file_op(std::string const& what, std::function<bool()> const& op) {
+    const auto deadline = GetTickCount64() + 10'000;
+    bool logged = false;
+    for (;;) {
+        SetLastError(ERROR_SUCCESS);
+        if (op()) return true;
+        const auto code = GetLastError();
+        if (code != ERROR_SHARING_VIOLATION && code != ERROR_LOCK_VIOLATION && code != ERROR_ACCESS_DENIED) return false;
+        if (GetTickCount64() >= deadline) return false;
+        if (!logged) {
+            logged = true;
+            updater_log("retrying " + what + " code=" + std::to_string(code));
+        }
+        Sleep(100);
+    }
+}
 
 DWORD WINAPI progress_thread_main(LPVOID param) {
     auto state = static_cast<ProgressWindow*>(param);
@@ -352,7 +397,7 @@ DWORD WINAPI progress_thread_main(LPVOID param) {
     const HINSTANCE module = GetModuleHandleW(nullptr);
     constexpr wchar_t class_name[] = L"WinchiselUpdaterProgress";
     WNDCLASSW wc{};
-    wc.lpfnWndProc = DefWindowProcW;
+    wc.lpfnWndProc = progress_wnd_proc;
     wc.hInstance = module;
     wc.lpszClassName = class_name;
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
@@ -362,6 +407,9 @@ DWORD WINAPI progress_thread_main(LPVOID param) {
         WS_POPUP | WS_CAPTION | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, width, height,
         nullptr, nullptr, module, nullptr);
     if (window) {
+        // Share the handle before signalling ready: the event provides the
+        // happens-before edge the worker thread needs for progress_step.
+        state->window = window;
         RECT work{};
         if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
             SetWindowPos(window, nullptr, work.left + (work.right - work.left - width) / 2,
@@ -369,9 +417,10 @@ DWORD WINAPI progress_thread_main(LPVOID param) {
         }
         CreateWindowExW(0, L"STATIC", L"Updating Winchisel to the new version ...\r\nThis window closes automatically.",
             WS_CHILD | WS_VISIBLE, 16, 14, width - 32, 44, window, nullptr, module, nullptr);
-        if (HWND bar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | PBS_MARQUEE,
-                16, 70, width - 32, 18, window, nullptr, module, nullptr)) {
-            SendMessageW(bar, PBM_SETMARQUEE, TRUE, 0);
+        if (HWND bar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE,
+                16, 70, width - 32, 18, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(k_bar_control_id)), module, nullptr)) {
+            SendMessageW(bar, PBM_SETRANGE, 0, MAKELPARAM(0, k_update_steps * 10));
+            SendMessageW(bar, PBM_SETSTEP, 10, 0);
         }
     }
     SetEvent(state->ready);
@@ -408,6 +457,12 @@ void progress_hide(ProgressWindow& ui) {
         CloseHandle(ui.ready);
         ui.ready = nullptr;
     }
+    ui.window = nullptr;
+}
+
+// One determinate step per completed phase, posted to the UI thread.
+void progress_step(ProgressWindow& ui) {
+    if (ui.window) PostMessageW(ui.window, WM_UPDATE_STEP, 0, 0);
 }
 
 // Fail closed but loud: hide the progress window, log the stage, and tell the
@@ -433,6 +488,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     const auto target_arg = argument(L"--target");
     const auto hash_arg = argument(L"--sha256");
     const auto pid_arg = argument(L"--wait-pid");
+    const auto host_arg = argument(L"--host");
     if (!staged_arg || !target_arg || !hash_arg || !pid_arg) return fail(ERROR_INVALID_PARAMETER);
     const auto expected_hash = ascii_hash(*hash_arg);
     if (!expected_hash) return fail(ERROR_INVALID_PARAMETER);
@@ -442,35 +498,51 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     ProgressWindow ui{};
     progress_show(ui);
     updater_log("begin target=" + narrow(target->wstring()) + " staged=" + narrow(staged->wstring()) + " pid=" + narrow(*pid_arg));
+    // The exact host marker the old app was using; falls back to the target
+    // so a missing/invalid passthrough can never fail the update.
+    auto host = *target;
+    if (host_arg) {
+        if (auto parsed = absolute_exe(*host_arg)) host = *parsed;
+        else updater_log("ignoring invalid --host, using target");
+    }
     if (sha256_hex(*staged) != *expected_hash) return finish_update(ui, ERROR_INVALID_DATA, "verify-staged");
+    progress_step(ui);
     if (!verify_staged_against_signed_manifest(*staged, *expected_hash)) return finish_update(ui, ERROR_INVALID_DATA, "verify-manifest");
+    progress_step(ui);
     if (has_reparse_point(*target)) return finish_update(ui, ERROR_INVALID_DATA, "verify-target");
+    progress_step(ui);
     updater_log("waiting for process exit");
     if (!wait_for_process(*pid_arg)) return finish_update(ui, ERROR_TIMEOUT, "wait-process");
+    progress_step(ui);
 
     const auto nonce = std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
     const auto replacement = target->wstring() + L".update-" + nonce;
     const auto backup = target->wstring() + L".backup-" + nonce;
-    if (!CopyFileW(staged->c_str(), replacement.c_str(), TRUE) || sha256_hex(replacement) != *expected_hash) { DeleteFileW(replacement.c_str()); return finish_update(ui, ERROR_CRC, "copy"); }
-    if (!MoveFileExW(target->c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH)) { const auto error = GetLastError(); DeleteFileW(replacement.c_str()); return finish_update(ui, error ? error : ERROR_ACCESS_DENIED, "backup"); }
-    if (!MoveFileExW(replacement.c_str(), target->c_str(), MOVEFILE_WRITE_THROUGH)) {
+    if (!retry_file_op("copy", [&] { return CopyFileW(staged->c_str(), replacement.c_str(), TRUE) != FALSE; }) || sha256_hex(replacement) != *expected_hash) { DeleteFileW(replacement.c_str()); return finish_update(ui, ERROR_CRC, "copy"); }
+    progress_step(ui);
+    if (!retry_file_op("backup", [&] { return MoveFileExW(target->c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH) != FALSE; })) { const auto error = GetLastError(); DeleteFileW(replacement.c_str()); return finish_update(ui, error ? error : ERROR_ACCESS_DENIED, "backup"); }
+    progress_step(ui);
+    if (!retry_file_op("replace", [&] { return MoveFileExW(replacement.c_str(), target->c_str(), MOVEFILE_WRITE_THROUGH) != FALSE; })) {
         const auto error = GetLastError();
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_WRITE_THROUGH);
         DeleteFileW(replacement.c_str());
         return finish_update(ui, error ? error : ERROR_ACCESS_DENIED, "replace");
     }
+    progress_step(ui);
     if (sha256_hex(*target) != *expected_hash) {
         MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);
         return finish_update(ui, ERROR_CRC, "verify-target-hash");
     }
+    progress_step(ui);
     updater_log("launching new version");
-    if (!launch(*target)) {
+    if (!launch(*target, host)) {
         const auto error = GetLastError();
         MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);
         return finish_update(ui, error ? error : ERROR_ACCESS_DENIED, "launch");
     }
+    progress_step(ui);
     // Keep the newest few backups for manual recovery; drop the rest.
     {
         std::error_code error;

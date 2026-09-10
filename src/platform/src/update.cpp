@@ -17,6 +17,7 @@
 #include <regex>
 #include <span>
 #include <sstream>
+#include <string>
 #include <vector>
 
 #pragma comment(lib, "bcrypt.lib")
@@ -245,11 +246,64 @@ std::optional<std::wstring> portable_host() {
     return host;
 }
 
+// Version model: MAJOR.MINOR.PATCH with an optional .HOTFIX fourth
+// component and an optional -nightly.YYYYMMDD.BUILD pre-release suffix
+// (e.g. 1.0.9-nightly.20260910.1, like t3code). A missing hotfix counts
+// as 0, so 1.0.8.1 > 1.0.8 and 1.0.9(.0) > 1.0.8.1.
+struct AppVersion {
+    std::array<unsigned long, 4> base{};
+    bool nightly{};
+    unsigned long nightly_date{};
+    unsigned long nightly_build{};
+};
+
+std::optional<AppVersion> parse_app_version(std::string_view value) {
+    AppVersion out;
+    if (const auto dash = value.find('-'); dash != std::string_view::npos) {
+        constexpr std::string_view marker{"nightly."};
+        const auto suffix = value.substr(dash + 1);
+        if (!suffix.starts_with(marker)) return std::nullopt;
+        const auto rest = suffix.substr(marker.size());
+        const auto dot = rest.find('.');
+        if (dot == std::string_view::npos) return std::nullopt;
+        const auto date = rest.substr(0, dot), build = rest.substr(dot + 1);
+        const auto digits = [](std::string_view token) {
+            return !token.empty() && std::ranges::all_of(token, [](unsigned char c) { return std::isdigit(c) != 0; });
+        };
+        if (date.size() != 8 || !digits(date) || !digits(build)) return std::nullopt;
+        try {
+            out.nightly_date = std::stoul(std::string(date));
+            out.nightly_build = std::stoul(std::string(build));
+        } catch (...) { return std::nullopt; }
+        out.nightly = true;
+        value = value.substr(0, dash);
+    }
+    std::size_t count{};
+    while (true) {
+        const auto separator = value.find('.');
+        const auto token = value.substr(0, separator);
+        if (token.empty() || !std::ranges::all_of(token, [](unsigned char c) { return std::isdigit(c) != 0; })) return std::nullopt;
+        if (count >= out.base.size()) return std::nullopt;
+        try { out.base[count++] = std::stoul(std::string(token)); } catch (...) { return std::nullopt; }
+        if (separator == std::string_view::npos) break;
+        value.remove_prefix(separator + 1);
+    }
+    if (count != 3 && count != 4) return std::nullopt;
+    return out;
+}
+
+bool version_less(AppVersion const& a, AppVersion const& b) {
+    if (a.base != b.base) return a.base < b.base;
+    if (a.nightly != b.nightly) return a.nightly; // pre-release sorts below stable
+    if (a.nightly_date != b.nightly_date) return a.nightly_date < b.nightly_date;
+    return a.nightly_build < b.nightly_build;
+}
+
 } // namespace
 
 winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_view json, std::string_view signature) {
     if (!verify_signature(json, signature)) return fail("Signature verification failed");
-    static const std::regex version(R"json("version"\s*:\s*"([0-9]+\.[0-9]+\.[0-9]+)")json");
+    static const std::regex version(R"json("version"\s*:\s*"([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-nightly\.[0-9]{8}\.[0-9]+)?)")json");
     static const std::regex artifact(R"json(\{\s*"id"\s*:\s*"([a-z0-9-]+)"\s*,\s*"file"\s*:\s*"([A-Za-z0-9._-]+)"\s*,\s*"sha256"\s*:\s*"([a-fA-F0-9]{64})"\s*,\s*"size"\s*:\s*([0-9]+)\s*\})json");
     std::match_results<std::string_view::const_iterator> version_match; if (!std::regex_search(json.begin(), json.end(), version_match, version)) return fail("Missing semantic version");
     ReleaseManifest result{.version = version_match[1].str()};
@@ -268,6 +322,39 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_vie
 
 winchisel::core::Result<ReleaseManifest> check_github_latest_release() {
     auto release=get_https(k_github_latest_release_api); if(!release)return std::unexpected(release.error()); auto manifest_url=asset_url(*release,"release.json"), signature_url=asset_url(*release,"release.json.sig"); if(!manifest_url||!signature_url)return fail("Release is missing manifest assets"); auto manifest=get_https(*manifest_url), signature=get_https(*signature_url); if(!manifest)return std::unexpected(manifest.error()); if(!signature)return std::unexpected(signature.error()); return verify_release_manifest(*manifest,*signature);
+}
+
+winchisel::core::Result<ReleaseManifest> check_github_nightly_release() {
+    auto list=get_https(k_github_releases_api); if(!list)return std::unexpected(list.error());
+    static const std::regex tag(R"json("tag_name"\s*:\s*"([^"]+)")json");
+    struct Candidate { AppVersion version; std::string block; };
+    std::vector<Candidate> candidates;
+    using Iterator = std::string::const_iterator;
+    std::vector<std::match_results<Iterator>> tags;
+    for (std::regex_iterator<Iterator> it(list->begin(), list->end(), tag), end; it != end; ++it) tags.push_back(*it);
+    for (std::size_t index{}; index < tags.size(); ++index) {
+        auto name = tags[index][1].str();
+        if (name.starts_with("v") || name.starts_with("V")) name.erase(0, 1);
+        const auto parsed = parse_app_version(name);
+        if (!parsed) continue;
+        const auto begin = static_cast<std::size_t>(tags[index].position());
+        const auto finish = index + 1 < tags.size() ? static_cast<std::size_t>(tags[index + 1].position()) : list->size();
+        if (finish <= begin) continue;
+        candidates.push_back({*parsed, list->substr(begin, finish - begin)});
+    }
+    // Newest first; stable releases rank above nightlies of the same base so
+    // nightly installs graduate to the next stable release automatically.
+    std::ranges::sort(candidates, [](Candidate const& a, Candidate const& b) { return version_less(b.version, a.version); });
+    std::string error{"No release with update assets found"};
+    for (std::size_t index{}; index < candidates.size() && index < 5; ++index) {
+        const auto manifest_url=asset_url(candidates[index].block,"release.json"), signature_url=asset_url(candidates[index].block,"release.json.sig");
+        if(!manifest_url||!signature_url) continue;
+        auto manifest=get_https(*manifest_url); if(!manifest){ error=manifest.error().detail; continue; }
+        auto signature=get_https(*signature_url); if(!signature){ error=signature.error().detail; continue; }
+        if (auto verified=verify_release_manifest(*manifest,*signature)) return verified;
+        else error=verified.error().detail;
+    }
+    return fail(std::move(error));
 }
 
 winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseManifest const& manifest, std::string_view artifact_id, UpdateProgress const& progress) {
@@ -319,22 +406,13 @@ std::string current_app_version() {
 }
 
 bool is_newer_version(std::string_view candidate, std::string_view current) {
-    auto parse = [](std::string_view value) -> std::optional<std::array<unsigned long, 3>> {
-        std::array<unsigned long, 3> parts{};
-        for (std::size_t index{}; index < parts.size(); ++index) {
-            const auto separator = value.find('.');
-            const auto token = value.substr(0, separator);
-            if (token.empty() || !std::ranges::all_of(token, [](unsigned char c) { return std::isdigit(c) != 0; })) return std::nullopt;
-            try { parts[index] = std::stoul(std::string(token)); } catch (...) { return std::nullopt; }
-            if (index + 1 < parts.size()) {
-                if (separator == std::string_view::npos) return std::nullopt;
-                value.remove_prefix(separator + 1);
-            } else if (separator != std::string_view::npos) return std::nullopt;
-        }
-        return parts;
-    };
-    const auto next = parse(candidate), installed = parse(current);
-    return next && installed && *next > *installed;
+    const auto next = parse_app_version(candidate), installed = parse_app_version(current);
+    return next && installed && version_less(*installed, *next);
+}
+
+bool is_prerelease_version(std::string_view version) {
+    const auto parsed = parse_app_version(version);
+    return parsed && parsed->nightly;
 }
 
 bool is_portable_install() {
@@ -378,11 +456,63 @@ winchisel::core::Result<void> launch_staged_update(
     std::array<wchar_t, 32768> module{}; const auto length=GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
     const auto updater=std::filesystem::path(std::wstring(module.data(),length)).parent_path()/L"Winchisel.Updater.exe";
     std::wstring command=L"\""+updater.wstring()+L"\" --staged \""+staged.wstring()+L"\" --target \""+*host+
-        L"\" --sha256 "+std::wstring(artifact.sha256.begin(),artifact.sha256.end())+L" --wait-pid "+std::to_wstring(GetCurrentProcessId());
+        L"\" --sha256 "+std::wstring(artifact.sha256.begin(),artifact.sha256.end())+L" --wait-pid "+std::to_wstring(GetCurrentProcessId())+
+        // Forward the exact host marker (Zed preserves launch arguments
+        // across restarts). The updater passes it to the new stub so the
+        // portable identity never depends on the environment block alone.
+        L" --host \""+*host+L"\"";
     STARTUPINFOW startup{.cb=sizeof(startup)}; PROCESS_INFORMATION process{};
     if(!CreateProcessW(updater.c_str(),command.data(),nullptr,nullptr,FALSE,0,nullptr,updater.parent_path().c_str(),&startup,&process))
         return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())});
     CloseHandle(process.hThread); CloseHandle(process.hProcess); return {};
+}
+
+namespace {
+
+bool sane_note_version(std::string_view value) {
+    if (value.empty() || value.size() > 64) return false;
+    for (const char c : value) {
+        const auto u = static_cast<unsigned char>(c);
+        const bool ok = (u >= '0' && u <= '9') || (u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z') || c == '.' || c == '-';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+std::filesystem::path update_note_path() {
+    PWSTR raw{};
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &raw)) || !raw) return {};
+    std::filesystem::path dir = raw;
+    CoTaskMemFree(raw);
+    return dir / L"Winchisel" / L"updates" / L"updated-note.txt";
+}
+
+} // namespace
+
+void note_pending_update(std::string_view version) {
+    if (!sane_note_version(version)) return;
+    const auto path = update_note_path();
+    if (path.empty()) return;
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) return;
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (out) out.write(version.data(), static_cast<std::streamsize>(version.size()));
+}
+
+std::optional<std::string> take_pending_update_note() {
+    const auto path = update_note_path();
+    if (path.empty()) return std::nullopt;
+    std::string version;
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (in) std::getline(in, version);
+    }
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    if (!version.empty() && version.back() == '\r') version.pop_back();
+    if (!sane_note_version(version)) return std::nullopt;
+    return version;
 }
 
 } // namespace winchisel::platform

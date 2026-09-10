@@ -13,6 +13,7 @@ enum class Theme { system, light, dark };
 
 struct Settings {
     bool check_updates_on_startup{true};
+    bool nightly_updates{false};
     bool show_console{false};
     Language language{Language::english};
     Theme theme{Theme::system};
