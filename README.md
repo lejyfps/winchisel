@@ -129,9 +129,10 @@ They are in preparation; watch the releases page for the announcement.
 
 ## Build from source
 
-From the repository root, restore packages and build the Debug x64 target:
+From the repository root, generate the local solution file once, then restore packages and build the Debug x64 target:
 
 ```powershell
+tools\generate-solution.cmd
 nuget restore Winchisel.sln -PackagesDirectory packages
 msbuild Winchisel.sln /p:Configuration=Debug /p:Platform=x64 /m
 ```
@@ -156,7 +157,6 @@ Release artifacts are built with `tools\release.cmd`. The complete local and Git
 
 - [Architecture](docs/architecture.md)
 - [Release process](docs/releasing.md)
-- [Roadmap](todo.md)
 
 ## Support
 

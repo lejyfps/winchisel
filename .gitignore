@@ -1,24 +1,38 @@
 /nuget.exe
 src/app/Generated Files/
+# Locally generated solution - recreate with tools\generate-solution.cmd
+/Winchisel.sln
 /.vs/
+*.user
+*.suo
+*.sln.docstates
+*.VC.db
+*.VC.opendb
 /out/
 /src/core/out/
 /src/platform/out/
 /build/
 /**/bin/
 /**/obj/
+# Compiled object/debug artifacts (also as loose files, e.g. tools/*.obj)
 /**/x64/
 /**/ARM64/
 /**/Debug/
 /**/Release/
-/*.user
-*.suo
-*.VC.db
-*.VC.opendb
-packages/
-.nuget/
+*.obj
+*.pdb
+*.ilk
+*.tlog
+*.lastbuildstate
+*.unsuccessfulbuild
+*.log
 *.aps
 *.ipch
+# Compiled XAML / packaging artifacts
+*.xbf
+*.pri
+packages/
+.nuget/
 CMakeUserPresets.json
 # Secrets - NEVER commit: signing keys, certificates, tokens, store credentials.
 # The release flow reads these from ignored local files / env vars only.
@@ -36,7 +50,8 @@ store-api.cmd
 /LOCAL_RELEASE.cmd
 /release_signer.obj
 fixes.md
-/tools/winget-submit.cmd
-/tools/store-submit.ps1
+plan.md
 todo.md
 changes.md
+# Local-only submit helper (no secrets inside, but kept out of git by choice)
+/tools/store-submit.ps1

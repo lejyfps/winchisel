@@ -20,6 +20,10 @@ jobs:
 
       - uses: NuGet/setup-nuget@v2
 
+      - name: Generate solution
+        shell: cmd
+        run: call tools\generate-solution.cmd
+
       - name: Restore packages
         shell: cmd
         run: nuget restore Winchisel.sln -PackagesDirectory packages
