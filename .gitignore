@@ -61,3 +61,4 @@ changes.md
 docs/releasing.md
 installer/Package.appxmanifest
 installer/Winchisel.iss
+.env
