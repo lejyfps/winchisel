@@ -100,6 +100,7 @@ void SettingsPage::save_settings() {
     settings.show_state_badges = StateBadges().IsOn();
     const auto previous_language = winchisel::core::ui_language();
     const auto previous_theme = winchisel::application::Session::instance().settings().theme;
+    const auto previous_nightly = winchisel::application::Session::instance().settings().nightly_updates;
     const auto previous_risk_badges = winchisel::application::Session::instance().settings().show_risk_badges;
     const auto previous_state_badges = winchisel::application::Session::instance().settings().show_state_badges;
     if (auto result = winchisel::application::Session::instance().set_settings(settings); !result) {
@@ -129,6 +130,12 @@ void SettingsPage::save_settings() {
         previous_state_badges != settings.show_state_badges;
     if (needs_rebuild && winchisel::ui::language_reload()) {
         winchisel::ui::language_reload()();
+    }
+    // Opting into nightly updates checks immediately so the newest nightly
+    // is offered right away instead of after a restart. CheckForUpdates
+    // no-ops with a toast when a check is already running.
+    if (!previous_nightly && settings.nightly_updates && winchisel::ui::update_check()) {
+        winchisel::ui::update_check()();
     }
 }
 

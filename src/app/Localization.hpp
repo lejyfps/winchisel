@@ -20,6 +20,13 @@ inline std::function<void()>& theme_reload() {
     return handler;
 }
 
+// Fired by SettingsPage when the user opts into nightly updates so the
+// newest nightly is offered immediately instead of after a restart.
+inline std::function<void()>& update_check() {
+    static std::function<void()> handler;
+    return handler;
+}
+
 inline winrt::hstring tr(std::wstring_view english) {
     return winrt::hstring{winchisel::core::loc(english)};
 }
