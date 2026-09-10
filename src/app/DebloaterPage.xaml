@@ -31,7 +31,7 @@
             </ComboBox>
             <Button Grid.Column="2" Content="Refresh" Click="Refresh_Click" />
             <Button x:Name="InstallButton" Grid.Column="3" Content="Install" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" Click="Install_Click" />
-            <Button x:Name="RemoveButton" Grid.Column="4" Content="Remove" IsEnabled="False" Click="Remove_Click" />
+            <Button x:Name="RemoveButton" Grid.Column="4" Content="Remove" IsEnabled="False" Style="{StaticResource DangerButtonStyle}" Click="Remove_Click" />
         </Grid>
 
         <Grid Grid.Row="2">

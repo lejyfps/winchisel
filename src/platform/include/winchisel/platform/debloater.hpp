@@ -20,5 +20,10 @@ struct DebloatActionResult {
 };
 winchisel::core::Result<DebloatActionResult> apply_debloater_action(
     std::span<winchisel::core::DebloatCatalogEntry const* const> items, bool install);
+// Refreshes already-installed items: DISM capabilities/features are removed
+// and re-added so the latest payload is applied; Windows apps open their
+// Store listing (or are re-registered when no Store ID exists).
+winchisel::core::Result<DebloatActionResult> apply_debloater_update(
+    std::span<winchisel::core::DebloatCatalogEntry const* const> items);
 
 }  // namespace winchisel::platform

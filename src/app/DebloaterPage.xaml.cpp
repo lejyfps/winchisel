@@ -145,14 +145,14 @@ void DebloaterPage::poll_worker() {
             Notice().Severity(Controls::InfoBarSeverity::Error);
             Notice().IsOpen(true);
         }
-    } else if (operation_ == Operation::install || operation_ == Operation::remove) {
+    } else if (operation_ == Operation::install || operation_ == Operation::update || operation_ == Operation::remove) {
         if (!action_worker_.valid() || action_worker_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-        const bool installed_action = operation_ == Operation::install;
+        const auto finished = operation_;
         auto result = action_worker_.get();
         operation_ = Operation::none;
         Loading().Visibility(Visibility::Collapsed);
         Items().IsEnabled(true);
-        Notice().Title(installed_action ? L"Installation complete" : L"Removal complete");
+        Notice().Title(finished == Operation::install ? L"Installation complete" : finished == Operation::update ? L"Update complete" : L"Removal complete");
         if (result) {
             auto message = std::to_string(result->succeeded) + " succeeded, " + std::to_string(result->failed) + " failed.";
             if (result->reboot_required) message += " A restart is required.";
@@ -274,22 +274,38 @@ void DebloaterPage::apply_filter() {
     update_actions();
 }
 
-void DebloaterPage::update_actions() {
-    std::uint32_t installable{};
-    std::uint32_t removable{};
+DebloaterPage::ApplySelection DebloaterPage::selected_split() {
+    ApplySelection selection;
     for (auto const& value : Items().SelectedItems()) {
         if (auto row = value.try_as<Controls::ListViewItem>()) {
             if (row.Visibility() != Visibility::Visible) continue;
             const auto index = unbox_value<std::uint64_t>(row.Tag());
             if (index >= catalog_.size()) continue;
-            if (catalog_[static_cast<std::size_t>(index)].can_reinstall) ++installable;
-            ++removable;
+            auto const* item = &catalog_[static_cast<std::size_t>(index)];
+            const bool is_installed = index < installed_.size() && installed_[static_cast<std::size_t>(index)];
+            if (is_installed) {
+                selection.remove.push_back(item);
+                if (item->can_reinstall) selection.update.push_back(item);
+            } else if (item->can_reinstall) {
+                selection.install.push_back(item);
+            }
         }
     }
+    return selection;
+}
+
+void DebloaterPage::update_actions() {
+    const auto selection = selected_split();
+    const auto installable = static_cast<std::uint32_t>(selection.install.size());
+    const auto updatable = static_cast<std::uint32_t>(selection.update.size());
+    const auto removable = static_cast<std::uint32_t>(selection.remove.size());
     const bool idle = operation_ == Operation::none;
-    InstallButton().IsEnabled(idle && installable > 0);
+    const std::uint32_t actionable = installable + updatable;
+    InstallButton().IsEnabled(idle && actionable > 0);
     RemoveButton().IsEnabled(idle && removable > 0);
-    InstallButton().Content(box_value(installable ? winrt::hstring{std::wstring(winchisel::ui::tr(L"Install")) + L" (" + std::to_wstring(installable) + L")"} : winchisel::ui::tr(L"Install")));
+    if (installable > 0) InstallButton().Content(box_value(winrt::hstring{std::wstring(winchisel::ui::tr(L"Install")) + L" (" + std::to_wstring(actionable) + L")"}));
+    else if (updatable > 0) InstallButton().Content(box_value(winrt::hstring{std::wstring(winchisel::ui::tr(L"Update")) + L" (" + std::to_wstring(updatable) + L")"}));
+    else InstallButton().Content(box_value(winchisel::ui::tr(L"Install")));
     RemoveButton().Content(box_value(removable ? winrt::hstring{std::wstring(winchisel::ui::tr(L"Remove")) + L" (" + std::to_wstring(removable) + L")"} : winchisel::ui::tr(L"Remove")));
 }
 
@@ -303,13 +319,26 @@ fire_and_forget DebloaterPage::confirm_action(bool install) {
 
 
     auto lifetime = get_strong();
-    const auto count = Items().SelectedItems().Size();
-    if (!count) co_return;
+    const auto selection = selected_split();
+    const auto install_count = selection.install.size();
+    const auto update_count = selection.update.size();
+    const auto remove_count = selection.remove.size();
+    const auto apply_count = install_count + update_count;
+    if (install && !apply_count) co_return;
+    if (!install && !remove_count) co_return;
     Controls::ContentDialog dialog;
     dialog.XamlRoot(XamlRoot());
-    dialog.Title(box_value(install ? L"Install selected items?" : L"Remove selected items?"));
-    dialog.Content(box_value(to_hstring(std::to_string(count) + (install ? " selected items will be installed for the current user. Store listings may open when no local payload remains." : " selected AppX packages will be removed for the current user."))));
-    dialog.PrimaryButtonText(install ? L"Install" : L"Remove");
+    if (install) {
+        const bool update_only = install_count == 0;
+        const bool mixed = install_count > 0 && update_count > 0;
+        dialog.Title(box_value(update_only ? L"Update selected items?" : mixed ? L"Install or update selected items?" : L"Install selected items?"));
+        dialog.Content(box_value(to_hstring(std::to_string(apply_count) + (update_only ? " selected items will be updated. Capabilities are reinstalled from the latest payload; Store listings may open for Windows apps." : mixed ? " selected items will be installed or updated. Store listings may open for Windows apps." : " selected items will be installed for the current user. Store listings may open when no local payload remains."))));
+        dialog.PrimaryButtonText(update_only ? L"Update" : mixed ? L"Apply" : L"Install");
+    } else {
+        dialog.Title(box_value(L"Remove selected items?"));
+        dialog.Content(box_value(to_hstring(std::to_string(remove_count) + " selected AppX packages will be removed for the current user.")));
+        dialog.PrimaryButtonText(L"Remove");
+    }
     dialog.CloseButtonText(L"Cancel");
     dialog.DefaultButton(Controls::ContentDialogButton::Close);
     if (co_await dialog.ShowAsync() == Controls::ContentDialogResult::Primary) start_action(install);
@@ -328,21 +357,41 @@ void DebloaterPage::start_action(bool install) {
     try {
         auto error_lifetime=get_strong();
 
-    std::vector<winchisel::core::DebloatCatalogEntry const*> selected;
-    for (auto const& value : Items().SelectedItems()) {
-        if (auto row = value.try_as<Controls::ListViewItem>()) {
-            if (row.Visibility() != Visibility::Visible) continue;
-            const auto index = unbox_value<std::uint64_t>(row.Tag());
-            if (index < catalog_.size() && (!install || catalog_[static_cast<std::size_t>(index)].can_reinstall)) selected.push_back(&catalog_[static_cast<std::size_t>(index)]);
-        }
+    auto selection = selected_split();
+    if (install) {
+        if (selection.install.empty() && selection.update.empty()) return;
+        operation_ = selection.install.empty() ? Operation::update : Operation::install;
+        Loading().Visibility(Visibility::Visible); Items().IsEnabled(false); InstallButton().IsEnabled(false); RemoveButton().IsEnabled(false); Notice().IsOpen(false);
+        action_worker_ = std::async(std::launch::async, [install_items = std::move(selection.install), update_items = std::move(selection.update)] {
+            winchisel::platform::DebloatActionResult merged;
+            if (!install_items.empty()) {
+                auto installed = winchisel::platform::apply_debloater_action(install_items, true);
+                if (!installed) return winchisel::core::Result<winchisel::platform::DebloatActionResult>{std::unexpected(installed.error())};
+                merged.succeeded += installed->succeeded;
+                merged.failed += installed->failed;
+                merged.reboot_required = merged.reboot_required || installed->reboot_required;
+                merged.failure_details.insert(merged.failure_details.end(), installed->failure_details.begin(), installed->failure_details.end());
+            }
+            if (!update_items.empty()) {
+                auto updated = winchisel::platform::apply_debloater_update(update_items);
+                if (!updated) return winchisel::core::Result<winchisel::platform::DebloatActionResult>{std::unexpected(updated.error())};
+                merged.succeeded += updated->succeeded;
+                merged.failed += updated->failed;
+                merged.reboot_required = merged.reboot_required || updated->reboot_required;
+                merged.failure_details.insert(merged.failure_details.end(), updated->failure_details.begin(), updated->failure_details.end());
+            }
+            return winchisel::core::Result<winchisel::platform::DebloatActionResult>{merged};
+        });
+        timer_.Start();
+    } else {
+        if (selection.remove.empty()) return;
+        operation_ = Operation::remove;
+        Loading().Visibility(Visibility::Visible); Items().IsEnabled(false); InstallButton().IsEnabled(false); RemoveButton().IsEnabled(false); Notice().IsOpen(false);
+        action_worker_ = std::async(std::launch::async, [selected = std::move(selection.remove)] {
+            return winchisel::platform::apply_debloater_action(selected, false);
+        });
+        timer_.Start();
     }
-    if (selected.empty()) return;
-    operation_ = install ? Operation::install : Operation::remove;
-    Loading().Visibility(Visibility::Visible); Items().IsEnabled(false); InstallButton().IsEnabled(false); RemoveButton().IsEnabled(false); Notice().IsOpen(false);
-    action_worker_ = std::async(std::launch::async, [selected = std::move(selected), install] {
-        return winchisel::platform::apply_debloater_action(selected, install);
-    });
-    timer_.Start();
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {

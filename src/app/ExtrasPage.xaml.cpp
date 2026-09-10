@@ -35,6 +35,7 @@ muxc::Border risk_badge(winchisel::core::TweakRisk risk) {
     muxc::Border badge;
     badge.CornerRadius({12, 12, 12, 12});
     badge.Padding({10, 3, 10, 3});
+    badge.Margin({8, 0, 0, 0});
     badge.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
     badge.Background(tint);
     muxc::TextBlock label;

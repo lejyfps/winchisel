@@ -29,7 +29,13 @@ struct DebloaterPage : DebloaterPageT<DebloaterPage> {
                                 winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
 
 private:
-    enum class Operation { none, scan, install, remove };
+    enum class Operation { none, scan, install, update, remove };
+    struct ApplySelection {
+        std::vector<winchisel::core::DebloatCatalogEntry const*> install;
+        std::vector<winchisel::core::DebloatCatalogEntry const*> update;
+        std::vector<winchisel::core::DebloatCatalogEntry const*> remove;
+    };
+    ApplySelection selected_split();
     void start_scan(bool clear_notice = true);
     void render_items();
     void apply_filter();

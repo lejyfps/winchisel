@@ -19,5 +19,7 @@ winchisel::core::Result<std::vector<bool>> scan_downloads_installed(
     std::span<winchisel::core::DownloadCatalogEntry const> catalog, bool force_refresh = false);
 winchisel::core::Result<DownloadInstallResult> install_downloads(
     std::span<winchisel::core::DownloadCatalogEntry const* const> items);
+winchisel::core::Result<DownloadInstallResult> uninstall_downloads(
+    std::span<winchisel::core::DownloadCatalogEntry const* const> items);
 
 }  // namespace winchisel::platform

@@ -142,7 +142,7 @@ int main() {
         }
         expect(is_new_tweak("gaming-gpu-amd-power") && is_new_tweak("privacy-disable-autologger"), "new tweak ids");
         expect(!is_new_tweak("gaming-game-mode") && !is_new_tweak(""), "old tweak ids");
-        expect(k_new_tweaks_version == std::string_view{"1.0.7"}, "new tweaks version");
+        expect(k_new_tweaks_version == std::string_view{"1.0.8"}, "new tweaks version");
         expect(k_new_tweak_ids.size() == 9, "new tweak count");
         expect(assess_performance("gaming-memory-integrity") == TweakRisk::risky, "risk hvci");
         expect(assess_performance("gaming-virtualization-based-security") == TweakRisk::risky, "risk vbs");

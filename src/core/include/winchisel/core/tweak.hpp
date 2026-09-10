@@ -72,9 +72,9 @@ inline constexpr std::array k_privacy_security_groups{
 
 // Tweaks introduced in k_new_tweaks_version carry a "NEW" badge in the UI
 // until a newer app version runs. The badges therefore stay visible for the
-// whole lifetime of the introducing release (e.g. 1.0.7) and disappear with
-// the next one (e.g. 1.0.8) without touching this list.
-inline constexpr std::string_view k_new_tweaks_version{"1.0.7"};
+// whole lifetime of the introducing release (e.g. 1.0.8) and disappear with
+// the next one (e.g. 1.0.9) without touching this list.
+inline constexpr std::string_view k_new_tweaks_version{"1.0.8"};
 inline constexpr std::array k_new_tweak_ids{
     std::string_view{"gaming-gpu-amd-power"},
     std::string_view{"gaming-gpu-nvidia-power"},
