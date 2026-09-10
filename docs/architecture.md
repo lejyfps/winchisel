@@ -51,7 +51,7 @@ The update service reads the latest GitHub release only as a discovery source (t
 2. The offered version is newer than the running version.
 3. The selected artifact matches the manifest's exact byte size and SHA-256 hash.
 
-Installer builds delegate installation to the installer. Portable builds use the updater helper, which waits for the app to close, verifies the replacement, and retains a backup for recovery.
+Installer builds delegate installation to the installer. Portable builds use the updater helper, which waits for the app to close, verifies the replacement, and retains a backup for recovery. The signed manifest siblings are written atomically next to staged artifacts, and the updater retries transient file reads with sharing-friendly opens before failing.
 
 ## Project layout
 

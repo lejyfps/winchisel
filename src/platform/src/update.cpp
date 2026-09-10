@@ -367,12 +367,29 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
         if (!entry.is_directory(error)) continue;
         if (entry.path() != dir) std::filesystem::remove_all(entry.path(), error);
     }
+    // Persist the exact signed manifest bytes next to the artifact. The
+    // updater re-verifies them with its embedded public key instead of
+    // trusting the caller-provided hash argument alone. Written atomically
+    // (temp file + rename) so a concurrent reader never sees truncated
+    // bytes; a failure here fails staging loudly instead of stranding the
+    // updater with an unverifiable artifact later.
     auto write_manifest_siblings = [&] {
-        if (manifest.raw_json.empty() || manifest.raw_signature.empty()) return;
-        std::ofstream manifest_out(dir / L"manifest.json", std::ios::binary | std::ios::trunc);
-        std::ofstream signature_out(dir / L"manifest.json.sig", std::ios::binary | std::ios::trunc);
-        if (manifest_out) manifest_out.write(manifest.raw_json.data(), static_cast<std::streamsize>(manifest.raw_json.size()));
-        if (signature_out) signature_out.write(manifest.raw_signature.data(), static_cast<std::streamsize>(manifest.raw_signature.size()));
+        if (manifest.raw_json.empty() || manifest.raw_signature.empty()) return false;
+        const auto json_tmp = dir / L"manifest.json.tmp";
+        const auto sig_tmp = dir / L"manifest.json.sig.tmp";
+        {
+            std::ofstream manifest_out(json_tmp, std::ios::binary | std::ios::trunc);
+            std::ofstream signature_out(sig_tmp, std::ios::binary | std::ios::trunc);
+            if (!manifest_out || !signature_out) return false;
+            manifest_out.write(manifest.raw_json.data(), static_cast<std::streamsize>(manifest.raw_json.size()));
+            signature_out.write(manifest.raw_signature.data(), static_cast<std::streamsize>(manifest.raw_signature.size()));
+            manifest_out.flush();
+            signature_out.flush();
+            if (!manifest_out || !signature_out) return false;
+        }
+        if (!MoveFileExW(json_tmp.c_str(), (dir / L"manifest.json").c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return false;
+        if (!MoveFileExW(sig_tmp.c_str(), (dir / L"manifest.json.sig").c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return false;
+        return true;
     };
     // Reuse a previously staged artifact that still verifies instead of
     // downloading it again on every check.
@@ -380,7 +397,7 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
         std::error_code size_error;
         const auto staged_size = std::filesystem::file_size(final, size_error);
         if (!size_error && staged_size == artifact->size && sha256_hex_file(final) == artifact->sha256) {
-            write_manifest_siblings();
+            if (!write_manifest_siblings()) return std::unexpected(winchisel::core::Error{.detail="Could not persist update metadata"});
             if (progress) progress(artifact->size, artifact->size);
             return final;
         }
@@ -388,10 +405,10 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
     std::filesystem::remove(partial, error);
     if (auto downloaded = download_https_file(url, partial, artifact->size, artifact->sha256, progress); !downloaded) return std::unexpected(downloaded.error());
     if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){ std::filesystem::remove(partial, error); return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())}); }
-    // Persist the exact signed manifest bytes next to the artifact. The
-    // updater re-verifies them with its embedded public key instead of
-    // trusting the caller-provided hash argument alone.
-    write_manifest_siblings();
+    if (!write_manifest_siblings()) {
+        std::filesystem::remove(final, error);
+        return std::unexpected(winchisel::core::Error{.detail="Could not persist update metadata"});
+    }
     return final;
 }
 

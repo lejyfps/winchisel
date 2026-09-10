@@ -198,6 +198,55 @@ std::vector<BYTE> decode_base64(std::string const& value) {
 
 // ECDSA P-256 / SHA-256 over the exact manifest bytes. The public key is
 // embedded so the updater never trusts a caller-provided hash on its own.
+std::string narrow(std::wstring_view value);
+void updater_log(std::string const& line);
+
+// Reads an entire small file with generous sharing: virus scanners,
+// indexers or a second Winchisel instance may hold these files open
+// momentarily. Retries plausibly transient I/O failures instead of failing
+// the update outright; deterministic problems (oversized file) fail fast.
+// Returns ERROR_SUCCESS with the bytes, or the Win32 error to report.
+DWORD read_file_retry(std::filesystem::path const& path, std::string& output, std::uintmax_t max_size) {
+    constexpr int max_attempts = 6;
+    constexpr DWORD retry_delay_ms = 500;
+    DWORD error = ERROR_FILE_NOT_FOUND;
+    for (int attempt{}; attempt < max_attempts; ++attempt) {
+        output.clear();
+        error = ERROR_SUCCESS;
+        bool retryable = false;
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) {
+            error = GetLastError();
+            retryable = error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION ||
+                error == ERROR_ACCESS_DENIED || error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+        } else {
+            LARGE_INTEGER size{};
+            if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 ||
+                    static_cast<std::uintmax_t>(size.QuadPart) > max_size) {
+                error = ERROR_INVALID_DATA;
+            } else {
+                output.resize(static_cast<std::size_t>(size.QuadPart));
+                DWORD read{};
+                if (size.QuadPart != 0 && (!ReadFile(file, output.data(),
+                        static_cast<DWORD>(size.QuadPart), &read, nullptr) ||
+                        static_cast<std::uintmax_t>(read) != static_cast<std::uintmax_t>(size.QuadPart))) {
+                    // Short read: the file changed under us; re-reading may succeed.
+                    error = GetLastError();
+                    if (error == ERROR_SUCCESS) error = ERROR_INVALID_DATA;
+                    retryable = true;
+                }
+            }
+            CloseHandle(file);
+        }
+        if (error == ERROR_SUCCESS) return ERROR_SUCCESS;
+        if (!retryable || attempt + 1 >= max_attempts) break;
+        if (attempt == 0) updater_log("sibling read failed, retrying: " + narrow(path.wstring()) + " code=" + std::to_string(error));
+        Sleep(retry_delay_ms);
+    }
+    return error == ERROR_SUCCESS ? ERROR_FILE_NOT_FOUND : error;
+}
 bool verify_manifest_signature(std::string const& json, std::string const& signature_text) {
     // BCRYPT_ECCPUBLIC_BLOB: header followed by P-256 X and Y coordinates.
     static constexpr std::array<BYTE, 72> public_key{
@@ -275,19 +324,35 @@ bool manifest_binds_file(std::string const& manifest, std::string const& file_na
 
 // The staged file hash alone is caller-asserted. Require the sibling signed
 // manifest (written by stage_release_artifact) and bind the staged file name
-// to its signed SHA-256 entry before any privileged file move.
-bool verify_staged_against_signed_manifest(std::filesystem::path const& staged, std::string const& expected_hash) {
+// to its signed SHA-256 entry before any privileged file move. Returns
+// ERROR_SUCCESS or the most truthful Win32 error for the dialog: the raw
+// I/O error for unreadable siblings, ERROR_INVALID_DATA for a bad signature
+// or a manifest that does not bind the staged file.
+DWORD verify_staged_against_signed_manifest(std::filesystem::path const& staged, std::string const& expected_hash) {
     const auto dir = staged.parent_path();
-    std::ifstream manifest_in(dir / L"manifest.json", std::ios::binary);
-    std::ifstream signature_in(dir / L"manifest.json.sig", std::ios::binary);
-    if (!manifest_in || !signature_in) return false;
-    std::string manifest((std::istreambuf_iterator<char>(manifest_in)), std::istreambuf_iterator<char>());
-    std::string signature((std::istreambuf_iterator<char>(signature_in)), std::istreambuf_iterator<char>());
-    if (manifest.empty() || manifest.size() > 1024 * 1024 || signature.empty() || signature.size() > 16384) return false;
-    if (!verify_manifest_signature(manifest, signature)) return false;
+    std::string manifest, signature;
+    if (const DWORD error = read_file_retry(dir / L"manifest.json", manifest, 1024 * 1024); error != ERROR_SUCCESS) {
+        updater_log("update manifest unreadable code=" + std::to_string(error));
+        return error;
+    }
+    if (const DWORD error = read_file_retry(dir / L"manifest.json.sig", signature, 16384); error != ERROR_SUCCESS) {
+        updater_log("update manifest signature unreadable code=" + std::to_string(error));
+        return error;
+    }
+    if (manifest.empty() || signature.empty()) {
+        updater_log("update manifest empty");
+        return ERROR_INVALID_DATA;
+    }
+    if (!verify_manifest_signature(manifest, signature)) {
+        updater_log("update manifest signature invalid");
+        return ERROR_INVALID_DATA;
+    }
     const std::string file_name = staged.filename().string();
-    if (file_name.empty() || file_name.size() > 128) return false;
-    return manifest_binds_file(manifest, file_name, expected_hash);
+    if (file_name.empty() || file_name.size() > 128 || !manifest_binds_file(manifest, file_name, expected_hash)) {
+        updater_log("update manifest does not bind staged file");
+        return ERROR_INVALID_DATA;
+    }
+    return ERROR_SUCCESS;
 }
 
 int fail(DWORD code) { return static_cast<int>(code); }
@@ -507,7 +572,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
     if (sha256_hex(*staged) != *expected_hash) return finish_update(ui, ERROR_INVALID_DATA, "verify-staged");
     progress_step(ui);
-    if (!verify_staged_against_signed_manifest(*staged, *expected_hash)) return finish_update(ui, ERROR_INVALID_DATA, "verify-manifest");
+    if (const DWORD manifest_error = verify_staged_against_signed_manifest(*staged, *expected_hash); manifest_error != ERROR_SUCCESS) return finish_update(ui, manifest_error, "verify-manifest");
     progress_step(ui);
     if (has_reparse_point(*target)) return finish_update(ui, ERROR_INVALID_DATA, "verify-target");
     progress_step(ui);
