@@ -27,6 +27,10 @@
 
 Grab the installer (machine-wide, requires admin) or the portable build from the [latest release](https://github.com/lejyfps/winchisel/releases). The portable build updates itself through signed update manifests.
 
+### Nightly builds 🌙
+
+Feeling adventurous? Pre-release nightly builds (`1.0.9-nightly.20260910.1` style) ship the latest commits before they land in a stable release. Enable **Settings → Nightly updates** and the built-in updater will offer them to you. Nightlies are less tested than stable releases — turn the toggle off anytime to be offered the latest stable release again, even as a downgrade.
+
 ### Winget and Microsoft Store 🚧
 
 Winget and Microsoft Store releases are in preparation and will be announced here once available.
@@ -77,7 +81,7 @@ Winget and Microsoft Store releases are in preparation and will be announced her
 
 ### Settings ⚙️
 
-- 20 UI languages, light/dark/system themes, autostart, update checks
+- 20 UI languages, light/dark/system themes, autostart, update checks (stable or nightly channel)
 - Toggles for risk badges and state badges (NEW badges show automatically until the next release)
 - One-click system restore point creation
 
@@ -103,6 +107,9 @@ Yes for anything system-wide (services, machine policies, device settings). Per-
 
 **Installer or portable?**
 The installer puts Winchisel in Program Files for all users. The portable build runs from any folder and updates itself in place.
+
+**How do I try nightly builds?**
+Enable **Settings → Nightly updates**. Pre-release builds are then offered through the auto-updater; declining one ("Later") won't nag you on every restart. Turn the toggle off to switch back to the latest stable release.
 
 **Does Winchisel collect data?**
 No usage telemetry, no accounts, no phone-home. The only network access is the optional release check on startup (toggleable in Settings) plus downloads you explicitly start (winget packages, updates).
@@ -139,7 +146,7 @@ tools\run_tests.cmd
 
 ## Releases and updates
 
-Release artifacts are built with `tools\release.cmd`. The complete local and GitHub release procedure, including signed update manifests, is documented in [docs/releasing.md](docs/releasing.md). The application validates the signed manifest, artifact size, and SHA-256 hash before installing an update.
+Release artifacts are built with `tools\release.cmd`. The complete local and GitHub release procedure, including signed update manifests, is documented in [docs/releasing.md](docs/releasing.md). The application validates the signed manifest, artifact size, and SHA-256 hash before installing an update. Besides stable releases (`1.2.3`, hotfixes like `1.2.3.1`), nightly pre-releases (`1.2.3-nightly.YYYYMMDD.N`) are published for testers who opt in via Settings.
 
 ## Project documentation
 
