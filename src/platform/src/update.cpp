@@ -1,5 +1,4 @@
 #include "winchisel/platform/update.hpp"
-#include "winchisel/platform/system.hpp"
 
 #include <windows.h>
 #include <appmodel.h>
@@ -550,7 +549,6 @@ void cleanup_update_backups() {
     const auto backup_prefix = base + L".backup-";
     const auto staging_prefix = base + L".update-";
     std::error_code error;
-    bool cleaned{};
     for (auto const& entry : std::filesystem::directory_iterator(dir, error)) {
         if (error) return;
         std::error_code file_error;
@@ -561,9 +559,7 @@ void cleanup_update_backups() {
         if (!backup && !staging) continue;
         std::error_code remove_error;
         std::filesystem::remove(entry.path(), remove_error);
-        cleaned = true;
     }
-    if (cleaned) boot_log("update backups cleaned");
 }
 
 } // namespace winchisel::platform
