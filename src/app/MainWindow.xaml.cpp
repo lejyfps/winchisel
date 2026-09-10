@@ -32,6 +32,7 @@
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <algorithm>
 #include <filesystem>
+#include <memory>
 
 
 using namespace winrt;
@@ -118,6 +119,19 @@ winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
     if (tag == L"extras") return winchisel::core::Screen::extras;
     if (tag == L"settings") return winchisel::core::Screen::settings;
     return winchisel::core::Screen::home;
+}
+
+// First ScrollViewer in the visual tree: the main content scroller of a page.
+// Used to keep the scroll position when a page is rebuilt (language switch or
+// Settings badge toggles) instead of jumping back to the top.
+Controls::ScrollViewer find_first_scroll_viewer(DependencyObject const& root) {
+    if (!root) return nullptr;
+    if (auto viewer = root.try_as<Controls::ScrollViewer>()) return viewer;
+    const auto count = Media::VisualTreeHelper::GetChildrenCount(root);
+    for (int index = 0; index < count; ++index) {
+        if (auto found = find_first_scroll_viewer(Media::VisualTreeHelper::GetChild(root, index))) return found;
+    }
+    return nullptr;
 }
 
 }  // namespace
@@ -268,33 +282,92 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update unavailable", L"No compatible update package was found.");
         co_return;
     }
-    // The dialog slot is scoped to the prompt only so other dialogs stay
-    // available during the potentially long download and install.
+    // One slot for the confirm prompt plus the progress dialog: the progress
+    // dialog is modal, so other dialogs stay blocked until the handoff.
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){update_check_running_=false; UpdateButton().IsEnabled(true); co_return;}
+    const hstring version_text = to_hstring(manifest->version);
     {
-        winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){update_check_running_=false; UpdateButton().IsEnabled(true); co_return;}
         Controls::ContentDialog dialog;
         dialog.XamlRoot(Content().XamlRoot());
         dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
-        dialog.Content(box_value(L"Version " + to_hstring(manifest->version) + L" is available. Download and install it now?"));
+        dialog.Content(box_value(L"Version " + version_text + L" is available. Download and install it now?"));
         dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Update")});
         dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
         if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) {
             update_check_running_ = false; UpdateButton().IsEnabled(true); co_return;
         }
     }
+    // Modal progress for download + handoff so the app never looks dead while
+    // tens of megabytes download in the background. No buttons: it closes
+    // itself once the installer/updater takes over. ESC/light-dismiss is
+    // vetoed until then so no zombie download is left behind.
+    Controls::ContentDialog progress_dialog;
+    progress_dialog.XamlRoot(Content().XamlRoot());
+    auto progress_done = std::make_shared<bool>(false);
+    progress_dialog.Closing([progress_done](auto&&, Controls::ContentDialogClosingEventArgs const& args) {
+        if (!*progress_done) args.Cancel(true);
+    });
+    progress_dialog.Title(box_value(L"Updating Winchisel to v" + version_text));
+    auto progress_panel = Controls::StackPanel();
+    progress_panel.Spacing(12);
+    progress_panel.MinWidth(420);
+    auto progress_status = Controls::TextBlock();
+    progress_status.TextWrapping(TextWrapping::Wrap);
+    progress_status.Text(L"Downloading version " + version_text + L" ...");
+    auto progress_bar = Controls::ProgressBar();
+    progress_bar.Minimum(0);
+    progress_bar.Maximum(100);
+    progress_bar.Value(0);
+    progress_bar.IsIndeterminate(true);
+    Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(progress_bar, hstring{winchisel::core::loc(L"Update download progress")});
+    progress_panel.Children().Append(progress_status);
+    progress_panel.Children().Append(progress_bar);
+    progress_dialog.Content(progress_panel);
+    auto progress_shown = progress_dialog.ShowAsync();
+    auto ui_queue = DispatcherQueue();
+    auto progress_weak = get_weak();
+    winchisel::platform::boot_log(("update stage begin v" + manifest->version).c_str());
     co_await winrt::resume_background();
-    auto staged = winchisel::platform::stage_release_artifact(*manifest, artifact_id);
+    auto staged = winchisel::platform::stage_release_artifact(*manifest, artifact_id,
+        [ui_queue, progress_weak, progress_bar, progress_status, version_text](std::uint64_t done, std::uint64_t total) {
+            (void)winchisel::ui::enqueue_safe(ui_queue, [progress_weak, progress_bar, progress_status, version_text, done, total] {
+                if (!progress_weak.get()) return;
+                if (!total) return;
+                const auto percent = static_cast<unsigned>(done * 100 / total);
+                progress_bar.IsIndeterminate(false);
+                progress_bar.Value(static_cast<double>(percent));
+                progress_status.Text(L"Downloading version " + version_text + L" ... " + to_hstring(percent) + L"%");
+            });
+        });
+    co_await ui_thread;
     if (!staged) {
-        co_await ui_thread;
+        winchisel::platform::boot_log(("update stage failed: " + staged.error().detail).c_str());
+        *progress_done = true;
+        try { progress_dialog.Hide(); co_await progress_shown; } catch (...) {}
         update_check_running_ = false; UpdateButton().IsEnabled(true);
         winchisel::platform::show_error_message(L"The update could not be downloaded or verified."); co_return;
     }
+    const bool portable = winchisel::platform::is_portable_install();
+    progress_bar.IsIndeterminate(true);
+    progress_status.Text(portable
+        ? L"Download complete. Installing the update - Winchisel restarts ..."
+        : L"Download complete. Starting the installer ...");
+    winchisel::platform::boot_log("update launch begin");
+    co_await winrt::resume_background();
     auto launched = winchisel::platform::launch_staged_update(*staged, *artifact);
     co_await ui_thread;
     if (!launched) {
+        winchisel::platform::boot_log(("update launch failed: " + launched.error().detail).c_str());
+        *progress_done = true;
+        try { progress_dialog.Hide(); co_await progress_shown; } catch (...) {}
         update_check_running_ = false; UpdateButton().IsEnabled(true);
-        winchisel::platform::show_error_message(L"The update installer could not be started."); co_return;
+        winchisel::platform::show_error_message(portable
+            ? L"The updater could not be started. Details: %LocalAppData%\\Winchisel\\logs\\updater.log"
+            : L"The update installer could not be started."); co_return;
     }
+    winchisel::platform::boot_log("update launch ok, closing app");
+    *progress_done = true;
+    try { progress_dialog.Hide(); co_await progress_shown; } catch (...) {}
     Close();
 
     } catch (...) {
@@ -446,12 +519,28 @@ void MainWindow::localize_nav() {
 
 void MainWindow::reload_language() {
     localize_nav();
+    // Rebuilding the current page (language switch, Settings badge toggles)
+    // resets its ScrollViewer to the top. Carry the offset over so a toggle
+    // deep down the page doesn't yank the user back up.
+    double saved_offset{};
+    if (auto content = ContentFrame().Content()) {
+        if (auto viewer = find_first_scroll_viewer(content.try_as<DependencyObject>())) {
+            saved_offset = viewer.VerticalOffset();
+        }
+    }
     pages_.clear();
     page_lru_.clear();
     auto item = Nav().SelectedItem().try_as<Controls::NavigationViewItem>();
     const auto tag = item ? winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home") : L"home";
     if (auto page = make_page(tag)) {
         pages_.emplace(std::wstring(tag.c_str()), page);
+        if (saved_offset > 0.5) {
+            page.Loaded([offset = saved_offset](auto const& sender, auto&&) {
+                if (auto viewer = find_first_scroll_viewer(sender.try_as<DependencyObject>())) {
+                    viewer.ChangeView(nullptr, offset, nullptr);
+                }
+            });
+        }
         ContentFrame().Content(page);
     }
 }

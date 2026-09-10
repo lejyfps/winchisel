@@ -1,11 +1,14 @@
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <commctrl.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
 #include <tlhelp32.h>
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
@@ -16,6 +19,11 @@
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "crypt32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "comctl32.lib")
+// ComCtl v6 for the marquee progress bar (v5 would render it as empty).
+#pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 namespace {
 
@@ -159,7 +167,10 @@ bool wait_for_process(std::wstring_view pid_text) {
 }
 
 bool launch(std::filesystem::path const& target) {
-    std::wstring command = L"\"" + target.wstring() + L"\"";
+    // Forward the portable-host marker so the new stub still recognizes the
+    // installation even if the environment block was lost along the way
+    // (the bootstrap stub ignores unknown arguments).
+    std::wstring command = L"\"" + target.wstring() + L"\" --portable-host \"" + target.wstring() + L"\"";
     STARTUPINFOW startup{.cb = sizeof(startup)};
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(target.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, target.parent_path().c_str(), &startup, &process)) return false;
@@ -295,6 +306,126 @@ bool has_reparse_point(std::filesystem::path const& path) {
     return false;
 }
 
+std::string narrow(std::wstring_view value) {
+    if (value.empty()) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+    if (size <= 0) return {};
+    std::string output(static_cast<std::size_t>(size), '\0');
+    if (WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), output.data(), size, nullptr, nullptr) != size) return {};
+    return output;
+}
+
+// Diagnosis for silent failures: every run appends timestamped stages to
+// %LocalAppData%\Winchisel\logs\updater.log. Logging is best effort and never
+// changes the update outcome.
+void updater_log(std::string const& line) {
+    PWSTR raw{};
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &raw)) || !raw) return;
+    const std::filesystem::path dir = std::filesystem::path(raw) / L"Winchisel" / L"logs";
+    CoTaskMemFree(raw);
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    if (error) return;
+    std::ofstream out(dir / L"updater.log", std::ios::app);
+    if (!out) return;
+    SYSTEMTIME stamp{};
+    GetLocalTime(&stamp);
+    char prefix[64]{};
+    sprintf_s(prefix, "%04u-%02u-%02u %02u:%02u:%02u", stamp.wYear, stamp.wMonth, stamp.wDay,
+        stamp.wHour, stamp.wMinute, stamp.wSecond);
+    out << prefix << " [" << GetCurrentProcessId() << "] " << line << '\n';
+}
+
+// Small "something is happening" window shown while the app is closed and the
+// replacement runs. It lives on its own thread so the file work never blocks
+// it, has no close button, and closes itself when the update finishes.
+struct ProgressWindow {
+    HANDLE thread{};
+    DWORD thread_id{};
+    HANDLE ready{};
+};
+
+DWORD WINAPI progress_thread_main(LPVOID param) {
+    auto state = static_cast<ProgressWindow*>(param);
+    INITCOMMONCONTROLSEX controls{.dwSize = sizeof(controls), .dwICC = ICC_PROGRESS_CLASS};
+    InitCommonControlsEx(&controls);
+    const HINSTANCE module = GetModuleHandleW(nullptr);
+    constexpr wchar_t class_name[] = L"WinchiselUpdaterProgress";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = module;
+    wc.lpszClassName = class_name;
+    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    RegisterClassW(&wc);
+    constexpr int width = 400, height = 136;
+    HWND window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, class_name, L"Winchisel Update",
+        WS_POPUP | WS_CAPTION | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, width, height,
+        nullptr, nullptr, module, nullptr);
+    if (window) {
+        RECT work{};
+        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
+            SetWindowPos(window, nullptr, work.left + (work.right - work.left - width) / 2,
+                work.top + (work.bottom - work.top - height) / 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        }
+        CreateWindowExW(0, L"STATIC", L"Updating Winchisel to the new version ...\r\nThis window closes automatically.",
+            WS_CHILD | WS_VISIBLE, 16, 14, width - 32, 44, window, nullptr, module, nullptr);
+        if (HWND bar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | PBS_MARQUEE,
+                16, 70, width - 32, 18, window, nullptr, module, nullptr)) {
+            SendMessageW(bar, PBM_SETMARQUEE, TRUE, 0);
+        }
+    }
+    SetEvent(state->ready);
+    MSG message{};
+    while (GetMessageW(&message, nullptr, 0, 0)) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+    return 0;
+}
+
+void progress_show(ProgressWindow& ui) {
+    ui.ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!ui.ready) return;
+    ui.thread = CreateThread(nullptr, 0, progress_thread_main, &ui, 0, &ui.thread_id);
+    if (!ui.thread) {
+        CloseHandle(ui.ready);
+        ui.ready = nullptr;
+        return;
+    }
+    // The thread signals after creating its window, so its message queue
+    // exists and the WM_QUIT in progress_hide is delivered reliably.
+    WaitForSingleObject(ui.ready, 10'000);
+}
+
+void progress_hide(ProgressWindow& ui) {
+    if (ui.thread) {
+        PostThreadMessageW(ui.thread_id, WM_QUIT, 0, 0);
+        WaitForSingleObject(ui.thread, 10'000);
+        CloseHandle(ui.thread);
+        ui.thread = nullptr;
+    }
+    if (ui.ready) {
+        CloseHandle(ui.ready);
+        ui.ready = nullptr;
+    }
+}
+
+// Fail closed but loud: hide the progress window, log the stage, and tell the
+// user what happened instead of vanishing silently.
+int finish_update(ProgressWindow& ui, DWORD code, std::string const& stage) {
+    progress_hide(ui);
+    if (code == 0) {
+        updater_log("success");
+        return 0;
+    }
+    updater_log("failed stage=" + stage + " code=" + std::to_string(code));
+    std::wstring message = L"The update could not be installed.\n\nStage: " +
+        std::wstring(stage.begin(), stage.end()) + L"\nError code: " + std::to_wstring(code) +
+        L"\n\nThe previous version was kept when possible.\nDetails: %LocalAppData%\\Winchisel\\logs\\updater.log";
+    MessageBoxW(nullptr, message.c_str(), L"Winchisel Update", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+    return static_cast<int>(code);
+}
+
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
@@ -307,32 +438,38 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     if (!expected_hash) return fail(ERROR_INVALID_PARAMETER);
     const auto staged = absolute_existing_file(*staged_arg);
     const auto target = absolute_target(*target_arg);
-    if (!staged || !target || sha256_hex(*staged) != *expected_hash) return fail(ERROR_INVALID_DATA);
-    if (!verify_staged_against_signed_manifest(*staged, *expected_hash)) return fail(ERROR_INVALID_DATA);
-    if (has_reparse_point(*target)) return fail(ERROR_INVALID_DATA);
-    if (!wait_for_process(*pid_arg)) return fail(ERROR_TIMEOUT);
+    if (!staged || !target) return fail(ERROR_INVALID_PARAMETER);
+    ProgressWindow ui{};
+    progress_show(ui);
+    updater_log("begin target=" + narrow(target->wstring()) + " staged=" + narrow(staged->wstring()) + " pid=" + narrow(*pid_arg));
+    if (sha256_hex(*staged) != *expected_hash) return finish_update(ui, ERROR_INVALID_DATA, "verify-staged");
+    if (!verify_staged_against_signed_manifest(*staged, *expected_hash)) return finish_update(ui, ERROR_INVALID_DATA, "verify-manifest");
+    if (has_reparse_point(*target)) return finish_update(ui, ERROR_INVALID_DATA, "verify-target");
+    updater_log("waiting for process exit");
+    if (!wait_for_process(*pid_arg)) return finish_update(ui, ERROR_TIMEOUT, "wait-process");
 
     const auto nonce = std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
     const auto replacement = target->wstring() + L".update-" + nonce;
     const auto backup = target->wstring() + L".backup-" + nonce;
-    if (!CopyFileW(staged->c_str(), replacement.c_str(), TRUE) || sha256_hex(replacement) != *expected_hash) { DeleteFileW(replacement.c_str()); return fail(ERROR_CRC); }
-    if (!MoveFileExW(target->c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH)) { DeleteFileW(replacement.c_str()); return fail(GetLastError()); }
+    if (!CopyFileW(staged->c_str(), replacement.c_str(), TRUE) || sha256_hex(replacement) != *expected_hash) { DeleteFileW(replacement.c_str()); return finish_update(ui, ERROR_CRC, "copy"); }
+    if (!MoveFileExW(target->c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH)) { const auto error = GetLastError(); DeleteFileW(replacement.c_str()); return finish_update(ui, error ? error : ERROR_ACCESS_DENIED, "backup"); }
     if (!MoveFileExW(replacement.c_str(), target->c_str(), MOVEFILE_WRITE_THROUGH)) {
         const auto error = GetLastError();
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_WRITE_THROUGH);
         DeleteFileW(replacement.c_str());
-        return fail(error);
+        return finish_update(ui, error ? error : ERROR_ACCESS_DENIED, "replace");
     }
     if (sha256_hex(*target) != *expected_hash) {
         MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);
-        return fail(ERROR_CRC);
+        return finish_update(ui, ERROR_CRC, "verify-target-hash");
     }
+    updater_log("launching new version");
     if (!launch(*target)) {
         const auto error = GetLastError();
         MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);
-        return fail(error ? error : ERROR_ACCESS_DENIED);
+        return finish_update(ui, error ? error : ERROR_ACCESS_DENIED, "launch");
     }
     // Keep the newest few backups for manual recovery; drop the rest.
     {
@@ -350,5 +487,5 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         std::ranges::sort(backups, [](auto const& a, auto const& b) { return a.first > b.first; });
         for (std::size_t i = 2; i < backups.size(); ++i) DeleteFileW(backups[i].second.c_str());
     }
-    return 0;
+    return finish_update(ui, 0, "done");
 }

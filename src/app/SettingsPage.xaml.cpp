@@ -114,17 +114,17 @@ void SettingsPage::save_settings() {
         show_result(false, hstring{winchisel::core::loc(L"Settings could not be saved")} + L": " + to_hstring(result.error().detail));
         return;
     }
-    if (previous_language != settings.language && winchisel::ui::language_reload()) {
-        winchisel::ui::language_reload()();
-    }
     if (previous_theme != settings.theme && winchisel::ui::theme_reload()) {
         winchisel::ui::theme_reload()();
     }
-    // Risk/state badges live on cached pages: rebuild them like a language switch.
-    if (previous_risk_badges != settings.show_risk_badges && winchisel::ui::language_reload()) {
-        winchisel::ui::language_reload()();
-    }
-    if (previous_state_badges != settings.show_state_badges && winchisel::ui::language_reload()) {
+    // Language plus risk/state badges live on cached pages: rebuild them like
+    // a language switch. One rebuild covers all three so two toggles within
+    // the save delay don't cause two jumps; MainWindow keeps the scroll
+    // position across the rebuild.
+    const bool needs_rebuild = previous_language != settings.language ||
+        previous_risk_badges != settings.show_risk_badges ||
+        previous_state_badges != settings.show_state_badges;
+    if (needs_rebuild && winchisel::ui::language_reload()) {
         winchisel::ui::language_reload()();
     }
 }

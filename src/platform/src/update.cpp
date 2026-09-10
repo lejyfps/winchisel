@@ -153,7 +153,7 @@ std::string sha256_hex_file(std::filesystem::path const& file) {
     return hasher.finish();
 }
 
-winchisel::core::Result<void> download_https_file(std::string_view url, std::filesystem::path const& destination, std::uint64_t expected_size, std::string_view expected_sha256) {
+winchisel::core::Result<void> download_https_file(std::string_view url, std::filesystem::path const& destination, std::uint64_t expected_size, std::string_view expected_sha256, UpdateProgress const& progress = {}) {
     const int count = MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), nullptr, 0);
     std::wstring wide(count, L'\0'); MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), wide.data(), count);
     URL_COMPONENTS parts{.dwStructSize = sizeof(parts)}; std::array<wchar_t, 256> host{}; std::array<wchar_t, 4096> path{};
@@ -176,6 +176,17 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
     bool failed{};
     bool transport{};
     auto deadline=GetTickCount64()+120'000;
+    // Percent-granular reports: hundreds of chunk callbacks would otherwise
+    // flood the UI queue the caller marshals them through.
+    std::uint64_t reported_percent = static_cast<std::uint64_t>(-1);
+    auto report = [&](bool force) {
+        if (!progress || !expected_size) return;
+        const auto percent = total * 100 / expected_size;
+        if (force || percent != reported_percent) {
+            reported_percent = percent;
+            progress(total, expected_size);
+        }
+    };
     for(;;){
         if(GetTickCount64()>deadline){transport=true;break;}
         DWORD available{};
@@ -190,6 +201,7 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
             if(!hasher.update(buffer.data(), read) || !output.write(buffer.data(), static_cast<std::streamsize>(read))){ failed=true; break; }
             total+=read; available-=read;
             deadline=GetTickCount64()+120'000;
+            report(false);
         }
         if(failed||transport) break;
     }
@@ -258,7 +270,7 @@ winchisel::core::Result<ReleaseManifest> check_github_latest_release() {
     auto release=get_https(k_github_latest_release_api); if(!release)return std::unexpected(release.error()); auto manifest_url=asset_url(*release,"release.json"), signature_url=asset_url(*release,"release.json.sig"); if(!manifest_url||!signature_url)return fail("Release is missing manifest assets"); auto manifest=get_https(*manifest_url), signature=get_https(*signature_url); if(!manifest)return std::unexpected(manifest.error()); if(!signature)return std::unexpected(signature.error()); return verify_release_manifest(*manifest,*signature);
 }
 
-winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseManifest const& manifest, std::string_view artifact_id) {
+winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseManifest const& manifest, std::string_view artifact_id, UpdateProgress const& progress) {
     const auto artifact=std::ranges::find_if(manifest.artifacts,[artifact_id](auto const& value){return value.id==artifact_id;}); if(artifact==manifest.artifacts.end()) return std::unexpected(winchisel::core::Error{.detail=std::string(artifact_id)});
     const auto url=std::string("https://github.com/lejyfps/winchisel/releases/download/v")+manifest.version+"/"+artifact->file_name; if(!artifact->size||artifact->size>2ULL*1024*1024*1024)return std::unexpected(winchisel::core::Error{.detail="Invalid artifact size"});
     PWSTR raw{}; if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&raw)))return std::unexpected(winchisel::core::Error{.detail="LocalAppData unavailable"}); std::filesystem::path dir=raw;CoTaskMemFree(raw);dir/=L"Winchisel";dir/=L"updates";dir/=std::wstring(manifest.version.begin(),manifest.version.end());std::error_code error;std::filesystem::create_directories(dir,error);if(error)return std::unexpected(winchisel::core::Error{.detail=error.message()});
@@ -282,11 +294,12 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
         const auto staged_size = std::filesystem::file_size(final, size_error);
         if (!size_error && staged_size == artifact->size && sha256_hex_file(final) == artifact->sha256) {
             write_manifest_siblings();
+            if (progress) progress(artifact->size, artifact->size);
             return final;
         }
     }
     std::filesystem::remove(partial, error);
-    if (auto downloaded = download_https_file(url, partial, artifact->size, artifact->sha256); !downloaded) return std::unexpected(downloaded.error());
+    if (auto downloaded = download_https_file(url, partial, artifact->size, artifact->sha256, progress); !downloaded) return std::unexpected(downloaded.error());
     if(!MoveFileExW(partial.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){ std::filesystem::remove(partial, error); return std::unexpected(winchisel::core::Error{.detail=std::to_string(GetLastError())}); }
     // Persist the exact signed manifest bytes next to the artifact. The
     // updater re-verifies them with its embedded public key instead of

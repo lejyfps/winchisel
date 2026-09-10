@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,10 +37,15 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(
 // the separately downloaded manifest before returning any update metadata.
 winchisel::core::Result<ReleaseManifest> check_github_latest_release();
 
+// Progress while staging an artifact: downloaded bytes vs expected total
+// (total > 0). Invoked on a background thread; must not touch UI directly.
+using UpdateProgress = std::function<void(std::uint64_t downloaded_bytes, std::uint64_t total_bytes)>;
+
 // Downloads exactly one signed-manifest artifact into a private staging folder.
 // The returned file has passed size and SHA-256 validation.
 winchisel::core::Result<std::filesystem::path> stage_release_artifact(
-    ReleaseManifest const& manifest, std::string_view artifact_id);
+    ReleaseManifest const& manifest, std::string_view artifact_id,
+    UpdateProgress const& progress = {});
 
 std::string current_app_version();
 bool is_newer_version(std::string_view candidate, std::string_view current);
