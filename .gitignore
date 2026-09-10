@@ -59,4 +59,5 @@ changes.md
 /tools/*.ps1
 # Release manual for the local scripts above - kept local only.
 docs/releasing.md
-*/installer/*
+/installer/Package.appxmanifest
+/installer/Winchisel.iss
