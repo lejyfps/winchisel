@@ -53,5 +53,9 @@ fixes.md
 plan.md
 todo.md
 changes.md
-# Local-only submit helper (no secrets inside, but kept out of git by choice)
-/tools/store-submit.ps1
+# Maintainer-local build/test/release/submit scripts - never commit.
+# These exist only on the maintainer machine; GitHub holds source only.
+/tools/*.cmd
+/tools/*.ps1
+# Release manual for the local scripts above - kept local only.
+docs/releasing.md

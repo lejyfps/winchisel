@@ -129,34 +129,31 @@ They are in preparation; watch the releases page for the announcement.
 
 ## Build from source
 
-From the repository root, generate the local solution file once, then restore packages and build the Debug x64 target:
+The repository contains no solution file (it is maintainer-local). Build the projects directly from the repository root — `Winchisel.App` pulls in `Core` and `Platform` via project references:
 
 ```powershell
-tools\generate-solution.cmd
-nuget restore Winchisel.sln -PackagesDirectory packages
-msbuild Winchisel.sln /p:Configuration=Debug /p:Platform=x64 /m
+nuget restore src\app\packages.config -PackagesDirectory packages
+msbuild src\app\Winchisel.App.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=${PWD}\ /m
+msbuild src\updater\Winchisel.Updater.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=${PWD}\ /m
 ```
+
+(`SolutionDir` must be absolute — the projects resolve shared headers and the output directory from it.)
 
 The unpackaged executable is created at `out\x64\Debug\Winchisel.exe`. The project is configured as a self-contained Windows App SDK application, so the output includes the runtime files required to run it.
 
-For development, install Visual Studio with the **Desktop development with C++** workload, a Windows 11 SDK, and NuGet. Inno Setup 6 is also required to create installer releases.
+For development, install Visual Studio with the **Desktop development with C++** workload, a Windows 11 SDK, and NuGet.
 
 ## Tests
 
-Run the repository checks from a Developer Command Prompt or a shell where the Visual Studio build tools are available:
-
-```cmd
-tools\run_tests.cmd
-```
+Test sources live in `tools/` (`core_tests.cpp`, `validate_catalogs.cpp`, `release_smoke.cpp`, `process_tests.cpp`, `update_tests.cpp`). The test runner script is maintainer-local and not part of the repository; there is no build CI on GitHub.
 
 ## Releases and updates
 
-Release artifacts are built with `tools\release.cmd`. The complete local and GitHub release procedure, including signed update manifests, is documented in [docs/releasing.md](docs/releasing.md). The application validates the signed manifest, artifact size, and SHA-256 hash before installing an update. Besides stable releases (`1.2.3`, hotfixes like `1.2.3.1`), nightly pre-releases (`1.2.3-nightly.YYYYMMDD.N`) are published for testers who opt in via Settings.
+Release artifacts (installer, portable executable, Store package) are built locally by the maintainer and published on the releases page. The application validates the signed manifest, artifact size, and SHA-256 hash before installing an update. Besides stable releases (`1.2.3`, hotfixes like `1.2.3.1`), nightly pre-releases (`1.2.3-nightly.YYYYMMDD.N`) are published for testers who opt in via Settings.
 
 ## Project documentation
 
 - [Architecture](docs/architecture.md)
-- [Release process](docs/releasing.md)
 
 ## Support
 

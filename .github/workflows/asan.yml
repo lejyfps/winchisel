@@ -18,6 +18,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Mirrors tools\run_tests_asan.cmd (maintainer-local); keep in sync.
       - name: Build and run tests with AddressSanitizer
         shell: cmd
-        run: call tools\run_tests_asan.cmd
+        run: |
+          set "ROOT=%GITHUB_WORKSPACE%"
+          set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%I"
+          if not defined VSINSTALL (echo Visual Studio not found.& exit /b 3)
+          call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 >nul || exit /b 3
+          mkdir "%ROOT%\out\tests" 2>nul
+          set "ASAN=/fsanitize=address"
+          cl /nologo /std:c++latest /EHsc /W4 /WX /utf-8 %ASAN% /Zi /Fd"%ROOT%\out\tests\asan_vc.pdb" /I"%ROOT%\src\core\include" "%ROOT%\tools\core_tests.cpp" "%ROOT%\src\core\src\settings.cpp" "%ROOT%\src\core\src\i18n.cpp" /Fo"%ROOT%\out\tests\\" /Fe"%ROOT%\out\tests\core_tests_asan.exe" || exit /b 4
+          cl /nologo /std:c++latest /EHsc /W4 /WX /utf-8 %ASAN% /Zi /Fd"%ROOT%\out\tests\asan_vc.pdb" "%ROOT%\tools\validate_catalogs.cpp" /Fo"%ROOT%\out\tests\\" /Fe"%ROOT%\out\tests\validate_catalogs_asan.exe" || exit /b 4
+          cl /nologo /std:c++latest /EHsc /W4 /WX /utf-8 %ASAN% /Zi /Fd"%ROOT%\out\tests\asan_vc.pdb" "%ROOT%\tools\release_smoke.cpp" /Fo"%ROOT%\out\tests\\" /Fe"%ROOT%\out\tests\release_smoke_asan.exe" || exit /b 4
+          "%ROOT%\out\tests\core_tests_asan.exe" || exit /b 5
+          "%ROOT%\out\tests\validate_catalogs_asan.exe" "%ROOT%" "%ROOT%\out\tests\catalog_asan.golden" || exit /b 5
+          "%ROOT%\out\tests\release_smoke_asan.exe" || exit /b 5
+          cl /nologo /std:c++latest /EHsc /W4 /WX /utf-8 %ASAN% /Zi /Fd"%ROOT%\out\tests\asan_vc.pdb" /I"%ROOT%\src\core\include" /I"%ROOT%\src\platform\include" "%ROOT%\tools\process_tests.cpp" "%ROOT%\src\platform\src\process.cpp" /Fo"%ROOT%\out\tests\\" /Fe"%ROOT%\out\tests\process_tests_asan.exe" || exit /b 4
+          "%ROOT%\out\tests\process_tests_asan.exe" || exit /b 5
+          cl /nologo /std:c++latest /EHsc /W4 /WX /utf-8 %ASAN% /Zi /Fd"%ROOT%\out\tests\asan_vc.pdb" /I"%ROOT%\src\core\include" /I"%ROOT%\src\platform\include" "%ROOT%\tools\update_tests.cpp" "%ROOT%\src\platform\src\update.cpp" /Fo"%ROOT%\out\tests\\" /Fe"%ROOT%\out\tests\update_tests_asan.exe" || exit /b 4
+          "%ROOT%\out\tests\update_tests_asan.exe" || exit /b 5
+          echo All ASan tests passed.

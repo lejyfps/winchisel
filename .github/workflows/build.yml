@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  production-package:
+  build:
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -20,41 +20,26 @@ jobs:
 
       - uses: NuGet/setup-nuget@v2
 
-      - name: Generate solution
-        shell: cmd
-        run: call tools\generate-solution.cmd
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
 
       - name: Restore packages
         shell: cmd
-        run: nuget restore Winchisel.sln -PackagesDirectory packages
+        run: nuget restore src\app\packages.config -PackagesDirectory packages
 
-      - name: Install Inno Setup
-        shell: powershell
-        run: choco install innosetup -y --no-progress
-
-      - name: Build unsigned validation package
-        if: github.ref_type != 'tag'
+      # Plain compile check only. Packaging, signing and publishing are
+      # maintainer-local (tools\release.cmd) and not part of CI.
+      - name: Build App (Release x64)
         shell: cmd
-        run: call tools\release.cmd 0.0.0 --unsigned
+        run: msbuild src\app\Winchisel.App.vcxproj /m /nologo /verbosity:minimal /clp:ErrorsOnly /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /t:Rebuild
 
-      - name: Restore update signing key
-        if: github.ref_type == 'tag'
-        shell: powershell
-        env:
-          UPDATE_KEY_BASE64: ${{ secrets.WINCHISEL_UPDATE_PRIVATE_KEY_BASE64 }}
-        run: |
-          if (-not $env:UPDATE_KEY_BASE64) { throw 'WINCHISEL_UPDATE_PRIVATE_KEY_BASE64 is not configured' }
-          New-Item -ItemType Directory -Force release-keys | Out-Null
-          [IO.File]::WriteAllBytes('release-keys/winchisel-update-private.key', [Convert]::FromBase64String($env:UPDATE_KEY_BASE64))
-
-      - name: Build signed production package
-        if: github.ref_type == 'tag'
+      - name: Build Updater (Release x64)
         shell: cmd
-        run: call tools\release.cmd %GITHUB_REF_NAME:~1%
+        run: msbuild src\updater\Winchisel.Updater.vcxproj /m /nologo /verbosity:minimal /clp:ErrorsOnly /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /t:Rebuild
 
-      - name: Upload build artifact
+      - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: Winchisel-${{ github.ref_name }}
-          path: release-output/
+          path: out/
           if-no-files-found: error
