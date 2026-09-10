@@ -29,7 +29,10 @@ Grab the installer (machine-wide, requires admin) or the portable build from the
 
 ### Nightly builds 🌙
 
-Feeling adventurous? Pre-release nightly builds (`1.0.9-nightly.20260910.1` style) ship the latest commits before they land in a stable release. Enable **Settings → Nightly updates** and the built-in updater will offer them to you. Nightlies are less tested than stable releases — turn the toggle off anytime to be offered the latest stable release again, even as a downgrade.
+[![Latest nightly](https://img.shields.io/github/v/release/lejyfps/winchisel?include_prereleases&style=for-the-badge&logo=windows&logoColor=white)](https://github.com/lejyfps/winchisel/releases)
+[![Download nightly](https://img.shields.io/badge/Download-latest%20nightly-7A3E1F?style=for-the-badge&logo=github&logoColor=white)](https://github.com/lejyfps/winchisel/releases)
+
+Feeling adventurous? Pre-release nightly builds (`1.0.9-nightly.20260910.1` style) ship the latest commits before they land in a stable release — pick the newest `Pre-release` from the list above. Enable **Settings → Nightly updates** and the built-in updater will offer them to you automatically. Nightlies are less tested than stable releases — turn the toggle off anytime to be offered the latest stable release again, even as a downgrade.
 
 ### Winget and Microsoft Store 🚧
 
