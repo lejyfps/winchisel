@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <deque>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <tuple>
@@ -52,15 +53,25 @@ private:
         std::vector<winchisel::core::RegistryValue> enabled_values;
         std::vector<winchisel::core::RegistryValue> disabled_values;
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border rec_badge{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border def_badge{nullptr};
     };
     struct CatalogToggle {
         std::string id;
         winrt::Microsoft::UI::Xaml::Controls::ToggleSwitch control{nullptr};
+        std::int32_t profile_rec{-1};
+        std::int32_t profile_def{-1};
+        winrt::Microsoft::UI::Xaml::Controls::Border rec_badge{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border def_badge{nullptr};
     };
     struct CatalogSelection {
         std::string id;
         std::vector<std::string> options;
         winrt::Microsoft::UI::Xaml::Controls::ComboBox control{nullptr};
+        std::int32_t profile_rec{-1};
+        std::int32_t profile_def{-1};
+        winrt::Microsoft::UI::Xaml::Controls::Border rec_badge{nullptr};
+        winrt::Microsoft::UI::Xaml::Controls::Border def_badge{nullptr};
     };
 
     void load_gaming_toggles();
@@ -83,6 +94,10 @@ private:
     std::vector<CatalogSelection> catalog_selections_;
     winrt::Microsoft::UI::Xaml::Controls::ComboBox mouse_hover_time_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox background_apps_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border mouse_hover_rec_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border mouse_hover_def_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border background_rec_{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Border background_def_{nullptr};
 };
 
 }  // namespace winrt::Winchisel::implementation

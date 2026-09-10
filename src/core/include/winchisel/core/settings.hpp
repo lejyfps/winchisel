@@ -18,6 +18,7 @@ struct Settings {
     Theme theme{Theme::system};
     bool autostart_enabled{false};
     bool show_risk_badges{true};
+    bool show_state_badges{true};
 };
 
 Settings settings_defaults();

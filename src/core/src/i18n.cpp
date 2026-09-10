@@ -78,6 +78,7 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
         {L"Could not apply setting", L"Einstellung konnte nicht übernommen werden"},
         {L"Recommended", L"Empfohlen"},
         {L"Defaults", L"Standard"},
+        {L"Default", L"Standard"},
         {L"Settings could not be saved", L"Einstellungen konnten nicht gespeichert werden"},
         {L"Refresh", L"Aktualisieren"},
         {L"New", L"Neu"},

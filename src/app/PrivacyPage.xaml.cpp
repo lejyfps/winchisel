@@ -221,12 +221,12 @@ Controls::Button quick_set_button(hstring const& glyph, hstring const& tip, bool
     button.Padding({4, 2, 4, 2});
     button.MinWidth(0);
     button.MinHeight(0);
-    button.Width(30);
-    button.Height(28);
+    button.Width(34);
+    button.Height(32);
     button.VerticalAlignment(VerticalAlignment::Center);
     auto icon = Controls::FontIcon();
     icon.Glyph(glyph);
-    icon.FontSize(13);
+    icon.FontSize(14);
     icon.VerticalAlignment(VerticalAlignment::Center);
     const wchar_t* brush_key = recommended ? L"AccentTextFillColorPrimaryBrush" : L"TextFillColorSecondaryBrush";
     if (auto brush = resources.Lookup(box_value(brush_key)).try_as<Media::Brush>()) icon.Foreground(brush);
@@ -240,11 +240,11 @@ Controls::StackPanel with_quick_set(FrameworkElement const& control, hstring con
     std::function<void()> on_rec, std::function<void()> on_def) {
     auto row = Controls::StackPanel();
     row.Orientation(Controls::Orientation::Horizontal);
-    row.Spacing(4);
+    row.Spacing(8);
     row.VerticalAlignment(VerticalAlignment::Center);
     auto pair = Controls::StackPanel();
     pair.Orientation(Controls::Orientation::Horizontal);
-    pair.Spacing(2);
+    pair.Spacing(4);
     pair.VerticalAlignment(VerticalAlignment::Center);
     auto rec = quick_set_button(hstring{L"\uE735"}, rec_tip, true);
     rec.Click([on_rec = std::move(on_rec)](auto&&, auto&&) { on_rec(); });

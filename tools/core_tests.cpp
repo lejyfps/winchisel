@@ -66,6 +66,9 @@ int main() {
     expect(settings_defaults().show_risk_badges, "risk badges default on");
     expect(parse_settings_json(R"({"show_risk_badges":false})").show_risk_badges == false, "risk badges off");
     expect(serialize_settings_json(parsed).find("show_risk_badges") != std::string::npos, "serialize risk badges");
+    expect(settings_defaults().show_state_badges, "state badges default on");
+    expect(parse_settings_json(R"({"show_state_badges":false})").show_state_badges == false, "state badges off");
+    expect(serialize_settings_json(parsed).find("show_state_badges") != std::string::npos, "serialize state badges");
 
     set_ui_language(Language::german);
     expect(loc(L"Settings") == L"Einstellungen", "german settings label");

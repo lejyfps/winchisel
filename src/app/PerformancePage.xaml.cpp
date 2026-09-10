@@ -128,7 +128,8 @@ Controls::Border risk_badge(winchisel::core::TweakRisk risk) {
 }
 
 Controls::Border setting_card(hstring const& title, hstring const& description, FrameworkElement const& control,
-    bool is_new = false, winchisel::core::TweakRisk risk = winchisel::core::TweakRisk::safe, bool show_risk = false) {
+    bool is_new = false, winchisel::core::TweakRisk risk = winchisel::core::TweakRisk::safe, bool show_risk = false,
+    Controls::Border const& rec_badge = nullptr, Controls::Border const& def_badge = nullptr) {
     auto card = Controls::Border();
     auto resources = Application::Current().Resources();
     card.Background(resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>());
@@ -149,7 +150,7 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     heading.Text(title);
     heading.Style(resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Style>());
     heading.VerticalAlignment(VerticalAlignment::Center);
-    if (!is_new && !show_risk) {
+    if (!is_new && !show_risk && !rec_badge && !def_badge) {
         text.Children().Append(heading);
     } else {
         auto header_row = Controls::StackPanel();
@@ -158,6 +159,8 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
         header_row.Children().Append(heading);
         if (is_new) header_row.Children().Append(new_badge());
         if (show_risk) header_row.Children().Append(risk_badge(risk));
+        if (rec_badge) header_row.Children().Append(rec_badge);
+        if (def_badge) header_row.Children().Append(def_badge);
         text.Children().Append(header_row);
     }
     auto detail = Controls::TextBlock();
@@ -193,12 +196,12 @@ Controls::Button quick_set_button(hstring const& glyph, hstring const& tip, bool
     button.Padding({4, 2, 4, 2});
     button.MinWidth(0);
     button.MinHeight(0);
-    button.Width(30);
-    button.Height(28);
+    button.Width(34);
+    button.Height(32);
     button.VerticalAlignment(VerticalAlignment::Center);
     auto icon = Controls::FontIcon();
     icon.Glyph(glyph);
-    icon.FontSize(13);
+    icon.FontSize(14);
     icon.VerticalAlignment(VerticalAlignment::Center);
     const wchar_t* brush_key = recommended ? L"AccentTextFillColorPrimaryBrush" : L"TextFillColorSecondaryBrush";
     if (auto brush = resources.Lookup(box_value(brush_key)).try_as<Media::Brush>()) icon.Foreground(brush);
@@ -214,11 +217,11 @@ Controls::StackPanel with_quick_set(FrameworkElement const& control, hstring con
     std::function<void()> on_rec, std::function<void()> on_def) {
     auto row = Controls::StackPanel();
     row.Orientation(Controls::Orientation::Horizontal);
-    row.Spacing(4);
+    row.Spacing(8);
     row.VerticalAlignment(VerticalAlignment::Center);
     auto pair = Controls::StackPanel();
     pair.Orientation(Controls::Orientation::Horizontal);
-    pair.Spacing(2);
+    pair.Spacing(4);
     pair.VerticalAlignment(VerticalAlignment::Center);
     auto rec = quick_set_button(hstring{L"\uE735"}, rec_tip, true);
     rec.Click([on_rec = std::move(on_rec)](auto&&, auto&&) { on_rec(); });
@@ -236,6 +239,60 @@ hstring toggle_tip(bool recommended_default, bool state) {
     // so the tooltip documents what the button will do.
     const auto prefix = recommended_default ? winchisel::ui::tr(L"Recommended") : winchisel::ui::tr(L"Defaults");
     return hstring{std::wstring(prefix) + L": " + (state ? L"On" : L"Off")};
+}
+
+// State pill showing whether the current value matches Recommended or the
+// Windows default (Winhance-style). Starts hidden; load_*() refreshes it.
+Controls::Border state_badge(bool recommended) {
+    auto resources = Application::Current().Resources();
+    const wchar_t* brush_key = recommended ? L"AccentTextFillColorPrimaryBrush" : L"TextFillColorSecondaryBrush";
+    auto accent = resources.Lookup(box_value(brush_key)).try_as<Media::Brush>();
+    Media::Brush tint{nullptr};
+    if (auto solid = accent.try_as<Media::SolidColorBrush>()) {
+        auto color = solid.Color();
+        color.A = 0x2E;
+        tint = Media::SolidColorBrush(color);
+    }
+    auto badge = Controls::Border();
+    badge.CornerRadius({12, 12, 12, 12});
+    badge.Padding({10, 3, 10, 3});
+    badge.Margin({8, 0, 0, 0});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    badge.Visibility(Visibility::Collapsed);
+    auto label = Controls::TextBlock();
+    label.Text(recommended ? winchisel::ui::tr(L"Recommended") : winchisel::ui::tr(L"Default"));
+    label.Foreground(accent);
+    label.FontSize(11);
+    label.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    label.VerticalAlignment(VerticalAlignment::Center);
+    if (recommended) {
+        auto row = Controls::StackPanel();
+        row.Orientation(Controls::Orientation::Horizontal);
+        row.Spacing(6);
+        row.VerticalAlignment(VerticalAlignment::Center);
+        auto icon = Controls::FontIcon();
+        icon.Glyph(hstring{L"\uE735"});
+        icon.FontSize(11);
+        icon.Foreground(accent);
+        icon.VerticalAlignment(VerticalAlignment::Center);
+        row.Children().Append(icon);
+        row.Children().Append(label);
+        badge.Child(row);
+    } else {
+        badge.Child(label);
+    }
+    return badge;
+}
+
+bool state_badges_visible() {
+    return winchisel::application::Session::instance().settings().show_state_badges;
+}
+
+void update_state_badges(Controls::Border const& rec, Controls::Border const& def, bool is_rec, bool is_def) {
+    const bool show = state_badges_visible();
+    if (rec) rec.Visibility(show && is_rec ? Visibility::Visible : Visibility::Collapsed);
+    if (def) def.Visibility(show && is_def ? Visibility::Visible : Visibility::Collapsed);
 }
 
 }  // namespace
@@ -299,12 +356,15 @@ PerformancePage::PerformancePage() {
                 tweak.control.MinWidth(0);
                 tweak.control.Width(40);
                 tweak.control.Toggled([this, index](auto&&, auto&&) { save_gaming_toggle(index); });
+                tweak.rec_badge = state_badge(true);
+                tweak.def_badge = state_badge(false);
                 const bool rec = tweak.recommended, def = tweak.windows_default;
                 auto trailing = with_quick_set(tweak.control, toggle_tip(true, rec), toggle_tip(false, def),
                     [this, index, rec] { if (!loading_gaming_toggles_) gaming_toggles_[index].control.IsOn(rec); },
                     [this, index, def] { if (!loading_gaming_toggles_) gaming_toggles_[index].control.IsOn(def); });
                 content.Children().Append(setting_card(tweak.title, tweak.description, trailing,
-                    false, winchisel::core::assess_registry_targets(tweak.targets), risk_badges_visible()));
+                    false, winchisel::core::assess_registry_targets(tweak.targets), risk_badges_visible(),
+                    tweak.rec_badge, tweak.def_badge));
             }
             mouse_hover_time_ = Controls::ComboBox();
             Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(mouse_hover_time_,L"Mouse Hover Time");
@@ -314,6 +374,8 @@ PerformancePage::PerformancePage() {
                 mouse_hover_time_.Items().Append(item);
             }
             mouse_hover_time_.SelectionChanged([this](auto&&, auto&&) { save_mouse_hover_time(); });
+            mouse_hover_rec_ = state_badge(true);
+            mouse_hover_def_ = state_badge(false);
             {
                 auto rec_tip = hstring{std::wstring(winchisel::ui::tr(L"Recommended")) + L": 1ms (Instant)"};
                 auto def_tip = hstring{std::wstring(winchisel::ui::tr(L"Defaults")) + L": 400ms (Default)"};
@@ -321,7 +383,8 @@ PerformancePage::PerformancePage() {
                     [this] { if (!loading_gaming_selections_) mouse_hover_time_.SelectedIndex(0); },
                     [this] { if (!loading_gaming_selections_) mouse_hover_time_.SelectedIndex(5); });
                 content.Children().Append(setting_card(L"Mouse Hover Time", L"Sets how long the pointer must hover before Windows responds.", trailing,
-                    false, winchisel::core::assess_registry_targets(std::array{target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string)}), risk_badges_visible()));
+                    false, winchisel::core::assess_registry_targets(std::array{target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string)}), risk_badges_visible(),
+                    mouse_hover_rec_, mouse_hover_def_));
             }
             background_apps_ = Controls::ComboBox();
             Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(background_apps_,L"Let Apps Run in Background");
@@ -331,6 +394,8 @@ PerformancePage::PerformancePage() {
                 background_apps_.Items().Append(item);
             }
             background_apps_.SelectionChanged([this](auto&&, auto&&) { save_background_apps(); });
+            background_rec_ = state_badge(true);
+            background_def_ = state_badge(false);
             {
                 auto rec_tip = hstring{std::wstring(winchisel::ui::tr(L"Recommended")) + L": Force Deny"};
                 auto def_tip = hstring{std::wstring(winchisel::ui::tr(L"Defaults")) + L": User in Control (Default)"};
@@ -340,7 +405,8 @@ PerformancePage::PerformancePage() {
                 content.Children().Append(setting_card(L"Let Apps Run in Background", L"Controls whether apps may continue running in the background.", trailing,
                     false, winchisel::core::assess_registry_targets(std::array{
                         target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword),
-                        target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword)}), risk_badges_visible()));
+                        target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword)}), risk_badges_visible(),
+                    background_rec_, background_def_));
             }
             expander.Content(content);
         } else {
@@ -351,6 +417,7 @@ PerformancePage::PerformancePage() {
                 if (item.group != group_index) continue;
                 if (item.id=="gaming-memory-integrity"||item.id=="gaming-performance-prefetch"||item.id=="gaming-disable-mpo-min-fps") continue;
                 FrameworkElement control{nullptr};
+                Controls::Border card_rec{nullptr}, card_def{nullptr};
                 if (item.input == 0) {
                     auto toggle = Controls::ToggleSwitch();
                     Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(item.name));
@@ -362,9 +429,16 @@ PerformancePage::PerformancePage() {
                     const bool supported = item.group==7 || winchisel::platform::is_special_performance_toggle(item.id) || std::ranges::any_of(winchisel::core::get_performance_registry_rules(), [&](auto const& rule) { return rule.id == item.id; });
                     toggle.IsEnabled(supported);
                     catalog_toggles_.push_back({std::string(item.id), toggle});
+                    auto& stored_toggle = catalog_toggles_.back();
                     toggle.Toggled([this, toggle_index](auto&&, auto&&) { save_catalog_toggle(toggle_index); });
                     if (auto rec = performance_profile_for(item.id, false, true), def = performance_profile_for(item.id, false, false); rec && def) {
                         const bool rec_on = *rec != 0, def_on = *def != 0;
+                        stored_toggle.profile_rec = *rec;
+                        stored_toggle.profile_def = *def;
+                        stored_toggle.rec_badge = state_badge(true);
+                        stored_toggle.def_badge = state_badge(false);
+                        card_rec = stored_toggle.rec_badge;
+                        card_def = stored_toggle.def_badge;
                         control = with_quick_set(toggle, toggle_tip(true, rec_on), toggle_tip(false, def_on),
                             [this, toggle_index, rec_on] { if (!loading_gaming_toggles_) catalog_toggles_[toggle_index].control.IsOn(rec_on); },
                             [this, toggle_index, def_on] { if (!loading_gaming_toggles_) catalog_toggles_[toggle_index].control.IsOn(def_on); });
@@ -390,7 +464,7 @@ PerformancePage::PerformancePage() {
                     catalog_selections_.push_back({std::string(item.id),std::move(options),combo});
                     combo.SelectionChanged([this,selection_index](auto&&,auto&&){save_catalog_selection(selection_index);});
                     {
-                        auto const& stored = catalog_selections_.back();
+                        auto& stored = catalog_selections_.back();
                         auto rec = performance_profile_for(item.id, true, true);
                         auto def = performance_profile_for(item.id, true, false);
                         const bool has = rec && def && *rec >= 0 && *def >= 0 &&
@@ -401,6 +475,12 @@ PerformancePage::PerformancePage() {
                             auto rec_tip = hstring{std::wstring(winchisel::ui::tr(L"Recommended")) + L": " + std::wstring(label(*rec))};
                             auto def_tip = hstring{std::wstring(winchisel::ui::tr(L"Defaults")) + L": " + std::wstring(label(*def))};
                             const auto rec_idx = *rec, def_idx = *def;
+                            stored.profile_rec = rec_idx;
+                            stored.profile_def = def_idx;
+                            stored.rec_badge = state_badge(true);
+                            stored.def_badge = state_badge(false);
+                            card_rec = stored.rec_badge;
+                            card_def = stored.def_badge;
                             control = with_quick_set(combo, rec_tip, def_tip,
                                 [this, selection_index, rec_idx] { if (!loading_gaming_selections_) catalog_selections_[selection_index].control.SelectedIndex(rec_idx); },
                                 [this, selection_index, def_idx] { if (!loading_gaming_selections_) catalog_selections_[selection_index].control.SelectedIndex(def_idx); });
@@ -409,7 +489,7 @@ PerformancePage::PerformancePage() {
                         }
                     }
                 }
-                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_performance(item.id),risk_badges_visible());
+                auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_performance(item.id),risk_badges_visible(),card_rec,card_def);
                 std::string_view child_id;
                 if(item.id=="gaming-virtualization-based-security")child_id="gaming-memory-integrity";
                 else if(item.id=="gaming-sysmain-service")child_id="gaming-performance-prefetch";
@@ -419,7 +499,7 @@ PerformancePage::PerformancePage() {
                     auto nested=Controls::Expander();nested.Header(card);nested.HorizontalAlignment(HorizontalAlignment::Stretch);nested.HorizontalContentAlignment(HorizontalAlignment::Stretch);
                     auto child=std::ranges::find_if(winchisel::core::get_performance_catalog(),[&](auto const& candidate){return candidate.id==child_id;});
                     if(child!=winchisel::core::get_performance_catalog().end()){
-                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});FrameworkElement child_control{nullptr};if(auto rec=performance_profile_for(child->id,false,true),def=performance_profile_for(child->id,false,false);rec&&def){const bool rec_on=*rec!=0,def_on=*def!=0;child_control=with_quick_set(toggle,toggle_tip(true,rec_on),toggle_tip(false,def_on),[this,child_index,rec_on]{if(!loading_gaming_toggles_)catalog_toggles_[child_index].control.IsOn(rec_on);},[this,child_index,def_on]{if(!loading_gaming_toggles_)catalog_toggles_[child_index].control.IsOn(def_on);});}else{child_control=toggle;}auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),child_control,show_new&&winchisel::core::is_new_tweak(child->id),winchisel::core::assess_performance(child->id),risk_badges_visible());child_card.Margin({24,8,0,0});nested.Content(child_card);
+                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});auto& stored_child=catalog_toggles_.back();toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});FrameworkElement child_control{nullptr};Controls::Border child_rec{nullptr},child_def{nullptr};if(auto rec=performance_profile_for(child->id,false,true),def=performance_profile_for(child->id,false,false);rec&&def){const bool rec_on=*rec!=0,def_on=*def!=0;stored_child.profile_rec=*rec;stored_child.profile_def=*def;stored_child.rec_badge=state_badge(true);stored_child.def_badge=state_badge(false);child_rec=stored_child.rec_badge;child_def=stored_child.def_badge;child_control=with_quick_set(toggle,toggle_tip(true,rec_on),toggle_tip(false,def_on),[this,child_index,rec_on]{if(!loading_gaming_toggles_)catalog_toggles_[child_index].control.IsOn(rec_on);},[this,child_index,def_on]{if(!loading_gaming_toggles_)catalog_toggles_[child_index].control.IsOn(def_on);});}else{child_control=toggle;}auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),child_control,show_new&&winchisel::core::is_new_tweak(child->id),winchisel::core::assess_performance(child->id),risk_badges_visible(),child_rec,child_def);child_card.Margin({24,8,0,0});nested.Content(child_card);
                     }
                     content.Children().Append(nested);
                 }
@@ -438,6 +518,10 @@ void PerformancePage::load_catalog_toggles() {
         if (winchisel::platform::is_special_performance_toggle(item.id)) {
             if (auto state = cached_special(item.id)) item.control.IsOn(*state);
             if (auto available = cached_available(item.id)) item.control.IsEnabled(*available);
+            if (item.rec_badge) {
+                const bool on = item.control.IsOn();
+                update_state_badges(item.rec_badge, item.def_badge, on == (item.profile_rec != 0), on == (item.profile_def != 0));
+            }
             continue;
         }
         bool found{}, enabled = true;
@@ -462,6 +546,10 @@ void PerformancePage::load_catalog_toggles() {
         }
         if (found) item.control.IsOn(enabled);
         else if(auto state=cached_task(item.id);state)item.control.IsOn(*state);
+        if (item.rec_badge) {
+            const bool on = item.control.IsOn();
+            update_state_badges(item.rec_badge, item.def_badge, on == (item.profile_rec != 0), on == (item.profile_def != 0));
+        }
     }
     loading_gaming_toggles_ = false;
 }
@@ -519,7 +607,7 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
 void PerformancePage::load_catalog_selections() {
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
-        if(item.id=="gaming-dns-server"){auto profile=dns_state_;item.control.SelectedIndex(profile&&*profile<static_cast<int>(item.options.size())?*profile:-1);continue;}
+        if(item.id=="gaming-dns-server"){auto profile=dns_state_;item.control.SelectedIndex(profile&&*profile<static_cast<int>(item.options.size())?*profile:-1);if(item.rec_badge){const auto selected=item.control.SelectedIndex();update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);}continue;}
         std::uint32_t value{}; bool found{};
         Target destination;
         if (item.id=="gaming-win32-priority") destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);
@@ -534,6 +622,7 @@ void PerformancePage::load_catalog_selections() {
         else if(item.id=="visual-effects-mode")selected=static_cast<int>(std::min(value,3u));
         else {selected=-1;for(std::size_t i{};i<item.options.size();++i){auto option=lower(item.options[i]);if((value==4&&option.find("disabled")!=std::string::npos)||(value==3&&option.find("manual")!=std::string::npos)||(value==2&&option.find("automatic")!=std::string::npos)){selected=static_cast<int>(i);break;}}}
         item.control.SelectedIndex(selected);
+        if (item.rec_badge) update_state_badges(item.rec_badge, item.def_badge, selected == item.profile_rec, selected == item.profile_def);
     }
     loading_gaming_selections_ = false;
 }
@@ -563,6 +652,8 @@ void PerformancePage::load_gaming_toggles() {
             all_match = all_match && matches;
         }
         tweak.control.IsOn(tweak.match_any_target ? has_match : all_match);
+        const bool on = tweak.control.IsOn();
+        update_state_badges(tweak.rec_badge, tweak.def_badge, on == tweak.recommended, on == tweak.windows_default);
     }
     loading_gaming_toggles_ = false;
 }
@@ -680,6 +771,7 @@ void PerformancePage::load_gaming_selections() {
         }
     }
     mouse_hover_time_.SelectedIndex(hover_index);
+    update_state_badges(mouse_hover_rec_, mouse_hover_def_, hover_index == 0, hover_index == 5);
 
     const auto user_value = cached_value(
         target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword));
@@ -688,6 +780,10 @@ void PerformancePage::load_gaming_selections() {
     const auto* value = user_value ? std::get_if<std::uint32_t>(&*user_value) : nullptr;
     if (!value && machine_value) value = std::get_if<std::uint32_t>(&*machine_value);
     background_apps_.SelectedIndex(value && *value == 1 ? 1 : value && *value == 2 ? 2 : 0);
+    {
+        const auto selected = background_apps_.SelectedIndex();
+        update_state_badges(background_rec_, background_def_, selected == 2, selected == 0);
+    }
     loading_gaming_selections_ = false;
 }
 
