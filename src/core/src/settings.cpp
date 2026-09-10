@@ -165,7 +165,7 @@ bool parse_root_object(std::string_view json, Settings& settings) {
             else if (*key == "show_risk_badges") settings.show_risk_badges = value;
             else if (*key == "show_state_badges") settings.show_state_badges = value;
             else settings.autostart_enabled = value;
-        } else if (*key == "language" || *key == "theme") {
+        } else if (*key == "language" || *key == "theme" || *key == "dismissed_update_version") {
             if (text.front() != '"') return false;
             text.remove_prefix(1);
             std::size_t end{}; bool esc{};
@@ -178,7 +178,8 @@ bool parse_root_object(std::string_view json, Settings& settings) {
             auto value = unescape_json_string(text.substr(0, end));
             if (!value) return false;
             if (*key == "language") settings.language = language_from_string(*value);
-            else settings.theme = theme_from_string(*value);
+            else if (*key == "theme") settings.theme = theme_from_string(*value);
+            else settings.dismissed_update_version = std::string(*value);
             text.remove_prefix(end + 1);
         } else {
             if (text.front() == '{') {
@@ -308,6 +309,7 @@ std::string serialize_settings_json(const Settings& settings) {
     out << "{\n";
     out << "  \"check_updates_on_startup\": " << (settings.check_updates_on_startup ? "true" : "false") << ",\n";
     out << "  \"nightly_updates\": " << (settings.nightly_updates ? "true" : "false") << ",\n";
+    out << "  \"dismissed_update_version\": \"" << settings.dismissed_update_version << "\",\n";
     out << "  \"show_console\": " << (settings.show_console ? "true" : "false") << ",\n";
     out << "  \"language\": \"" << language_to_string(settings.language) << "\",\n";
     out << "  \"theme\": \"" << theme_to_string(settings.theme) << "\",\n";

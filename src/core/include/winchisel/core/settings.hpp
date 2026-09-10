@@ -14,6 +14,9 @@ enum class Theme { system, light, dark };
 struct Settings {
     bool check_updates_on_startup{true};
     bool nightly_updates{false};
+    // Version whose update prompt was dismissed with "Later". Automatic
+    // (startup) checks skip it quietly; manual checks still offer it.
+    std::string dismissed_update_version;
     bool show_console{false};
     Language language{Language::english};
     Theme theme{Theme::system};

@@ -137,6 +137,12 @@ void SettingsPage::save_settings() {
     if (!previous_nightly && settings.nightly_updates && winchisel::ui::update_check()) {
         winchisel::ui::update_check()();
     }
+    // Opting out checks immediately too: with a nightly running, the latest
+    // stable is offered as a downgrade; otherwise this just confirms
+    // "up to date". Manual, so a prior dismissal is bypassed on purpose.
+    if (previous_nightly && !settings.nightly_updates && winchisel::ui::update_check()) {
+        winchisel::ui::update_check()();
+    }
 }
 
 void SettingsPage::Restore_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::restore); }

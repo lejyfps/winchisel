@@ -359,11 +359,29 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
-    if (!winchisel::platform::is_newer_version(manifest->version, winchisel::platform::current_app_version())) {
+    const std::string current_version = winchisel::platform::current_app_version();
+    const bool newer = winchisel::platform::is_newer_version(manifest->version, current_version);
+    // Opt-out path: offer the latest stable release even when it is older
+    // than a running nightly (downgrade back to stable). manifest->version
+    // is regex-validated, but comparing against 0.0.0 additionally proves it
+    // parses (stoul overflow) and is not the dev placeholder.
+    const bool downgrade_to_stable = !nightly_channel && !newer
+        && winchisel::platform::is_prerelease_version(current_version)
+        && !winchisel::platform::is_prerelease_version(manifest->version)
+        && winchisel::platform::is_newer_version(manifest->version, "0.0.0");
+    if (!newer && !downgrade_to_stable) {
         show_update_idle();
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
+    // A dismissed version stays dismissed for automatic checks: no nagging
+    // on every restart. Manual checks bypass this and offer it again.
+    if (!manual && winchisel::application::Session::instance().settings().dismissed_update_version == manifest->version) {
+        winchisel::platform::boot_log(("update prompt dismissed, skipping v" + manifest->version).c_str());
+        show_update_idle();
+        co_return;
+    }
+    if (downgrade_to_stable) winchisel::platform::boot_log(("update downgrade to stable v" + manifest->version).c_str());
     update_title(manifest->version);
     if (winchisel::platform::is_packaged_install()) {
         // Store builds must update through the Store: downloading and running
@@ -399,10 +417,20 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         Controls::ContentDialog dialog;
         dialog.XamlRoot(Content().XamlRoot());
         dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
-        dialog.Content(box_value(L"Version " + version_text + L" is available. Download it in the background?"));
-        dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Download")});
+        if (downgrade_to_stable) {
+            dialog.Content(box_value(L"Version " + version_text + L" (stable) is available. You are running " + to_hstring(current_version) + L". Switch back to the stable release? It will be downloaded in the background."));
+            dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Switch to stable")});
+        } else {
+            dialog.Content(box_value(L"Version " + version_text + L" is available. Download it in the background?"));
+            dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Download")});
+        }
         dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
         if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) {
+            // "Later" snoozes this version for automatic checks (no nagging
+            // every restart); a manual check still offers it again.
+            auto dismissed = winchisel::application::Session::instance().settings();
+            dismissed.dismissed_update_version = manifest->version;
+            (void)winchisel::application::Session::instance().set_settings(dismissed);
             show_update_idle(); co_return;
         }
     }

@@ -73,6 +73,9 @@ int main() {
     expect(parse_settings_json(R"({"nightly_updates":true})").nightly_updates, "nightly updates on");
     expect(parse_settings_json(R"({"nightly_updates":false})").nightly_updates == false, "nightly updates off");
     expect(serialize_settings_json(parse_settings_json(R"({"nightly_updates":true})")).find("\"nightly_updates\": true") != std::string::npos, "serialize nightly updates");
+    expect(settings_defaults().dismissed_update_version.empty(), "dismissed version default empty");
+    expect(parse_settings_json(R"({"dismissed_update_version":"1.0.8.1"})").dismissed_update_version == "1.0.8.1", "dismissed version parsed");
+    expect(serialize_settings_json(parse_settings_json(R"({"dismissed_update_version":"1.0.8.1"})")).find("\"dismissed_update_version\": \"1.0.8.1\"") != std::string::npos, "serialize dismissed version");
 
     set_ui_language(Language::german);
     expect(loc(L"Settings") == L"Einstellungen", "german settings label");
