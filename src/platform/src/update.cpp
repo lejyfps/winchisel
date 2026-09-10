@@ -1,4 +1,5 @@
 #include "winchisel/platform/update.hpp"
+#include "winchisel/platform/system.hpp"
 
 #include <windows.h>
 #include <appmodel.h>
@@ -530,6 +531,39 @@ std::optional<std::string> take_pending_update_note() {
     if (!version.empty() && version.back() == '\r') version.pop_back();
     if (!sane_note_version(version)) return std::nullopt;
     return version;
+}
+
+void cleanup_update_backups() {
+    // Only after a confirmed successful update (the caller checks the
+    // pending-update note against the running version): drop the updater's
+    // timestamped backups (and crash-leftover staging files) next to the
+    // portable host so only the new executable remains. Setup installs
+    // never create these; failures keep them for manual recovery.
+    // Best effort and silent: the update already succeeded.
+    if (!is_portable_install()) return;
+    const auto host = portable_host();
+    if (!host) return;
+    const std::filesystem::path host_path(*host);
+    const auto dir = host_path.parent_path();
+    const auto base = host_path.filename().wstring();
+    if (base.empty()) return;
+    const auto backup_prefix = base + L".backup-";
+    const auto staging_prefix = base + L".update-";
+    std::error_code error;
+    bool cleaned{};
+    for (auto const& entry : std::filesystem::directory_iterator(dir, error)) {
+        if (error) return;
+        std::error_code file_error;
+        if (!entry.is_regular_file(file_error) || file_error) continue;
+        const auto name = entry.path().filename().wstring();
+        const bool backup = name.size() > backup_prefix.size() && name.compare(0, backup_prefix.size(), backup_prefix) == 0;
+        const bool staging = name.size() > staging_prefix.size() && name.compare(0, staging_prefix.size(), staging_prefix) == 0;
+        if (!backup && !staging) continue;
+        std::error_code remove_error;
+        std::filesystem::remove(entry.path(), remove_error);
+        cleaned = true;
+    }
+    if (cleaned) boot_log("update backups cleaned");
 }
 
 } // namespace winchisel::platform

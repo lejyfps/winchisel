@@ -331,6 +331,9 @@ void MainWindow::notify_if_updated() {
         const hstring title = L"Updated to Winchisel v" + to_hstring(*noted);
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, std::wstring(title.c_str()),
             L"Release notes: github.com/lejyfps/winchisel/releases");
+        // The new version is confirmed running: drop the updater's backups
+        // so only the new executable remains.
+        winchisel::platform::cleanup_update_backups();
     }
 }
 

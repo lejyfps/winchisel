@@ -75,6 +75,10 @@ winchisel::core::Result<void> launch_staged_update(
 // to X" toast). The setup installer reports back nothing, so no note there.
 void note_pending_update(std::string_view version);
 std::optional<std::string> take_pending_update_note();
+// Deletes the updater's timestamped backups (and crash-leftover staging
+// files) next to the portable host. Call only after the pending-update note
+// matched the running version; otherwise backups stay for manual recovery.
+void cleanup_update_backups();
 
 inline constexpr std::string_view k_github_latest_release_api =
     "https://api.github.com/repos/lejyfps/winchisel/releases/latest";
