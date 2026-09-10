@@ -61,10 +61,6 @@
                         </Grid>
                     </Border>
 
-                    <TextBlock Text="General" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,16,0,0" />
-                    <TextBlock Text="These settings are saved automatically."
-                               Style="{StaticResource CaptionTextBlockStyle}" />
-
                     <Border Padding="16,12"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -92,6 +88,10 @@
                             </ComboBox>
                         </Grid>
                     </Border>
+
+                    <TextBlock Text="General" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,16,0,0" />
+                    <TextBlock Text="These settings are saved automatically."
+                               Style="{StaticResource CaptionTextBlockStyle}" />
 
                     <Border Padding="16,12"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
