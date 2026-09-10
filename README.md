@@ -23,9 +23,10 @@
 
 ### Download from GitHub Releases
 
-[![Download from GitHub Releases](https://img.shields.io/badge/Download-GitHub%20Releases-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/lejyfps/winchisel/releases)
+[![Latest stable](https://img.shields.io/github/v/release/lejyfps/winchisel?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/lejyfps/winchisel/releases)
+[![Download stable](https://img.shields.io/badge/Download-latest%20stable-1793D1?style=for-the-badge&logo=github&logoColor=white)](https://github.com/lejyfps/winchisel/releases)
 
-Grab the installer (machine-wide, requires admin) or the portable build from the [latest release](https://github.com/lejyfps/winchisel/releases). The portable build updates itself through signed update manifests.
+Grab the installer (machine-wide, requires admin) or the portable build from the [latest stable release](https://github.com/lejyfps/winchisel/releases). The portable build updates itself through signed update manifests.
 
 ### Nightly builds 🌙
 
