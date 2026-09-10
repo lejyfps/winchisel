@@ -59,4 +59,4 @@ changes.md
 /tools/*.ps1
 # Release manual for the local scripts above - kept local only.
 docs/releasing.md
-*/installers/*
+*/installer/*
