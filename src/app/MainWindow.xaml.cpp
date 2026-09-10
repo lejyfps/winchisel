@@ -214,26 +214,46 @@ void MainWindow::update_titlebar_inset() {
 }
 
 void MainWindow::Update_Click(IInspectable const&, RoutedEventArgs const&) {
-    if (update_ready_) {
-        UpdateStatusCard().Visibility(Visibility::Visible);
-        const hstring ready = L"Version " + to_hstring(pending_version_) + L" is ready. Restart Winchisel to install it.";
-        winchisel::ui::show_toast(Controls::InfoBarSeverity::Informational, L"Winchisel", std::wstring(ready.c_str()));
-        return;
-    }
+    // Reachable only when idle: every other state hides the check button.
     CheckForUpdates(true);
 }
 
-void MainWindow::UpdateLater_Click(IInspectable const&, RoutedEventArgs const&) {
-    UpdateStatusCard().Visibility(Visibility::Collapsed);
+void MainWindow::show_update_idle() {
+    update_check_running_ = false;
+    UpdateButton().Visibility(Visibility::Visible);
+    UpdateButton().IsEnabled(true);
+    UpdateProgressRing().Visibility(Visibility::Collapsed);
+    UpdateRestartButton().Visibility(Visibility::Collapsed);
+}
+
+void MainWindow::show_update_busy(hstring const& status) {
+    UpdateButton().Visibility(Visibility::Collapsed);
+    UpdateRestartButton().Visibility(Visibility::Collapsed);
+    UpdateProgressRing().IsIndeterminate(true);
+    UpdateProgressRing().Visibility(Visibility::Visible);
+    Controls::ToolTipService::SetToolTip(UpdateProgressRing(), box_value(status));
+}
+
+void MainWindow::show_update_progress(double percent, hstring const& status) {
+    UpdateButton().Visibility(Visibility::Collapsed);
+    UpdateRestartButton().Visibility(Visibility::Collapsed);
+    UpdateProgressRing().IsIndeterminate(false);
+    UpdateProgressRing().Value(percent);
+    UpdateProgressRing().Visibility(Visibility::Visible);
+    Controls::ToolTipService::SetToolTip(UpdateProgressRing(), box_value(status));
+}
+
+void MainWindow::show_update_ready(hstring const& status) {
+    UpdateButton().Visibility(Visibility::Collapsed);
+    UpdateProgressRing().Visibility(Visibility::Collapsed);
+    Controls::ToolTipService::SetToolTip(UpdateRestartButton(), box_value(status));
+    UpdateRestartButton().Visibility(Visibility::Visible);
 }
 
 void MainWindow::UpdateRestart_Click(IInspectable const&, RoutedEventArgs const&) {
     if (!update_ready_ || update_check_running_ || pending_staged_.empty()) return;
     update_ready_ = false;
-    UpdateRestartButton().Visibility(Visibility::Collapsed);
-    UpdateLaterButton().Visibility(Visibility::Collapsed);
-    UpdateStatusText().Text(L"Installing update ...");
-    UpdateProgressBar().IsIndeterminate(true);
+    show_update_busy(L"Installing update ...");
     install_pending_update();
 }
 
@@ -246,7 +266,6 @@ winrt::fire_and_forget MainWindow::install_pending_update() {
 
         auto lifetime = get_strong();
         update_check_running_ = true;
-        UpdateButton().IsEnabled(false);
         winrt::apartment_context ui_thread;
         const auto staged = pending_staged_;
         const auto artifact = pending_artifact_;
@@ -260,8 +279,7 @@ winrt::fire_and_forget MainWindow::install_pending_update() {
         pending_version_.clear();
         if (!launched) {
             winchisel::platform::boot_log(("update launch failed: " + launched.error().detail).c_str());
-            UpdateStatusCard().Visibility(Visibility::Collapsed);
-            update_check_running_ = false; UpdateButton().IsEnabled(true);
+            show_update_idle();
             winchisel::platform::show_error_message(portable
                 ? L"The updater could not be started. Details: %LocalAppData%\\Winchisel\\logs\\updater.log"
                 : L"The update installer could not be started."); co_return;
@@ -276,8 +294,7 @@ winrt::fire_and_forget MainWindow::install_pending_update() {
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
             if (auto self = error_weak.get()) {
-                self->UpdateStatusCard().Visibility(Visibility::Collapsed);
-                self->update_check_running_ = false; self->UpdateButton().IsEnabled(true); (void)text;
+                self->show_update_idle(); (void)text;
             }
         });
     }
@@ -320,7 +337,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
 
     auto lifetime = get_strong();
     update_check_running_ = true;
-    UpdateButton().IsEnabled(false);
+    show_update_busy(L"Checking for updates ...");
     const bool nightly_channel = winchisel::application::Session::instance().settings().nightly_updates;
     winrt::apartment_context ui_thread;
     co_await winrt::resume_background();
@@ -328,7 +345,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
                                     : winchisel::platform::check_github_latest_release();
     co_await ui_thread;
     if (!manifest) {
-        update_check_running_ = false; UpdateButton().IsEnabled(true);
+        show_update_idle();
         if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update check failed", L"The latest release could not be checked.");
         co_return;
     }
@@ -336,12 +353,12 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     // pre-releases server-side, but never offer a nightly to a user who did
     // not opt in, even if one is returned.
     if (!nightly_channel && winchisel::platform::is_prerelease_version(manifest->version)) {
-        update_check_running_ = false; UpdateButton().IsEnabled(true);
+        show_update_idle();
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
     if (!winchisel::platform::is_newer_version(manifest->version, winchisel::platform::current_app_version())) {
-        update_check_running_ = false; UpdateButton().IsEnabled(true);
+        show_update_idle();
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Winchisel is up to date", L"The latest version is already running.");
         co_return;
     }
@@ -350,7 +367,7 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         // Store builds must update through the Store: downloading and running
         // the GitHub setup here would violate Store policy and install a
         // second copy next to the Store package. Notify and deep-link instead.
-        update_check_running_ = false; UpdateButton().IsEnabled(true);
+        show_update_idle();
         winchisel::core::DialogSlot store_slot; if(!winchisel::ui::dialog_available(store_slot)){co_return;}
         Controls::ContentDialog store_dialog;
         store_dialog.XamlRoot(Content().XamlRoot());
@@ -367,14 +384,14 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
     const auto artifact_id = winchisel::platform::update_artifact_id();
     const auto artifact = std::ranges::find_if(manifest->artifacts, [artifact_id](auto const& item) { return item.id == artifact_id; });
     if (artifact == manifest->artifacts.end()) {
-        update_check_running_ = false; UpdateButton().IsEnabled(true);
+        show_update_idle();
         if (manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update unavailable", L"No compatible update package was found.");
         co_return;
     }
     // The slot covers the confirm prompt only. The download itself is
-    // non-modal (Zed-style): a status card tracks progress and the update
-    // installs on explicit restart instead of auto-closing the app.
-    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){update_check_running_=false; UpdateButton().IsEnabled(true); co_return;}
+    // non-modal (Zed-style): the title-bar ring tracks progress and the
+    // update installs on explicit restart instead of auto-closing the app.
+    winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){show_update_idle(); co_return;}
     const hstring version_text = to_hstring(manifest->version);
     {
         Controls::ContentDialog dialog;
@@ -384,15 +401,10 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
         dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Download")});
         dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
         if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) {
-            update_check_running_ = false; UpdateButton().IsEnabled(true); co_return;
+            show_update_idle(); co_return;
         }
     }
-    UpdateStatusText().Text(L"Downloading version " + version_text + L" ...");
-    UpdateProgressBar().IsIndeterminate(true);
-    UpdateProgressBar().Value(0);
-    UpdateRestartButton().Visibility(Visibility::Collapsed);
-    UpdateLaterButton().Visibility(Visibility::Collapsed);
-    UpdateStatusCard().Visibility(Visibility::Visible);
+    show_update_progress(0, L"Downloading version " + version_text + L" ...");
     auto ui_queue = DispatcherQueue();
     auto progress_weak = get_weak();
     winchisel::platform::boot_log(("update stage begin v" + manifest->version).c_str());
@@ -403,36 +415,29 @@ winrt::fire_and_forget MainWindow::check_for_updates(bool manual) {
                 if (auto self = progress_weak.get()) {
                     if (!total) return;
                     const auto percent = static_cast<unsigned>(done * 100 / total);
-                    self->UpdateProgressBar().IsIndeterminate(false);
-                    self->UpdateProgressBar().Value(static_cast<double>(percent));
-                    self->UpdateStatusText().Text(L"Downloading version " + version_text + L" ... " + to_hstring(percent) + L"%");
+                    self->show_update_progress(static_cast<double>(percent),
+                        L"Downloading version " + version_text + L" ... " + to_hstring(percent) + L"%");
                 }
             });
         });
     co_await ui_thread;
     if (!staged) {
         winchisel::platform::boot_log(("update stage failed: " + staged.error().detail).c_str());
-        UpdateStatusCard().Visibility(Visibility::Collapsed);
-        update_check_running_ = false; UpdateButton().IsEnabled(true);
+        show_update_idle();
         winchisel::platform::show_error_message(L"The update could not be downloaded or verified."); co_return;
     }
     pending_staged_ = *staged;
     pending_artifact_ = *artifact;
     pending_version_ = manifest->version;
     update_ready_ = true;
-    update_check_running_ = false; UpdateButton().IsEnabled(true);
-    UpdateProgressBar().IsIndeterminate(false);
-    UpdateProgressBar().Value(100);
-    UpdateStatusText().Text(L"Version " + version_text + L" is ready. Restart Winchisel to install it.");
-    UpdateRestartButton().Visibility(Visibility::Visible);
-    UpdateLaterButton().Visibility(Visibility::Visible);
+    update_check_running_ = false;
+    show_update_ready(L"Version " + version_text + L" is ready. Restart Winchisel to install it.");
     winchisel::platform::boot_log("update staged, waiting for restart");
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
             if (auto self = error_weak.get()) {
-                self->UpdateStatusCard().Visibility(Visibility::Collapsed);
-                self->update_check_running_ = false; self->UpdateButton().IsEnabled(true); (void)text;
+                self->show_update_idle(); (void)text;
             }
         });
     }
