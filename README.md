@@ -1,29 +1,120 @@
 # Winchisel
 
-Winchisel is a native Windows 11 maintenance and optimization app built with WinUI 3 and C++/WinRT. It provides a Windows-native interface for inspecting your system and applying clearly presented maintenance, privacy, performance, and troubleshooting actions.
+<img src="assets/logo.png" width="96" alt="Winchisel logo" />
+
+**Winchisel** is a native Windows 11 maintenance and optimization app built with WinUI 3 and C++/WinRT. From debloating to system tuning and troubleshooting, it gives you a clean, Windows-native interface for inspecting your system and applying clearly presented actions — with live state detection on every tweak.
+
+[![GitHub release](https://img.shields.io/github/v/release/lejyfps/winchisel?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/lejyfps/winchisel/releases)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-1793D1?style=for-the-badge)](LICENSE)
 
 > [!WARNING]
 > Many actions change Windows settings, services, or registry values. Review every option before applying it, and create a restore point before making broad system changes.
 
-## Features
+> [!NOTE]
+> Winchisel is an independent, open-source project and is **not affiliated with, endorsed by, or associated with Microsoft** in any way. "Windows" is a registered trademark of Microsoft Corporation.
 
-- Hardware and system dashboard with live CPU, memory, storage, display, and uptime information.
-- Debloater for Windows apps, capabilities, and optional features.
-- Performance and privacy controls with current-state detection.
-- Package discovery and installation through winget.
-- Process inspection, CPU priority, I/O priority, and processor-affinity tools.
-- USB latency and topology analysis.
-- Extra maintenance controls, including the Winchisel power plan.
-- Windows 11-style light, dark, and system theme modes.
-- Signed update manifests for portable and installer releases.
-
-## Requirements
+## Requirements 💻
 
 - Windows 11, version 24H2 or later (build 26100+)
 - x64 CPU
 - Administrator permissions for actions that modify system-wide settings
 
-For development, install Visual Studio with the **Desktop development with C++** workload, a Windows 11 SDK, and NuGet. Inno Setup 6 is also required to create installer releases.
+## Installation 📥
+
+### Download from GitHub Releases
+
+[![Download from GitHub Releases](https://img.shields.io/badge/Download-GitHub%20Releases-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/lejyfps/winchisel/releases)
+
+Grab the installer (machine-wide, requires admin) or the portable build from the [latest release](https://github.com/lejyfps/winchisel/releases). The portable build updates itself through signed update manifests.
+
+### Winget and Microsoft Store 🚧
+
+Winget and Microsoft Store releases are in preparation and will be announced here once available.
+
+## Current Features 🛠️
+
+### Home 🏠
+
+- Hardware and system dashboard with live CPU, memory, storage, display, and uptime information
+
+### Debloater 🗑️
+
+- 72-entry catalog across Windows apps, capabilities, and optional features
+- Searchable interface with install, update, and remove actions
+
+### Performance 🚀
+
+- 152 tweaks across 13 groups: Gaming, Processor, Graphics, Network, Security, Xbox, System Services, Scheduled Tasks, Visual Effects, Accessibility, Power, Windows Update, and Notifications
+- Live state detection, per-tweak Recommended/Default quick actions, and Recommended/Default state badges
+- Windows Update policy (automatic, security-only, paused, disabled), Delivery Optimization, and System Protection controls
+
+### Privacy & Security 🔒
+
+- 88 tweaks across 13 groups: Security, Ads, Lock Screen, General, Speech, Inking, Diagnostics, Activity History, Search, App Permissions, Windows AI, Edge AI, and Office AI
+- Per-tweak Recommended/Default quick actions with state badges
+- UAC level, Smart App Control, PowerShell policy, and bulk Recommended/Defaults profiles with preview
+
+### Downloads 📦
+
+- 176-entry package catalog with discovery and installation through winget
+
+### Processes ⚙️
+
+- Process inspection with CPU priority, I/O priority, and processor-affinity tools
+
+### Latency 📶
+
+- USB latency and topology analysis with a built-in latency probe
+
+### Startup Manager & Scheduled Tasks ⏱️
+
+- Autostart entries and boot/logon tasks with status, toggle, search, and filters
+
+### Extras 🧰
+
+- Extra maintenance controls, including the Winchisel power plan, Long Paths, Developer Mode, and Verbose Boot
+- Per-tweak Recommended/Default quick actions
+
+### Settings ⚙️
+
+- 20 UI languages, light/dark/system themes, autostart, update checks
+- Toggles for risk badges and state badges (NEW badges show automatically until the next release)
+- One-click system restore point creation
+
+## Safety 🛡️
+
+- **Restore points:** create a Windows restore point from Settings before making changes
+- **Atomic applies:** registry batches apply atomically with snapshot rollback on failure; every error reports its full Windows error code
+- **Risk badges:** each tweak is labeled Safe, Moderate, or Risky; new tweaks carry a NEW badge until the next release
+- **Nothing automatic:** every change happens only when you click it — no background modifications
+- **Signed updates:** release manifests are ECDSA-signed and artifacts are SHA-256 verified before installing
+
+## Why Winchisel? ❓
+
+- **Truly native:** pure C++/WinRT with direct Windows API calls — no .NET runtime, no PowerShell scripts running your tweaks
+- **Honest state:** every tweak reads back the real system state, so the UI shows what is actually set — not what was clicked last
+- **Reversible by design:** per-tweak Windows-default buttons, bulk profiles, and snapshot rollbacks get you back to stock
+- **No placebo catalog:** every entry maps to a documented setting, policy, service, or task with a real effect
+
+## FAQ 💬
+
+**Do I need administrator rights?**
+Yes for anything system-wide (services, machine policies, device settings). Per-user settings work without elevation.
+
+**Installer or portable?**
+The installer puts Winchisel in Program Files for all users. The portable build runs from any folder and updates itself in place.
+
+**Does Winchisel collect data?**
+No usage telemetry, no accounts, no phone-home. The only network access is the optional release check on startup (toggleable in Settings) plus downloads you explicitly start (winget packages, updates).
+
+**How do I undo a change?**
+Flip the toggle back, use the per-tweak Default button, apply a Defaults profile, or restore the system restore point you created first.
+
+**Does it work on Windows 10?**
+No — Winchisel targets Windows 11 24H2+ (build 26100+) on x64 only.
+
+**When are winget/Store versions coming?**
+They are in preparation; watch the releases page for the announcement.
 
 ## Build from source
 
@@ -35,6 +126,8 @@ msbuild Winchisel.sln /p:Configuration=Debug /p:Platform=x64 /m
 ```
 
 The unpackaged executable is created at `out\x64\Debug\Winchisel.exe`. The project is configured as a self-contained Windows App SDK application, so the output includes the runtime files required to run it.
+
+For development, install Visual Studio with the **Desktop development with C++** workload, a Windows 11 SDK, and NuGet. Inno Setup 6 is also required to create installer releases.
 
 ## Tests
 
