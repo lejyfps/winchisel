@@ -296,11 +296,13 @@ bool manifest_binds_file(std::string const& manifest, std::string const& file_na
         return p;
     };
     std::size_t pos{};
+    // "\"file\"" is 6 characters: pos + 6 lands exactly on the colon (and
+    // skip_ws tolerates whitespace on either side of it).
     while ((pos = manifest.find("\"file\"", pos)) != std::string::npos) {
-        std::size_t p = skip_ws(manifest, pos + 7);
-        if (p >= manifest.size() || manifest[p] != ':') { pos += 7; continue; }
+        std::size_t p = skip_ws(manifest, pos + 6);
+        if (p >= manifest.size() || manifest[p] != ':') { pos += 6; continue; }
         p = skip_ws(manifest, p + 1);
-        if (p >= manifest.size() || manifest[p] != '"') { pos += 7; continue; }
+        if (p >= manifest.size() || manifest[p] != '"') { pos += 6; continue; }
         ++p;
         if (manifest.compare(p, file_name.size(), file_name) != 0) { pos = p; continue; }
         p += file_name.size();
