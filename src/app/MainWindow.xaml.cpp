@@ -21,6 +21,7 @@
 #include "winchisel/application/session.hpp"
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/navigation.hpp"
+#include "winchisel/core/tweak.hpp"
 #include "winchisel/platform/shell.hpp"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/update.hpp"
@@ -58,6 +59,51 @@ std::filesystem::path asset_path(std::wstring_view name) {
         executable.resize(executable.size() * 2, L'\0');
     }
     return std::filesystem::path(executable).parent_path() / L"assets" / name;
+}
+
+// "NEW" badges share the tweak gate: visible until a version newer than the
+// introducing one runs (see PerformancePage/PrivacyPage show_new_badges).
+bool show_new_badges() {
+    const auto current = winchisel::platform::current_app_version();
+    return !winchisel::platform::is_newer_version(current, winchisel::core::k_new_tweaks_version);
+}
+
+// Pill badge in the tweak "NEW" style (accent tint + glyph + label), sized
+// compact so label + badge fit the nav pane (see OpenPaneLength).
+Controls::Border new_badge() {
+    auto resources = Application::Current().Resources();
+    auto accent = resources.Lookup(box_value(L"AccentTextFillColorPrimaryBrush")).try_as<Media::Brush>();
+    Media::Brush tint{nullptr};
+    if (auto solid = accent.try_as<Media::SolidColorBrush>()) {
+        auto color = solid.Color();
+        color.A = 0x2E;
+        tint = Media::SolidColorBrush(color);
+    }
+    auto badge = Controls::Border();
+    badge.CornerRadius({10, 10, 10, 10});
+    badge.Padding({7, 1, 7, 1});
+    badge.Margin({6, 0, 0, 0});
+    badge.VerticalAlignment(VerticalAlignment::Center);
+    badge.Background(tint);
+    auto row = Controls::StackPanel();
+    row.Orientation(Controls::Orientation::Horizontal);
+    row.Spacing(4);
+    row.VerticalAlignment(VerticalAlignment::Center);
+    auto icon = Controls::FontIcon();
+    icon.Glyph(hstring{L"\uE735"});
+    icon.FontSize(10);
+    icon.Foreground(accent);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(icon);
+    auto caption = Controls::TextBlock();
+    caption.Text(hstring{winchisel::core::loc(L"New")});
+    caption.Foreground(accent);
+    caption.FontSize(10);
+    caption.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    caption.VerticalAlignment(VerticalAlignment::Center);
+    row.Children().Append(caption);
+    badge.Child(row);
+    return badge;
 }
 
 winchisel::core::Screen screen_from_tag(winrt::hstring const& tag) {
@@ -372,6 +418,30 @@ void MainWindow::localize_nav() {
     };
     localize_items(Nav().MenuItems());
     localize_items(Nav().FooterMenuItems());
+    if (show_new_badges()) {
+        auto badge_items = [&](auto const& items) {
+            for (std::uint32_t index = 0; index < items.Size(); ++index) {
+                if (auto item = items.GetAt(index).try_as<Controls::NavigationViewItem>()) {
+                    const auto tag = winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home");
+                    if (tag == L"startup" || tag == L"scheduled_tasks") {
+                        const auto text = hstring{label(tag)};
+                        auto panel = Controls::StackPanel();
+                        panel.Orientation(Controls::Orientation::Horizontal);
+                        panel.VerticalAlignment(VerticalAlignment::Center);
+                        auto caption = Controls::TextBlock();
+                        caption.Text(text);
+                        caption.VerticalAlignment(VerticalAlignment::Center);
+                        panel.Children().Append(caption);
+                        panel.Children().Append(new_badge());
+                        item.Content(panel);
+                        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(item, text + hstring{L", new"});
+                    }
+                }
+            }
+        };
+        badge_items(Nav().MenuItems());
+        badge_items(Nav().FooterMenuItems());
+    }
 }
 
 void MainWindow::reload_language() {

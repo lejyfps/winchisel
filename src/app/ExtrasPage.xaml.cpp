@@ -48,6 +48,60 @@ muxc::Border risk_badge(winchisel::core::TweakRisk risk) {
     badge.Child(label);
     return badge;
 }
+
+// Per-tweak Recommended/Default quick-set buttons (Winhance-style).
+// Every Extras toggle follows the same profile: Windows default = Off,
+// recommended = On (disable/harden, or enable Long Paths/Dev Mode/Verbose).
+muxc::Button quick_set_button(winrt::hstring const& glyph, winrt::hstring const& tip, bool recommended) {
+    auto resources = winrt::Microsoft::UI::Xaml::Application::Current().Resources();
+    auto button = muxc::Button();
+    button.Padding({4, 2, 4, 2});
+    button.MinWidth(0);
+    button.MinHeight(0);
+    button.Width(30);
+    button.Height(28);
+    button.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+    auto icon = muxc::FontIcon();
+    icon.Glyph(glyph);
+    icon.FontSize(13);
+    icon.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+    const wchar_t* brush_key = recommended ? L"AccentTextFillColorPrimaryBrush" : L"TextFillColorSecondaryBrush";
+    if (auto brush = resources.Lookup(winrt::box_value(brush_key)).try_as<muxm::Brush>()) icon.Foreground(brush);
+    button.Content(icon);
+    muxc::ToolTipService::SetToolTip(button, winrt::box_value(tip));
+    winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(button, tip);
+    return button;
+}
+
+void attach_quick_set(muxc::ToggleSwitch toggle) {
+    auto parent = toggle.Parent().try_as<muxc::Grid>();
+    if (!parent) return;
+    std::uint32_t position{};
+    if (!parent.Children().IndexOf(toggle, position)) return;
+    parent.Children().RemoveAt(position);
+    parent.ColumnSpacing(12);
+    auto row = muxc::StackPanel();
+    row.Orientation(muxc::Orientation::Horizontal);
+    row.Spacing(4);
+    row.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+    row.HorizontalAlignment(winrt::Microsoft::UI::Xaml::HorizontalAlignment::Right);
+    auto pair = muxc::StackPanel();
+    pair.Orientation(muxc::Orientation::Horizontal);
+    pair.Spacing(2);
+    pair.VerticalAlignment(winrt::Microsoft::UI::Xaml::VerticalAlignment::Center);
+    const winrt::hstring rec_tip{std::wstring(winchisel::core::loc(L"Recommended")) + L": On"};
+    const winrt::hstring def_tip{std::wstring(winchisel::core::loc(L"Defaults")) + L": Off"};
+    auto rec = quick_set_button(winrt::hstring{L"\uE735"}, rec_tip, true);
+    rec.Click([toggle](auto&&, auto&&) { toggle.IsOn(true); });
+    auto def = quick_set_button(winrt::hstring{L"\uE10E"}, def_tip, false);
+    def.Click([toggle](auto&&, auto&&) { toggle.IsOn(false); });
+    pair.Children().Append(rec);
+    pair.Children().Append(def);
+    row.Children().Append(pair);
+    row.Children().Append(toggle);
+    muxc::Grid::SetColumn(row, 1);
+    parent.Children().Append(row);
+}
 }
 
 ExtrasPage::ExtrasPage(){
@@ -76,6 +130,11 @@ ExtrasPage::ExtrasPage(){
         if (title) row.Children().Append(title);
         row.Children().Append(risk_badge(winchisel::core::assess_extras(key)));
         header.Children().InsertAt(0, row);
+    }
+    // Per-tweak Recommended/Default quick-set buttons (Winhance-style).
+    for (auto toggle : {ModernStandby(), SyncProvider(), Brave(), Edge(), Widgets(), Ctfmon(), CtfmonDll(),
+                        TimerResolution(), Ipv6(), Teredo(), Ps7(), LongPaths(), DeveloperMode(), VerboseBoot(), Hpet()}) {
+        if (toggle) attach_quick_set(toggle);
     }
     load_states();load_command_states();
 }

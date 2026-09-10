@@ -143,6 +143,7 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     auto trailing_column = Controls::ColumnDefinition();
     trailing_column.Width(GridLength{0, GridUnitType::Auto});
     layout.ColumnDefinitions().Append(trailing_column);
+    layout.ColumnSpacing(12);
     auto text = Controls::StackPanel();
     auto heading = Controls::TextBlock();
     heading.Text(title);
@@ -171,6 +172,70 @@ Controls::Border setting_card(hstring const& title, hstring const& description, 
     layout.Children().Append(control);
     card.Child(layout);
     return card;
+}
+
+// Profile lookup shared by the bulk Recommended/Defaults actions and the
+// per-tweak quick-set buttons (Winhance-style). Returns the toggle state
+// (0/1) or combo selection index, or nullopt when the tweak has no profile
+// value (e.g. scheduled tasks, which the profiles intentionally skip).
+std::optional<std::int32_t> performance_profile_for(std::string_view id, bool selection, bool recommended) {
+    const auto rules = winchisel::core::get_performance_profile_rules();
+    const auto rule = std::ranges::find_if(rules, [id](auto const& value) { return value.id == id; });
+    if (rule == rules.end()) return std::nullopt;
+    const auto value = selection ? (recommended ? rule->recommended_selection : rule->default_selection)
+                                 : (recommended ? rule->recommended_toggle : rule->default_toggle);
+    return value < 0 ? std::nullopt : std::optional<std::int32_t>{value};
+}
+
+Controls::Button quick_set_button(hstring const& glyph, hstring const& tip, bool recommended) {
+    auto resources = Application::Current().Resources();
+    auto button = Controls::Button();
+    button.Padding({4, 2, 4, 2});
+    button.MinWidth(0);
+    button.MinHeight(0);
+    button.Width(30);
+    button.Height(28);
+    button.VerticalAlignment(VerticalAlignment::Center);
+    auto icon = Controls::FontIcon();
+    icon.Glyph(glyph);
+    icon.FontSize(13);
+    icon.VerticalAlignment(VerticalAlignment::Center);
+    const wchar_t* brush_key = recommended ? L"AccentTextFillColorPrimaryBrush" : L"TextFillColorSecondaryBrush";
+    if (auto brush = resources.Lookup(box_value(brush_key)).try_as<Media::Brush>()) icon.Foreground(brush);
+    button.Content(icon);
+    Controls::ToolTipService::SetToolTip(button, box_value(tip));
+    Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(button, tip);
+    return button;
+}
+
+// Wraps a ToggleSwitch/ComboBox with the per-tweak Recommended (star) and
+// Default (refresh) quick-set buttons, matching Winhance's SettingsCardItem.
+Controls::StackPanel with_quick_set(FrameworkElement const& control, hstring const& rec_tip, hstring const& def_tip,
+    std::function<void()> on_rec, std::function<void()> on_def) {
+    auto row = Controls::StackPanel();
+    row.Orientation(Controls::Orientation::Horizontal);
+    row.Spacing(4);
+    row.VerticalAlignment(VerticalAlignment::Center);
+    auto pair = Controls::StackPanel();
+    pair.Orientation(Controls::Orientation::Horizontal);
+    pair.Spacing(2);
+    pair.VerticalAlignment(VerticalAlignment::Center);
+    auto rec = quick_set_button(hstring{L"\uE735"}, rec_tip, true);
+    rec.Click([on_rec = std::move(on_rec)](auto&&, auto&&) { on_rec(); });
+    auto def = quick_set_button(hstring{L"\uE10E"}, def_tip, false);
+    def.Click([on_def = std::move(on_def)](auto&&, auto&&) { on_def(); });
+    pair.Children().Append(rec);
+    pair.Children().Append(def);
+    row.Children().Append(pair);
+    row.Children().Append(control);
+    return row;
+}
+
+hstring toggle_tip(bool recommended_default, bool state) {
+    // Localized "Recommended"/"Defaults" prefix plus the target On/Off state,
+    // so the tooltip documents what the button will do.
+    const auto prefix = recommended_default ? winchisel::ui::tr(L"Recommended") : winchisel::ui::tr(L"Defaults");
+    return hstring{std::wstring(prefix) + L": " + (state ? L"On" : L"Off")};
 }
 
 }  // namespace
@@ -234,7 +299,11 @@ PerformancePage::PerformancePage() {
                 tweak.control.MinWidth(0);
                 tweak.control.Width(40);
                 tweak.control.Toggled([this, index](auto&&, auto&&) { save_gaming_toggle(index); });
-                content.Children().Append(setting_card(tweak.title, tweak.description, tweak.control,
+                const bool rec = tweak.recommended, def = tweak.windows_default;
+                auto trailing = with_quick_set(tweak.control, toggle_tip(true, rec), toggle_tip(false, def),
+                    [this, index, rec] { if (!loading_gaming_toggles_) gaming_toggles_[index].control.IsOn(rec); },
+                    [this, index, def] { if (!loading_gaming_toggles_) gaming_toggles_[index].control.IsOn(def); });
+                content.Children().Append(setting_card(tweak.title, tweak.description, trailing,
                     false, winchisel::core::assess_registry_targets(tweak.targets), risk_badges_visible()));
             }
             mouse_hover_time_ = Controls::ComboBox();
@@ -245,8 +314,15 @@ PerformancePage::PerformancePage() {
                 mouse_hover_time_.Items().Append(item);
             }
             mouse_hover_time_.SelectionChanged([this](auto&&, auto&&) { save_mouse_hover_time(); });
-            content.Children().Append(setting_card(L"Mouse Hover Time", L"Sets how long the pointer must hover before Windows responds.", mouse_hover_time_,
-                false, winchisel::core::assess_registry_targets(std::array{target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string)}), risk_badges_visible()));
+            {
+                auto rec_tip = hstring{std::wstring(winchisel::ui::tr(L"Recommended")) + L": 1ms (Instant)"};
+                auto def_tip = hstring{std::wstring(winchisel::ui::tr(L"Defaults")) + L": 400ms (Default)"};
+                auto trailing = with_quick_set(mouse_hover_time_, rec_tip, def_tip,
+                    [this] { if (!loading_gaming_selections_) mouse_hover_time_.SelectedIndex(0); },
+                    [this] { if (!loading_gaming_selections_) mouse_hover_time_.SelectedIndex(5); });
+                content.Children().Append(setting_card(L"Mouse Hover Time", L"Sets how long the pointer must hover before Windows responds.", trailing,
+                    false, winchisel::core::assess_registry_targets(std::array{target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string)}), risk_badges_visible()));
+            }
             background_apps_ = Controls::ComboBox();
             Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(background_apps_,L"Let Apps Run in Background");
             for (auto const& option : {L"User in Control (Default)", L"Force Allow", L"Force Deny"}) {
@@ -255,10 +331,17 @@ PerformancePage::PerformancePage() {
                 background_apps_.Items().Append(item);
             }
             background_apps_.SelectionChanged([this](auto&&, auto&&) { save_background_apps(); });
-            content.Children().Append(setting_card(L"Let Apps Run in Background", L"Controls whether apps may continue running in the background.", background_apps_,
-                false, winchisel::core::assess_registry_targets(std::array{
-                    target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword),
-                    target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword)}), risk_badges_visible()));
+            {
+                auto rec_tip = hstring{std::wstring(winchisel::ui::tr(L"Recommended")) + L": Force Deny"};
+                auto def_tip = hstring{std::wstring(winchisel::ui::tr(L"Defaults")) + L": User in Control (Default)"};
+                auto trailing = with_quick_set(background_apps_, rec_tip, def_tip,
+                    [this] { if (!loading_gaming_selections_) background_apps_.SelectedIndex(2); },
+                    [this] { if (!loading_gaming_selections_) background_apps_.SelectedIndex(0); });
+                content.Children().Append(setting_card(L"Let Apps Run in Background", L"Controls whether apps may continue running in the background.", trailing,
+                    false, winchisel::core::assess_registry_targets(std::array{
+                        target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword),
+                        target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword)}), risk_badges_visible()));
+            }
             expander.Content(content);
         } else {
             auto content = Controls::StackPanel();
@@ -280,7 +363,14 @@ PerformancePage::PerformancePage() {
                     toggle.IsEnabled(supported);
                     catalog_toggles_.push_back({std::string(item.id), toggle});
                     toggle.Toggled([this, toggle_index](auto&&, auto&&) { save_catalog_toggle(toggle_index); });
-                    control = toggle;
+                    if (auto rec = performance_profile_for(item.id, false, true), def = performance_profile_for(item.id, false, false); rec && def) {
+                        const bool rec_on = *rec != 0, def_on = *def != 0;
+                        control = with_quick_set(toggle, toggle_tip(true, rec_on), toggle_tip(false, def_on),
+                            [this, toggle_index, rec_on] { if (!loading_gaming_toggles_) catalog_toggles_[toggle_index].control.IsOn(rec_on); },
+                            [this, toggle_index, def_on] { if (!loading_gaming_toggles_) catalog_toggles_[toggle_index].control.IsOn(def_on); });
+                    } else {
+                        control = toggle;
+                    }
                 } else {
                     auto combo = Controls::ComboBox();
                     Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(combo,to_hstring(item.name));
@@ -299,7 +389,25 @@ PerformancePage::PerformancePage() {
                     combo.IsEnabled(true);
                     catalog_selections_.push_back({std::string(item.id),std::move(options),combo});
                     combo.SelectionChanged([this,selection_index](auto&&,auto&&){save_catalog_selection(selection_index);});
-                    control = combo;
+                    {
+                        auto const& stored = catalog_selections_.back();
+                        auto rec = performance_profile_for(item.id, true, true);
+                        auto def = performance_profile_for(item.id, true, false);
+                        const bool has = rec && def && *rec >= 0 && *def >= 0 &&
+                            *rec < static_cast<std::int32_t>(stored.options.size()) &&
+                            *def < static_cast<std::int32_t>(stored.options.size());
+                        if (has) {
+                            auto label = [&](std::int32_t v) { return to_hstring(stored.options[static_cast<std::size_t>(v)]); };
+                            auto rec_tip = hstring{std::wstring(winchisel::ui::tr(L"Recommended")) + L": " + std::wstring(label(*rec))};
+                            auto def_tip = hstring{std::wstring(winchisel::ui::tr(L"Defaults")) + L": " + std::wstring(label(*def))};
+                            const auto rec_idx = *rec, def_idx = *def;
+                            control = with_quick_set(combo, rec_tip, def_tip,
+                                [this, selection_index, rec_idx] { if (!loading_gaming_selections_) catalog_selections_[selection_index].control.SelectedIndex(rec_idx); },
+                                [this, selection_index, def_idx] { if (!loading_gaming_selections_) catalog_selections_[selection_index].control.SelectedIndex(def_idx); });
+                        } else {
+                            control = combo;
+                        }
+                    }
                 }
                 auto card=setting_card(to_hstring(item.name),to_hstring(item.description),control,show_new&&winchisel::core::is_new_tweak(item.id),winchisel::core::assess_performance(item.id),risk_badges_visible());
                 std::string_view child_id;
@@ -311,7 +419,7 @@ PerformancePage::PerformancePage() {
                     auto nested=Controls::Expander();nested.Header(card);nested.HorizontalAlignment(HorizontalAlignment::Stretch);nested.HorizontalContentAlignment(HorizontalAlignment::Stretch);
                     auto child=std::ranges::find_if(winchisel::core::get_performance_catalog(),[&](auto const& candidate){return candidate.id==child_id;});
                     if(child!=winchisel::core::get_performance_catalog().end()){
-                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),toggle,show_new&&winchisel::core::is_new_tweak(child->id),winchisel::core::assess_performance(child->id),risk_badges_visible());child_card.Margin({24,8,0,0});nested.Content(child_card);
+                        auto toggle=Controls::ToggleSwitch();Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle,to_hstring(child->name));toggle.OnContent(box_value(L""));toggle.OffContent(box_value(L""));toggle.MinWidth(0);toggle.Width(40);auto child_index=catalog_toggles_.size();toggle.IsEnabled(true);catalog_toggles_.push_back({std::string(child->id),toggle});toggle.Toggled([this,child_index](auto&&,auto&&){save_catalog_toggle(child_index);});FrameworkElement child_control{nullptr};if(auto rec=performance_profile_for(child->id,false,true),def=performance_profile_for(child->id,false,false);rec&&def){const bool rec_on=*rec!=0,def_on=*def!=0;child_control=with_quick_set(toggle,toggle_tip(true,rec_on),toggle_tip(false,def_on),[this,child_index,rec_on]{if(!loading_gaming_toggles_)catalog_toggles_[child_index].control.IsOn(rec_on);},[this,child_index,def_on]{if(!loading_gaming_toggles_)catalog_toggles_[child_index].control.IsOn(def_on);});}else{child_control=toggle;}auto child_card=setting_card(to_hstring(child->name),to_hstring(child->description),child_control,show_new&&winchisel::core::is_new_tweak(child->id),winchisel::core::assess_performance(child->id),risk_badges_visible());child_card.Margin({24,8,0,0});nested.Content(child_card);
                     }
                     content.Children().Append(nested);
                 }
@@ -487,11 +595,7 @@ void PerformancePage::apply_gaming_profile(bool recommended) {
 
 void PerformancePage::apply_catalog_profile(bool recommended) {
     const auto profile_for = [recommended](std::string_view id, bool selection) -> std::optional<std::int32_t> {
-        const auto rule = std::ranges::find_if(winchisel::core::get_performance_profile_rules(), [id](auto const& value) { return value.id == id; });
-        if (rule == winchisel::core::get_performance_profile_rules().end()) return std::nullopt;
-        const auto value = selection ? (recommended ? rule->recommended_selection : rule->default_selection)
-                                     : (recommended ? rule->recommended_toggle : rule->default_toggle);
-        return value < 0 ? std::nullopt : std::optional<std::int32_t>{value};
+        return performance_profile_for(id, selection, recommended);
     };
     loading_gaming_toggles_ = true;
     for (auto& item : catalog_toggles_) if (auto value = profile_for(item.id, false)) item.control.IsOn(*value != 0);

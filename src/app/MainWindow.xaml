@@ -42,7 +42,7 @@
         KeyboardAcceleratorPlacementMode="Hidden"
         IsBackButtonVisible="Collapsed"
         IsSettingsVisible="False"
-        OpenPaneLength="240"
+        OpenPaneLength="256"
         CompactModeThresholdWidth="0"
         ExpandedModeThresholdWidth="0"
         IsPaneToggleButtonVisible="False"
