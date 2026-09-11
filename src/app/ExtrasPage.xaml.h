@@ -13,9 +13,12 @@ struct ExtrasPage : ExtrasPageT<ExtrasPage> {
     void ToggleChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void PowerPlanClick(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UltimatePlanClick(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    // Public for the file-local revert-journal helpers in ExtrasPage.xaml.cpp
+    // (extras_journal_targets / extras_toggle_label map each toggle to the
+    // exact registry values it touches). Kept next to the members that use it.
+    enum class RegistryToggle { modern_standby, sync_provider, ctfmon, ctfmon_dll, timer_resolution, ipv6, ps7, brave, edge, long_paths, developer_mode, verbose_boot };
 private:
     enum class CommandAction { power_plan, ultimate_plan, widgets, teredo, hpet, dynamic_tick };
-    enum class RegistryToggle { modern_standby, sync_provider, ctfmon, ctfmon_dll, timer_resolution, ipv6, ps7, brave, edge, long_paths, developer_mode, verbose_boot };
     struct RegistrySnapshot {
         bool modern_standby{}, sync_provider{}, brave{}, edge{}, ctfmon{}, ctfmon_dll{}, timer_resolution{}, ipv6{}, teredo{}, ps7{}, long_paths{}, developer_mode{}, verbose_boot{};
         DWORD ipv6_value{};
