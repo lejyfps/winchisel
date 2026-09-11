@@ -110,7 +110,7 @@ int bundle(std::filesystem::path const& stub, std::filesystem::path const& stage
     }
     std::sort(files.begin(), files.end(), [](auto const& a, auto const& b) { return a.relative < b.relative; });
     COMPRESSOR_HANDLE compressor{};
-    if (!CreateCompressor(COMPRESS_ALGORITHM_XPRESS_HUFF, nullptr, &compressor)) return 2;
+    if (!CreateCompressor(COMPRESS_ALGORITHM_LZMS, nullptr, &compressor)) return 2;
     bool compressed_ok = true;
     std::uint64_t total_raw{};
     for (auto& file : files) {
