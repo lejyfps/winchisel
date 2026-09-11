@@ -436,7 +436,7 @@ winchisel::core::Result<void> run_hidden(std::wstring command, char const* messa
     startup.dwFlags = STARTF_USESHOWWINDOW;
     startup.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION process{};
-    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+    if (!detail::start_hidden_process(command, FALSE, startup, process)) {
         return fail(message_key, "Failed to start process");
     }
     const auto waited = detail::wait_process(process.hProcess, timeout_ms);
@@ -463,7 +463,7 @@ winchisel::core::Result<void> run_logged(std::wstring command, char const* messa
     startup.hStdOutput = write;
     startup.hStdError = write;
     PROCESS_INFORMATION process{};
-    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+    if (!detail::start_hidden_process(command, TRUE, startup, process)) {
         CloseHandle(read);
         CloseHandle(write);
         return fail(message_key, "Failed to start process");

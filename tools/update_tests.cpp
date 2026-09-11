@@ -69,6 +69,8 @@ int wmain() {
     // Desktop shortcut preservation across setup upgrades: an existing
     // shortcut must map to an explicit task arg, otherwise nothing is
     // passed and installer defaults apply untouched (opt-out keeps working).
+    expect(is_portable_install() == true || is_portable_install() == false, "portable probe answers");
+
     expect(setup_installer_task_args(true) == L"/MERGETASKS=desktopicon",
         "existing shortcut preserved");
     expect(setup_installer_task_args(false).empty(), "no shortcut no args");

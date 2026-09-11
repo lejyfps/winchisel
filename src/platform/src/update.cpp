@@ -13,11 +13,13 @@
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <ranges>
 #include <regex>
 #include <span>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #pragma comment(lib, "bcrypt.lib")
@@ -32,30 +34,131 @@ winchisel::core::Result<ReleaseManifest> fail(std::string detail) {
     return std::unexpected(winchisel::core::Error{.detail = std::move(detail)});
 }
 
-winchisel::core::Result<std::string> get_https(std::string_view url, std::uint64_t maximum_size = 4 * 1024 * 1024) {
+struct WinHttpHandle {
+    HINTERNET handle{};
+    WinHttpHandle() = default;
+    explicit WinHttpHandle(HINTERNET value) : handle(value) {}
+    ~WinHttpHandle() { if (handle) WinHttpCloseHandle(handle); }
+    WinHttpHandle(WinHttpHandle const&) = delete;
+    WinHttpHandle& operator=(WinHttpHandle const&) = delete;
+    WinHttpHandle(WinHttpHandle&& other) noexcept : handle(std::exchange(other.handle, nullptr)) {}
+    WinHttpHandle& operator=(WinHttpHandle&& other) noexcept {
+        if (this != &other) {
+            if (handle) WinHttpCloseHandle(handle);
+            handle = std::exchange(other.handle, nullptr);
+        }
+        return *this;
+    }
+    operator HINTERNET() const { return handle; }
+};
+
+struct HttpsRequest {
+    WinHttpHandle session;
+    WinHttpHandle connection;
+    WinHttpHandle request;
+    DWORD status{};
+};
+
+winchisel::core::Result<HttpsRequest> open_https_get(std::string_view url, wchar_t const* accept) {
     const int count = MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), nullptr, 0);
-    std::wstring wide(count, L'\0'); MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), wide.data(), count);
-    URL_COMPONENTS parts{.dwStructSize = sizeof(parts)}; std::array<wchar_t, 256> host{}; std::array<wchar_t, 4096> path{};
-    parts.lpszHostName = host.data(); parts.dwHostNameLength = static_cast<DWORD>(host.size()); parts.lpszUrlPath = path.data(); parts.dwUrlPathLength = static_cast<DWORD>(path.size());
-    if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS) return std::unexpected(winchisel::core::Error{.detail="Invalid HTTPS URL"});
-    HINTERNET session=WinHttpOpen(L"Winchisel/1.0",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0); if(!session) return std::unexpected(winchisel::core::Error{.detail="WinHttpOpen failed"});
-    WinHttpSetTimeouts(session, 10'000, 10'000, 30'000, 30'000);
+    std::wstring wide(count, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), wide.data(), count);
+    URL_COMPONENTS parts{.dwStructSize = sizeof(parts)};
+    std::array<wchar_t, 256> host{};
+    std::array<wchar_t, 4096> path{};
+    parts.lpszHostName = host.data();
+    parts.dwHostNameLength = static_cast<DWORD>(host.size());
+    parts.lpszUrlPath = path.data();
+    parts.dwUrlPathLength = static_cast<DWORD>(path.size());
+    if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS)
+        return std::unexpected(winchisel::core::Error{.detail="Invalid HTTPS URL"});
+    HttpsRequest http;
+    http.session = WinHttpHandle(WinHttpOpen(L"Winchisel/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    if (!http.session) return std::unexpected(winchisel::core::Error{.detail="WinHttpOpen failed"});
+    WinHttpSetTimeouts(http.session, 10'000, 10'000, 30'000, 30'000);
     std::wstring target(path.data(), parts.dwUrlPathLength);
     if (parts.lpszExtraInfo && parts.dwExtraInfoLength) target.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
-    HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",target.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
-    static constexpr wchar_t headers[] = L"Accept: application/vnd.github+json\r\n";
-    const bool sent=request&&WinHttpSendRequest(request,headers,static_cast<DWORD>(std::size(headers)-1),WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
-    std::string output; bool too_large{}; bool transport{}; auto deadline=GetTickCount64()+120'000;
-    if(sent&&status==200){for(;;){if(GetTickCount64()>deadline){transport=true;break;}DWORD available{};if(!WinHttpQueryDataAvailable(request,&available)){transport=true;break;}if(!available)break;if(output.size()>maximum_size||available>maximum_size-output.size()){too_large=true;break;}const auto at=output.size();output.resize(at+available);DWORD read{};if(!WinHttpReadData(request,output.data()+at,available,&read)){transport=true;output.resize(at);break;}output.resize(at+read);if(read)deadline=GetTickCount64()+120'000;}}
-    if(request)WinHttpCloseHandle(request);if(connection)WinHttpCloseHandle(connection);WinHttpCloseHandle(session);
-    if(too_large)return std::unexpected(winchisel::core::Error{.detail="Response exceeded declared size limit"});
-    if(transport)return std::unexpected(winchisel::core::Error{.detail="HTTPS transfer failed"});
-    if(!sent||status!=200) return std::unexpected(winchisel::core::Error{.detail="GitHub returned HTTP "+std::to_string(status)}); return output;
+    http.connection = WinHttpHandle(WinHttpConnect(http.session, host.data(), parts.nPort, 0));
+    http.request = WinHttpHandle(http.connection
+        ? WinHttpOpenRequest(http.connection, L"GET", target.c_str(), nullptr, WINHTTP_NO_REFERER,
+            WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
+        : nullptr);
+    const bool sent = http.request &&
+        WinHttpSendRequest(http.request, accept, static_cast<DWORD>(wcslen(accept)), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+        WinHttpReceiveResponse(http.request, nullptr);
+    DWORD size = sizeof(http.status);
+    if (sent)
+        WinHttpQueryHeaders(http.request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+            WINHTTP_HEADER_NAME_BY_INDEX, &http.status, &size, WINHTTP_NO_HEADER_INDEX);
+    if (!sent || http.status != 200)
+        return std::unexpected(winchisel::core::Error{.detail="GitHub returned HTTP " + std::to_string(http.status)});
+    return http;
+}
+
+winchisel::core::Result<std::string> get_https(std::string_view url, std::uint64_t maximum_size = 4 * 1024 * 1024) {
+    auto http = open_https_get(url, L"Accept: application/vnd.github+json\r\n");
+    if (!http) return std::unexpected(http.error());
+    std::string output;
+    bool too_large{};
+    bool transport{};
+    auto deadline = GetTickCount64() + 120'000;
+    for (;;) {
+        if (GetTickCount64() > deadline) { transport = true; break; }
+        DWORD available{};
+        if (!WinHttpQueryDataAvailable(http->request, &available)) { transport = true; break; }
+        if (!available) break;
+        if (output.size() > maximum_size || available > maximum_size - output.size()) { too_large = true; break; }
+        const auto at = output.size();
+        output.resize(at + available);
+        DWORD read{};
+        if (!WinHttpReadData(http->request, output.data() + at, available, &read)) {
+            transport = true;
+            output.resize(at);
+            break;
+        }
+        output.resize(at + read);
+        if (read) deadline = GetTickCount64() + 120'000;
+    }
+    if (too_large) return std::unexpected(winchisel::core::Error{.detail="Response exceeded declared size limit"});
+    if (transport) return std::unexpected(winchisel::core::Error{.detail="HTTPS transfer failed"});
+    return output;
+}
+
+std::optional<std::string> json_string_field(std::string_view json, std::string_view key, std::size_t from = 0) {
+    const auto needle = std::string("\"") + std::string(key) + "\"";
+    auto at = json.find(needle, from);
+    while (at != std::string_view::npos) {
+        auto colon = json.find(':', at + needle.size());
+        if (colon == std::string_view::npos) return std::nullopt;
+        auto q = json.find_first_not_of(" \t\r\n", colon + 1);
+        if (q == std::string_view::npos || json[q] != '"') {
+            at = json.find(needle, at + needle.size());
+            continue;
+        }
+        ++q;
+        auto end = q;
+        while (end < json.size() && json[end] != '"') {
+            if (json[end] == '\\' && end + 1 < json.size()) end += 2;
+            else ++end;
+        }
+        if (end >= json.size()) return std::nullopt;
+        return std::string(json.substr(q, end - q));
+    }
+    return std::nullopt;
 }
 
 std::optional<std::string> asset_url(std::string const& api_json, std::string_view name) {
-    const std::regex marker("\\\"name\\\"\\s*:\\s*\\\"" + std::string(name) + "\\\""); std::smatch name_match; if(!std::regex_search(api_json,name_match,marker))return std::nullopt; const auto position=static_cast<std::size_t>(name_match.position());
-    const auto remainder=api_json.substr(position); static const std::regex url(R"json("browser_download_url"\s*:\s*"([^"]+)")json"); std::smatch match; return std::regex_search(remainder,match,url)?std::optional<std::string>{match[1].str()}:std::nullopt;
+    std::size_t search{};
+    for (;;) {
+        const auto key = api_json.find("\"name\"", search);
+        if (key == std::string::npos) return std::nullopt;
+        auto value = json_string_field(api_json, "name", key);
+        if (value && *value == name) {
+            return json_string_field(api_json, "browser_download_url", key);
+        }
+        search = key + 6;
+    }
 }
 
 std::vector<std::byte> decode_base64(std::string_view value) {
@@ -155,22 +258,10 @@ std::string sha256_hex_file(std::filesystem::path const& file) {
 }
 
 winchisel::core::Result<void> download_https_file(std::string_view url, std::filesystem::path const& destination, std::uint64_t expected_size, std::string_view expected_sha256, UpdateProgress const& progress = {}) {
-    const int count = MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), nullptr, 0);
-    std::wstring wide(count, L'\0'); MultiByteToWideChar(CP_UTF8, 0, url.data(), static_cast<int>(url.size()), wide.data(), count);
-    URL_COMPONENTS parts{.dwStructSize = sizeof(parts)}; std::array<wchar_t, 256> host{}; std::array<wchar_t, 4096> path{};
-    parts.lpszHostName = host.data(); parts.dwHostNameLength = static_cast<DWORD>(host.size()); parts.lpszUrlPath = path.data(); parts.dwUrlPathLength = static_cast<DWORD>(path.size());
-    if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS) return std::unexpected(winchisel::core::Error{.detail="Invalid HTTPS URL"});
-    HINTERNET session=WinHttpOpen(L"Winchisel/1.0",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0); if(!session) return std::unexpected(winchisel::core::Error{.detail="WinHttpOpen failed"});
-    WinHttpSetTimeouts(session, 10'000, 10'000, 30'000, 30'000);
-    std::wstring target(path.data(), parts.dwUrlPathLength);
-    if (parts.lpszExtraInfo && parts.dwExtraInfoLength) target.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
-    HINTERNET connection=WinHttpConnect(session,host.data(),parts.nPort,0); HINTERNET request=connection?WinHttpOpenRequest(connection,L"GET",target.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr;
-    static constexpr wchar_t headers[] = L"Accept: application/octet-stream\r\n";
-    const bool sent=request&&WinHttpSendRequest(request,headers,static_cast<DWORD>(std::size(headers)-1),WINHTTP_NO_REQUEST_DATA,0,0,0)&&WinHttpReceiveResponse(request,nullptr); DWORD status{}; DWORD size=sizeof(status); if(sent) WinHttpQueryHeaders(request,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX);
-    auto close=[&]{ if(request)WinHttpCloseHandle(request); if(connection)WinHttpCloseHandle(connection); WinHttpCloseHandle(session); };
-    if(!sent||status!=200){ close(); return std::unexpected(winchisel::core::Error{.detail="GitHub returned HTTP "+std::to_string(status)}); }
+    auto http = open_https_get(url, L"Accept: application/octet-stream\r\n");
+    if (!http) return std::unexpected(http.error());
     std::ofstream output(destination, std::ios::binary|std::ios::trunc);
-    if(!output){ close(); return std::unexpected(winchisel::core::Error{.detail="Write failed"}); }
+    if(!output) return std::unexpected(winchisel::core::Error{.detail="Write failed"});
     Sha256 hasher;
     std::array<char, 65536> buffer{};
     std::uint64_t total{};
@@ -191,13 +282,13 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
     for(;;){
         if(GetTickCount64()>deadline){transport=true;break;}
         DWORD available{};
-        if(!WinHttpQueryDataAvailable(request,&available)){transport=true;break;}
+        if(!WinHttpQueryDataAvailable(http->request,&available)){transport=true;break;}
         if(!available)break;
         while(available){
             const DWORD chunk=static_cast<DWORD>(std::min<std::uint64_t>(available, buffer.size()));
             if(total+chunk>expected_size){ failed=true; break; }
             DWORD read{};
-            if(!WinHttpReadData(request,buffer.data(),chunk,&read)){transport=true;break;}
+            if(!WinHttpReadData(http->request,buffer.data(),chunk,&read)){transport=true;break;}
             if(!read){transport=true;break;}
             if(!hasher.update(buffer.data(), read) || !output.write(buffer.data(), static_cast<std::streamsize>(read))){ failed=true; break; }
             total+=read; available-=read;
@@ -207,7 +298,6 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
         if(failed||transport) break;
     }
     output.close();
-    close();
     auto remove_partial=[&]{ std::error_code error; std::filesystem::remove(destination, error); };
     if(transport){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail="HTTPS transfer failed"}); }
     if(failed||!output||total!=expected_size){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail=failed&&total+1>expected_size?"Response exceeded declared size limit":"Unexpected download size"}); }
@@ -216,20 +306,24 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
     return {};
 }
 
+std::optional<std::wstring> trusted_host_path(std::wstring const& value) {
+    std::error_code error;
+    auto path = std::filesystem::weakly_canonical(std::filesystem::path(value), error);
+    if (error || !path.is_absolute() || _wcsicmp(path.extension().c_str(), L".exe") != 0) return std::nullopt;
+    if (!std::filesystem::is_regular_file(path, error) || error) return std::nullopt;
+    if (std::filesystem::is_symlink(path, error) || error) return std::nullopt;
+    const auto attr = GetFileAttributesW(path.c_str());
+    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_REPARSE_POINT)) return std::nullopt;
+    return path.wstring();
+}
+
 std::optional<std::wstring> portable_host() {
     const auto size = GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", nullptr, 0);
     if (size > 1) {
         std::wstring host(size, L'\0');
         if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), size)) {
             if (host.back() == L'\0') host.pop_back();
-            // Only trust the variable when it names an existing executable;
-            // otherwise fall through to the explicit command-line flag.
-            std::error_code error;
-            const std::filesystem::path candidate(host);
-            if (candidate.is_absolute() && _wcsicmp(candidate.extension().c_str(), L".exe") == 0 &&
-                std::filesystem::is_regular_file(candidate, error) && !error) {
-                return host;
-            }
+            if (auto trusted = trusted_host_path(host)) return trusted;
         }
     }
     int count{};
@@ -238,7 +332,7 @@ std::optional<std::wstring> portable_host() {
     std::optional<std::wstring> host;
     for (int index = 1; index + 1 < count; ++index) {
         if (std::wstring_view(arguments[index]) == L"--portable-host") {
-            host = arguments[index + 1];
+            host = trusted_host_path(arguments[index + 1]);
             break;
         }
     }

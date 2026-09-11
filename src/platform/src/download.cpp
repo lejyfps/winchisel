@@ -7,6 +7,7 @@
 #include <chrono>
 #include <future>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <regex>
 #include <string>
@@ -22,6 +23,7 @@ struct CommandResult { DWORD exit_code{}; bool timed_out{}; std::string output; 
 std::mutex cache_mutex;
 ScanData cache;
 bool cache_valid{};
+std::shared_ptr<std::shared_future<winchisel::core::Result<ScanData>>> inflight;
 
 winchisel::core::Error error(std::string detail) {
     return {.detail=std::move(detail)};
@@ -38,9 +40,38 @@ winchisel::core::Result<CommandResult> run_hidden(std::wstring command, DWORD ti
     return CommandResult{waited.exit_code, waited.timed_out, std::move(output)};
 }
 
-StringSet registry_display_names(HKEY root,std::wstring const& path) {
-    StringSet result;HKEY key{};if(RegOpenKeyExW(root,path.c_str(),0,KEY_READ,&key)!=ERROR_SUCCESS)return result;
-    for(DWORD index{};;++index){std::array<wchar_t,256> name{};DWORD length=static_cast<DWORD>(name.size());const auto status=RegEnumKeyExW(key,index,name.data(),&length,nullptr,nullptr,nullptr,nullptr);if(status==ERROR_NO_MORE_ITEMS)break;if(status!=ERROR_SUCCESS)continue;HKEY entry{};if(RegOpenKeyExW(key,name.data(),0,KEY_READ,&entry)!=ERROR_SUCCESS)continue;DWORD type{},bytes{};if(RegQueryValueExW(entry,L"DisplayName",nullptr,&type,nullptr,&bytes)==ERROR_SUCCESS&&(type==REG_SZ||type==REG_EXPAND_SZ)&&bytes>=sizeof(wchar_t)){std::wstring value(bytes/sizeof(wchar_t),L'\0');if(RegQueryValueExW(entry,L"DisplayName",nullptr,nullptr,reinterpret_cast<BYTE*>(value.data()),&bytes)==ERROR_SUCCESS){while(!value.empty()&&!value.back())value.pop_back();const auto chars=WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),nullptr,0,nullptr,nullptr);std::string utf8(chars,'\0');WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),utf8.data(),chars,nullptr,nullptr);std::ranges::transform(utf8,utf8.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});result.insert(std::move(utf8));}}RegCloseKey(entry);}RegCloseKey(key);return result;
+void insert_display_name(StringSet& result, HKEY entry) {
+    DWORD type{}, bytes{};
+    if (RegQueryValueExW(entry, L"DisplayName", nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS) return;
+    if ((type != REG_SZ && type != REG_EXPAND_SZ) || bytes < sizeof(wchar_t)) return;
+    std::wstring value(bytes / sizeof(wchar_t), L'\0');
+    if (RegQueryValueExW(entry, L"DisplayName", nullptr, nullptr, reinterpret_cast<BYTE*>(value.data()), &bytes) != ERROR_SUCCESS)
+        return;
+    while (!value.empty() && !value.back()) value.pop_back();
+    const auto chars = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+    std::string utf8(chars, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), utf8.data(), chars, nullptr, nullptr);
+    std::ranges::transform(utf8, utf8.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    result.insert(std::move(utf8));
+}
+
+StringSet registry_display_names(HKEY root, std::wstring const& path) {
+    StringSet result;
+    HKEY key{};
+    if (RegOpenKeyExW(root, path.c_str(), 0, KEY_READ, &key) != ERROR_SUCCESS) return result;
+    for (DWORD index{};; ++index) {
+        std::array<wchar_t, 256> name{};
+        DWORD length = static_cast<DWORD>(name.size());
+        const auto status = RegEnumKeyExW(key, index, name.data(), &length, nullptr, nullptr, nullptr, nullptr);
+        if (status == ERROR_NO_MORE_ITEMS) break;
+        if (status != ERROR_SUCCESS) continue;
+        HKEY entry{};
+        if (RegOpenKeyExW(key, name.data(), 0, KEY_READ, &entry) != ERROR_SUCCESS) continue;
+        insert_display_name(result, entry);
+        RegCloseKey(entry);
+    }
+    RegCloseKey(key);
+    return result;
 }
 
 winchisel::core::Result<StringSet> winget_ids() {
@@ -56,12 +87,33 @@ winchisel::core::Result<StringSet> winget_ids() {
     StringSet result;static const std::regex id(R"json("PackageIdentifier"\s*:\s*"([^"]+)")json");for(std::sregex_iterator it(json.begin(),json.end(),id),end;it!=end;++it){auto value=(*it)[1].str();std::ranges::transform(value,value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});result.insert(std::move(value));}return result;
 }
 
+StringSet scan_uninstall_registry() {
+    StringSet result;
+    auto append = [&](StringSet values) { result.insert(values.begin(), values.end()); };
+    append(registry_display_names(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"));
+    append(registry_display_names(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"));
+    HKEY users{};
+    if (RegOpenKeyExW(HKEY_USERS, nullptr, 0, KEY_READ, &users) != ERROR_SUCCESS) return result;
+    for (DWORD i{};; ++i) {
+        std::array<wchar_t, 256> sid{};
+        DWORD length = static_cast<DWORD>(sid.size());
+        const auto status = RegEnumKeyExW(users, i, sid.data(), &length, nullptr, nullptr, nullptr, nullptr);
+        if (status == ERROR_NO_MORE_ITEMS) break;
+        if (status != ERROR_SUCCESS || wcsstr(sid.data(), L"_Classes")) continue;
+        append(registry_display_names(HKEY_USERS,
+            std::wstring(sid.data(), length) + L"\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"));
+    }
+    RegCloseKey(users);
+    return result;
+}
+
 winchisel::core::Result<ScanData> perform_scan() {
-    auto ids=std::async(std::launch::async,winget_ids);
-    auto registry=std::async(std::launch::async,[]{StringSet result;auto append=[&](auto values){result.insert(values.begin(),values.end());};append(registry_display_names(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"));append(registry_display_names(HKEY_LOCAL_MACHINE,L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"));HKEY users{};if(RegOpenKeyExW(HKEY_USERS,nullptr,0,KEY_READ,&users)==ERROR_SUCCESS){for(DWORD i{};;++i){std::array<wchar_t,256> sid{};DWORD length=static_cast<DWORD>(sid.size());const auto status=RegEnumKeyExW(users,i,sid.data(),&length,nullptr,nullptr,nullptr,nullptr);if(status==ERROR_NO_MORE_ITEMS)break;if(status!=ERROR_SUCCESS||wcsstr(sid.data(),L"_Classes"))continue;append(registry_display_names(HKEY_USERS,std::wstring(sid.data(),length)+L"\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"));}RegCloseKey(users);}return result;});
-    auto id_result=ids.get();auto registry_result=registry.get();
-    if(!id_result)return std::unexpected(id_result.error());
-    return ScanData{std::move(*id_result),std::move(registry_result),Clock::now()};
+    auto ids = std::async(std::launch::async, winget_ids);
+    auto registry = std::async(std::launch::async, scan_uninstall_registry);
+    auto id_result = ids.get();
+    auto registry_result = registry.get();
+    if (!id_result) return std::unexpected(id_result.error());
+    return ScanData{std::move(*id_result), std::move(registry_result), Clock::now()};
 }
 
 bool contains(StringSet const& values,std::string_view needle,bool exact=false){std::string lower(needle);std::ranges::transform(lower,lower.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(lower.empty())return false;return std::ranges::any_of(values,[&](auto const& value){
@@ -75,7 +127,46 @@ bool contains(StringSet const& values,std::string_view needle,bool exact=false){
 });}
 }
 
-winchisel::core::Result<std::vector<bool>> scan_downloads_installed(std::span<winchisel::core::DownloadCatalogEntry const> catalog,bool force_refresh){ScanData data;{std::scoped_lock lock(cache_mutex);if(!force_refresh&&cache_valid&&Clock::now()-cache.at<std::chrono::minutes(10))data=cache;}if(data.at==Clock::time_point{}){auto scanned=perform_scan();if(!scanned)return std::unexpected(scanned.error());data=std::move(*scanned);std::scoped_lock lock(cache_mutex);cache=data;cache_valid=true;}std::vector<bool> result;result.reserve(catalog.size());for(auto const& item:catalog){bool installed=contains(data.registry,item.name);std::size_t start{};while(!installed&&start<item.winget_ids.size()){auto end=item.winget_ids.find('|',start);if(end==std::string_view::npos)end=item.winget_ids.size();installed=contains(data.ids,item.winget_ids.substr(start,end-start),true);start=end+1;}result.push_back(installed);}return result;}
+winchisel::core::Result<std::vector<bool>> scan_downloads_installed(
+    std::span<winchisel::core::DownloadCatalogEntry const> catalog, bool force_refresh) {
+    ScanData data;
+    std::shared_ptr<std::shared_future<winchisel::core::Result<ScanData>>> flight;
+    {
+        std::scoped_lock lock(cache_mutex);
+        if (!force_refresh && cache_valid && Clock::now() - cache.at < std::chrono::minutes(10)) {
+            data = cache;
+        } else {
+            if (!inflight) {
+                inflight = std::make_shared<std::shared_future<winchisel::core::Result<ScanData>>>(
+                    std::async(std::launch::async, perform_scan).share());
+            }
+            flight = inflight;
+        }
+    }
+    if (flight) {
+        auto scanned = flight->get();
+        std::scoped_lock lock(cache_mutex);
+        if (inflight == flight) inflight.reset();
+        if (!scanned) return std::unexpected(scanned.error());
+        cache = *scanned;
+        cache_valid = true;
+        data = cache;
+    }
+    std::vector<bool> result;
+    result.reserve(catalog.size());
+    for (auto const& item : catalog) {
+        bool installed = contains(data.registry, item.name);
+        std::size_t start{};
+        while (!installed && start < item.winget_ids.size()) {
+            auto end = item.winget_ids.find('|', start);
+            if (end == std::string_view::npos) end = item.winget_ids.size();
+            installed = contains(data.ids, item.winget_ids.substr(start, end - start), true);
+            start = end + 1;
+        }
+        result.push_back(installed);
+    }
+    return result;
+}
 
 winchisel::core::Result<DownloadInstallResult> install_downloads(std::span<winchisel::core::DownloadCatalogEntry const* const> items){DownloadInstallResult result;for(auto item:items){auto end=item->winget_ids.find('|');auto id=item->winget_ids.substr(0,end);if(id.empty()){++result.failed;result.failure_details.push_back(std::string(item->name)+": no winget ID");continue;}auto command=run_hidden(L"winget.exe install --id \""+wide(id)+L"\" --exact --accept-package-agreements --accept-source-agreements --disable-interactivity", 30 * 60 * 1000);if(command&&command->exit_code==0){++result.succeeded;std::string installed(id);std::ranges::transform(installed,installed.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});std::scoped_lock lock(cache_mutex);if(cache_valid){cache.ids.insert(std::move(installed));}}else{++result.failed;result.failure_details.push_back(std::string(item->name)+": "+(command?(command->timed_out?"winget timed out":"winget exit "+std::to_string(command->exit_code)):command.error().detail));}}return result;}
 

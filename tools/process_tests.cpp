@@ -20,6 +20,22 @@ int wmain(int argc, wchar_t** argv) {
     GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
     auto command = L"\"" + std::wstring(self) + L"\"";
     const auto start = GetTickCount64();
+    {
+        wchar_t sys[MAX_PATH]{};
+        GetSystemDirectoryW(sys, MAX_PATH);
+        const auto cmd = winchisel::platform::detail::resolve_application(L"cmd.exe /c echo");
+        const auto expected = std::wstring(sys) + L"\\cmd.exe";
+        if (_wcsicmp(cmd.c_str(), expected.c_str()) != 0) {
+            std::cerr << "FAIL system32 resolution\n";
+            return 1;
+        }
+        if (!winchisel::platform::detail::resolve_application(L".\\cmd.exe /c echo").empty() ||
+            !winchisel::platform::detail::resolve_application(L"notanexe /c").empty()) {
+            std::cerr << "FAIL relative planting rejected\n";
+            return 1;
+        }
+        std::cout << "ok process path resolution\n";
+    }
     auto [timeout, output] = winchisel::platform::detail::run_captured(command + L" --flood", 150);
     if (!timeout.timed_out || timeout.exit_code != ERROR_TIMEOUT || GetTickCount64() - start > 5000 || output.empty()) {
         std::cerr << "FAIL continuous output timeout\n"; return 1;

@@ -174,11 +174,11 @@ bool wait_for_process(std::wstring_view pid_text) {
     }
 }
 
-bool launch(std::filesystem::path const& target, std::filesystem::path const& host) {
-    // Forward the exact host marker the old app was using (Zed preserves
-    // launch arguments across restarts). The bootstrap stub ignores unknown
-    // arguments, so this never changes stub behavior.
-    std::wstring command = L"\"" + target.wstring() + L"\" --portable-host \"" + host.wstring() + L"\"";
+bool launch(std::filesystem::path const& target) {
+    // Restart the replaced target as itself. Host and target are the same
+    // canonical file so an attacker-supplied --host cannot launch a different
+    // executable after the swap.
+    std::wstring command = L"\"" + target.wstring() + L"\" --portable-host \"" + target.wstring() + L"\"";
     STARTUPINFOW startup{.cb = sizeof(startup)};
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(target.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, target.parent_path().c_str(), &startup, &process)) return false;
@@ -565,12 +565,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     ProgressWindow ui{};
     progress_show(ui);
     updater_log("begin target=" + narrow(target->wstring()) + " staged=" + narrow(staged->wstring()) + " pid=" + narrow(*pid_arg));
-    // The exact host marker the old app was using; falls back to the target
-    // so a missing/invalid passthrough can never fail the update.
-    auto host = *target;
     if (host_arg) {
-        if (auto parsed = absolute_exe(*host_arg)) host = *parsed;
-        else updater_log("ignoring invalid --host, using target");
+        if (auto parsed = absolute_exe(*host_arg); !parsed || _wcsicmp(parsed->c_str(), target->c_str()) != 0)
+            updater_log("ignoring --host that is not the canonical target");
     }
     if (sha256_hex(*staged) != *expected_hash) return finish_update(ui, ERROR_INVALID_DATA, "verify-staged");
     progress_step(ui);
@@ -603,7 +600,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
     progress_step(ui);
     updater_log("launching new version");
-    if (!launch(*target, host)) {
+    if (!launch(*target)) {
         const auto error = GetLastError();
         MoveFileExW(target->c_str(), (target->wstring() + L".failed").c_str(), MOVEFILE_REPLACE_EXISTING);
         MoveFileExW(backup.c_str(), target->c_str(), MOVEFILE_REPLACE_EXISTING);

@@ -281,8 +281,7 @@ Result<void> run_cancellable(std::wstring command, std::atomic<bool> const& canc
     startup.dwFlags = STARTF_USESHOWWINDOW;
     startup.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION process{};
-    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
-            &startup, &process)) {
+    if (!detail::start_hidden_process(command, FALSE, startup, process)) {
         return fail<void>("Could not start cleanup helper (error " + std::to_string(GetLastError()) + ").");
     }
     const auto job = detail::attach_kill_job(process.hProcess);
