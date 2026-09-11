@@ -49,6 +49,18 @@ private:
     // UI keeps showing the real system state.
     void refresh_history_list(winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list,
         std::vector<winchisel::core::RevertEntry> entries);
+    // History footer in either state: action buttons ([Clear history]
+    // [Undo all]) or the inline delete confirm. Inline (not a nested dialog)
+    // because the app-wide DialogSlot allows only one ContentDialog at a time.
+    void refresh_history_footer(winrt::Microsoft::UI::Xaml::Controls::StackPanel const& footer,
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel const& content,
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list,
+        winrt::Microsoft::UI::Xaml::Controls::ScrollViewer const& scroll, bool confirm);
+    winrt::fire_and_forget clear_history_entries(
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list,
+        winrt::Microsoft::UI::Xaml::Controls::ScrollViewer const& scroll,
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel const& footer,
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel const& content);
 
     // Last real page tag (the sidebar "Change history" entry below opens a
     // dialog instead of navigating, so the selection is put back here).

@@ -353,6 +353,31 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
+                                <TextBlock Text="Clear revert data" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Delete all rollback snapshots. Past changes can no longer be undone."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <Button x:Name="ClearRevertButton"
+                                    Grid.Column="1"
+                                    Content="Clear"
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource DangerButtonStyle}"
+                                    Click="ClearRevert_Click" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
                                 <TextBlock Text="System Repair" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Runs DISM and SFC to check and repair Windows component corruption."
                                            TextWrapping="Wrap"

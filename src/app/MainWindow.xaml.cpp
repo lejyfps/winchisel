@@ -156,15 +156,15 @@ MainWindow::MainWindow() {
     AppTitleBarIcon().Source(logo_image);
     update_titlebar_inset();
     SizeChanged([weak = get_weak()](auto&&, auto&&) { if (auto self = weak.get()) self->update_titlebar_inset(); });
-    app_window.Resize({1280, 720});
+    app_window.Resize({1350, 800});
     if (auto area = Microsoft::UI::Windowing::DisplayArea::GetFromWindowId(
             app_window.Id(), Microsoft::UI::Windowing::DisplayAreaFallback::Primary)) {
         const auto work = area.WorkArea();
-        app_window.Move({work.X + (work.Width - 1280) / 2, work.Y + (work.Height - 720) / 2});
+        app_window.Move({work.X + (work.Width - 1350) / 2, work.Y + (work.Height - 800) / 2});
     }
     if (auto presenter = app_window.Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>()) {
-        presenter.PreferredMinimumWidth(1100);
-        presenter.PreferredMinimumHeight(650);
+        presenter.PreferredMinimumWidth(900);
+        presenter.PreferredMinimumHeight(500);
     }
     localize_nav();
     if (winchisel::platform::is_packaged_install()) {
@@ -386,7 +386,152 @@ std::wstring history_page_name(std::string_view page) {
     return std::wstring(page.begin(), page.end());
 }
 
+// Theme-aware critical-red brush (null when the resource is missing, in
+// which case buttons keep their default style instead of failing).
+Media::SolidColorBrush critical_brush() {
+    return Application::Current()
+        .Resources()
+        .Lookup(box_value(L"SystemFillColorCriticalBrush"))
+        .try_as<Media::SolidColorBrush>();
+}
+
+void paint_destructive(Controls::Button const& button) {
+    if (auto critical = critical_brush()) {
+        button.Background(critical);
+        button.Foreground(Media::SolidColorBrush(Windows::UI::Colors::White()));
+    }
+}
+
+void append_history_empty(Controls::StackPanel const& content) {
+    auto empty = Controls::TextBlock();
+    empty.Text(winchisel::ui::tr(L"No changes have been recorded yet."));
+    empty.TextWrapping(TextWrapping::Wrap);
+    content.Children().Append(empty);
+}
+
 }  // namespace
+
+void MainWindow::refresh_history_footer(Controls::StackPanel const& footer,
+    Controls::StackPanel const& content, Controls::StackPanel const& list,
+    Controls::ScrollViewer const& scroll, bool confirm) {
+    footer.Children().Clear();
+    // Remove a previously inserted inline confirm warning (if any) so the
+    // normal state never stacks duplicate warnings.
+    for (std::uint32_t index = 0; index < content.Children().Size();) {
+        if (auto block = content.Children().GetAt(index).try_as<Controls::TextBlock>()) {
+            if (winrt::unbox_value_or<hstring>(block.Tag(), L"") == L"clear-confirm") {
+                content.Children().RemoveAt(index);
+                continue;
+            }
+        }
+        ++index;
+    }
+    if (!confirm) {
+        footer.Orientation(Controls::Orientation::Horizontal);
+        footer.HorizontalAlignment(HorizontalAlignment::Right);
+        footer.Spacing(8);
+        auto clear = Controls::Button();
+        clear.Content(box_value(winchisel::ui::tr(L"Clear history")));
+        auto weak = get_weak();
+        clear.Click([weak, footer, content, list, scroll](auto&&, auto&&) {
+            if (auto self = weak.get()) self->refresh_history_footer(footer, content, list, scroll, true);
+        });
+        footer.Children().Append(clear);
+        auto undo_all = Controls::Button();
+        undo_all.Content(box_value(winchisel::ui::tr(L"Undo all")));
+        // Deep red: solid critical fill with white text, marking the
+        // dialog's destructive action (theme resource, not hardcoded).
+        paint_destructive(undo_all);
+        undo_all.Click([weak, list](auto&&, auto&&) {
+            if (auto self = weak.get()) self->undo_all_history(list);
+        });
+        footer.Children().Append(undo_all);
+        return;
+    }
+    // Inline confirm (not a nested ContentDialog): the app-wide DialogSlot
+    // allows only one ContentDialog at a time, and this footer already lives
+    // inside one.
+    footer.Orientation(Controls::Orientation::Vertical);
+    footer.HorizontalAlignment(HorizontalAlignment::Stretch);
+    footer.Spacing(8);
+    auto warning = Controls::TextBlock();
+    warning.Tag(box_value(L"clear-confirm"));
+    warning.Text(winchisel::ui::tr(
+        L"Delete all rollback data? You will no longer be able to undo past changes. This cannot be undone."));
+    warning.TextWrapping(TextWrapping::Wrap);
+    warning.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    // Insert directly above the footer so the list stays visible.
+    std::uint32_t at = content.Children().Size();
+    for (std::uint32_t index = 0; index < content.Children().Size(); ++index) {
+        if (content.Children().GetAt(index) == footer) {
+            at = index;
+            break;
+        }
+    }
+    content.Children().InsertAt(at, warning);
+    auto row = Controls::StackPanel();
+    row.Orientation(Controls::Orientation::Horizontal);
+    row.HorizontalAlignment(HorizontalAlignment::Right);
+    row.Spacing(8);
+    auto del = Controls::Button();
+    del.Content(box_value(winchisel::ui::tr(L"Clear")));
+    paint_destructive(del);
+    auto weak = get_weak();
+    del.Click([weak, list, scroll, footer, content](auto&&, auto&&) {
+        if (auto self = weak.get()) self->clear_history_entries(list, scroll, footer, content);
+    });
+    row.Children().Append(del);
+    auto keep = Controls::Button();
+    keep.Content(box_value(winchisel::ui::tr(L"Cancel")));
+    keep.Click([weak, footer, content, list, scroll](auto&&, auto&&) {
+        if (auto self = weak.get()) self->refresh_history_footer(footer, content, list, scroll, false);
+    });
+    row.Children().Append(keep);
+    footer.Children().Append(row);
+}
+
+winrt::fire_and_forget MainWindow::clear_history_entries(Controls::StackPanel const& list,
+    Controls::ScrollViewer const& scroll, Controls::StackPanel const& footer,
+    Controls::StackPanel const& content) {
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try {
+        error_queue = DispatcherQueue();
+    } catch (...) {
+    }
+    try {
+        auto lifetime = get_strong();
+        list.IsHitTestVisible(false);
+        footer.IsHitTestVisible(false);
+        winrt::apartment_context ui;
+        co_await winrt::resume_background();
+        auto cleared = winchisel::platform::clear_revert_journal();
+        auto refreshed = winchisel::platform::read_revert_journal();
+        co_await ui;
+        auto self = get_strong();
+        (void)self;
+        (void)scroll;
+        if (cleared && refreshed && refreshed->empty()) {
+            refresh_history_list(list, {});
+            append_history_empty(list);
+            footer.Children().Clear();
+            footer.Visibility(Visibility::Collapsed);
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Success,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()),
+                winchisel::core::loc(L"Change history cleared."));
+        } else {
+            if (refreshed) refresh_history_list(list, std::move(*refreshed));
+            refresh_history_footer(footer, content, list, scroll, false);
+            std::wstring message = winchisel::core::loc(L"Could not clear the change history.");
+            if (!cleared && !cleared.error().detail.empty()) message += L" " + to_hstring(cleared.error().detail);
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Error,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()), message);
+        }
+        list.IsHitTestVisible(true);
+        footer.IsHitTestVisible(true);
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [](winrt::hstring const&) {});
+    }
+}
 
 void MainWindow::refresh_history_list(
     Controls::StackPanel const& list, std::vector<winchisel::core::RevertEntry> entries) {
@@ -604,23 +749,9 @@ winrt::fire_and_forget MainWindow::show_history() {
             auto footer = Controls::StackPanel();
             footer.Orientation(Controls::Orientation::Horizontal);
             footer.HorizontalAlignment(HorizontalAlignment::Right);
-            auto undo_all = Controls::Button();
-            undo_all.Content(box_value(winchisel::ui::tr(L"Undo all")));
-            // Deep red: solid critical fill with white text, marking the
-            // dialog's destructive action (theme resource, not hardcoded).
-            if (auto critical = Application::Current()
-                                      .Resources()
-                                      .Lookup(box_value(L"SystemFillColorCriticalBrush"))
-                                      .try_as<Media::SolidColorBrush>()) {
-                undo_all.Background(critical);
-                undo_all.Foreground(Media::SolidColorBrush(Windows::UI::Colors::White()));
-            }
-            auto weak = get_weak();
-            undo_all.Click([weak, list](auto&&, auto&&) {
-                if (auto self = weak.get()) self->undo_all_history(list);
-            });
-            footer.Children().Append(undo_all);
+            footer.Spacing(8);
             content.Children().Append(footer);
+            refresh_history_footer(footer, content, list, scroll, false);
         }
         dialog.Content(content);
         dialog.CloseButtonText(winchisel::ui::tr(L"Cancel"));

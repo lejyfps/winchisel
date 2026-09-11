@@ -10,6 +10,7 @@
 #include "Localization.hpp"
 #include "winchisel/application/session.hpp"
 #include "winchisel/core/i18n.hpp"
+#include "winchisel/platform/revert.hpp"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/shell.hpp"
 #include "winchisel/platform/update.hpp"
@@ -141,6 +142,7 @@ void SettingsPage::save_settings() {
 
 void SettingsPage::Restore_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::restore); }
 void SettingsPage::Repair_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::repair); }
+void SettingsPage::ClearRevert_Click(IInspectable const&, RoutedEventArgs const&) { clear_revert_data(); }
 void SettingsPage::History_Click(IInspectable const&, RoutedEventArgs const&) {
     if (auto open = winchisel::ui::open_history()) open();
 }
@@ -155,6 +157,7 @@ void SettingsPage::set_busy(bool busy) {
     RestoreButton().IsEnabled(!busy);
     RepairButton().IsEnabled(!busy);
     HistoryButton().IsEnabled(!busy);
+    ClearRevertButton().IsEnabled(!busy);
 }
 
 void SettingsPage::show_result(bool ok, hstring const& text) {
@@ -347,6 +350,64 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
             if (auto self=error_weak.get()) { if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
+        });
+    }
+}
+
+fire_and_forget SettingsPage::clear_revert_data() {
+    auto error_weak = get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try {
+        error_queue = DispatcherQueue();
+    } catch (...) {
+    }
+    try {
+        auto lifetime = get_strong();
+        if (action_ != Action::none) {
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Informational, L"Busy",
+                L"Another maintenance task is still running.");
+            co_return;
+        }
+        winchisel::core::DialogSlot dialog_slot;
+        if (!winchisel::ui::dialog_available(dialog_slot)) co_return;
+
+        // OptiDuck-style confirm: modal dialog with destructive Clear + Cancel.
+        Controls::ContentDialog confirm;
+        confirm.XamlRoot(XamlRoot());
+        confirm.Title(box_value(winchisel::ui::tr(L"Do you really want to proceed?")));
+        auto body = Controls::TextBlock();
+        body.Text(winchisel::ui::tr(L"You are about to delete all rollback data generated after the optimization process. "
+            L"This means you will no longer be able to restore the pre-optimization state, so please think carefully before confirming."));
+        body.TextWrapping(TextWrapping::Wrap);
+        confirm.Content(body);
+        confirm.PrimaryButtonText(winchisel::ui::tr(L"Clear"));
+        confirm.CloseButtonText(winchisel::ui::tr(L"Cancel"));
+        confirm.DefaultButton(Controls::ContentDialogButton::Close);
+        if (co_await confirm.ShowAsync() != Controls::ContentDialogResult::Primary) co_return;
+
+        ResultBar().IsOpen(false);
+        set_busy(true);
+        winrt::apartment_context ui;
+        co_await winrt::resume_background();
+        auto cleared = winchisel::platform::clear_revert_journal();
+        auto refreshed = winchisel::platform::read_revert_journal();
+        co_await ui;
+        auto self = get_strong();
+        (void)self;
+        set_busy(false);
+        if (cleared && refreshed && refreshed->empty()) {
+            show_result(true, hstring{winchisel::ui::tr(L"Revert data cleared.")});
+        } else {
+            std::wstring message = winchisel::core::loc(L"Could not clear revert data.");
+            if (!cleared && !cleared.error().detail.empty()) message += L" " + to_hstring(cleared.error().detail);
+            show_result(false, hstring{message});
+        }
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto page = error_weak.get()) {
+                page->set_busy(false);
+                page->show_result(false, text);
+            }
         });
     }
 }

@@ -161,6 +161,19 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
         {L"Review every applied tweak and undo single changes or everything at once.",
             L"Alle angewendeten Tweaks prüfen und einzelne Änderungen oder alles auf einmal rückgängig machen."},
         {L"View history", L"Verlauf ansehen"},
+        {L"Do you really want to proceed?", L"Wirklich fortfahren?"},
+        {L"You are about to delete all rollback data generated after the optimization process. "
+            L"This means you will no longer be able to restore the pre-optimization state, so please think carefully before confirming.",
+            L"Du bist dabei, alle nach der Optimierung erstellten Rollback-Daten zu löschen. "
+            L"Danach kann der Zustand vor der Optimierung nicht mehr wiederhergestellt werden. Bitte gut überlegen, bevor du bestätigst."},
+        {L"Clear", L"Löschen"},
+        {L"Revert data cleared.", L"Rollback-Daten gelöscht."},
+        {L"Could not clear revert data.", L"Rollback-Daten konnten nicht gelöscht werden."},
+        {L"Clear history", L"Verlauf löschen"},
+        {L"Delete all rollback data? You will no longer be able to undo past changes. This cannot be undone.",
+            L"Alle Rollback-Daten löschen? Vergangene Änderungen können danach nicht mehr rückgängig gemacht werden. Das kann nicht rückgängig gemacht werden."},
+        {L"Change history cleared.", L"Änderungsverlauf gelöscht."},
+        {L"Could not clear the change history.", L"Änderungsverlauf konnte nicht gelöscht werden."},
     };
     return table;
 }

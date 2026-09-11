@@ -27,6 +27,7 @@ struct SettingsPage : SettingsPageT<SettingsPage> {
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Restore_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void History_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ClearRevert_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Repair_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Link_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void flush_pending_save();
@@ -42,6 +43,7 @@ private:
     void flush_log();
     void finish_dialog(winchisel::core::Result<void> const& result);
     winrt::fire_and_forget run_dialog(Action action);
+    winrt::fire_and_forget clear_revert_data();
 
     bool loading_{true};
     Action action_{Action::none};
