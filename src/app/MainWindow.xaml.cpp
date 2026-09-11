@@ -422,6 +422,17 @@ void MainWindow::refresh_history_list(
         auto undo = Controls::Button();
         undo.Content(box_value(winchisel::ui::tr(L"Undo")));
         undo.VerticalAlignment(VerticalAlignment::Center);
+        // Light red: critical tint fill + critical text (same pattern as the
+        // risk badges, so it follows light/dark theme instead of hardcoding).
+        if (auto critical = Application::Current()
+                                  .Resources()
+                                  .Lookup(box_value(L"SystemFillColorCriticalBrush"))
+                                  .try_as<Media::SolidColorBrush>()) {
+            auto tint = critical.Color();
+            tint.A = 0x2E;
+            undo.Background(Media::SolidColorBrush(tint));
+            undo.Foreground(critical);
+        }
         const std::string key = entry.key;
         auto weak = get_weak();
         undo.Click([weak, key, list](auto&&, auto&&) {
@@ -595,6 +606,15 @@ winrt::fire_and_forget MainWindow::show_history() {
             footer.HorizontalAlignment(HorizontalAlignment::Right);
             auto undo_all = Controls::Button();
             undo_all.Content(box_value(winchisel::ui::tr(L"Undo all")));
+            // Deep red: solid critical fill with white text, marking the
+            // dialog's destructive action (theme resource, not hardcoded).
+            if (auto critical = Application::Current()
+                                      .Resources()
+                                      .Lookup(box_value(L"SystemFillColorCriticalBrush"))
+                                      .try_as<Media::SolidColorBrush>()) {
+                undo_all.Background(critical);
+                undo_all.Foreground(Media::SolidColorBrush(Windows::UI::Colors::White()));
+            }
             auto weak = get_weak();
             undo_all.Click([weak, list](auto&&, auto&&) {
                 if (auto self = weak.get()) self->undo_all_history(list);
