@@ -26,6 +26,7 @@ struct SettingsPage : SettingsPageT<SettingsPage> {
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Restore_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void History_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Repair_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Link_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void flush_pending_save();

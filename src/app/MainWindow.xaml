@@ -47,10 +47,6 @@
                         Visibility="Collapsed">
                     <Viewbox Width="10" Height="10"><SymbolIcon Symbol="Cancel" /></Viewbox>
                 </Button>
-                <Button Click="History_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12" Background="Transparent"
-                        ToolTipService.ToolTip="Change history" AutomationProperties.Name="Change history">
-                    <FontIcon Glyph="&#xE7A7;" FontSize="12" />
-                </Button>
                 <Button Click="BugReport_Click" Width="28" Height="28" Padding="0" CornerRadius="4" BorderThickness="0" FontSize="12"
                         Background="Transparent" Foreground="#E81123"
                         ToolTipService.ToolTip="Report a bug" AutomationProperties.Name="Report a bug">

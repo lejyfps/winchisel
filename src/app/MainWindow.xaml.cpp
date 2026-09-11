@@ -191,11 +191,13 @@ MainWindow::MainWindow() {
         winchisel::ui::language_reload() = {};
         winchisel::ui::theme_reload() = {};
         winchisel::ui::update_check() = {};
+        winchisel::ui::open_history() = {};
         winchisel::ui::toast_handler() = {};
     });
     winchisel::ui::language_reload() = [this] { reload_language(); };
     winchisel::ui::theme_reload() = [this] { apply_theme(); };
     winchisel::ui::update_check() = [this] { CheckForUpdates(true); };
+    winchisel::ui::open_history() = [weak = get_weak()] { if (auto self = weak.get()) self->show_history(); };
     winchisel::ui::toast_handler() = [this](auto severity, auto title, auto message) {
         ToastBar().Severity(severity);
         ToastBar().Title(hstring{title});
@@ -370,10 +372,6 @@ void MainWindow::BugReport_Click(IInspectable const&, RoutedEventArgs const&) {
 void MainWindow::Donate_Click(IInspectable const&, RoutedEventArgs const&) {
     if (!winchisel::platform::open_https_url(L"https://pally.gg/p/lejy"))
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Winchisel", L"Could not open the donation page.");
-}
-
-void MainWindow::History_Click(IInspectable const&, RoutedEventArgs const&) {
-    show_history();
 }
 
 namespace {

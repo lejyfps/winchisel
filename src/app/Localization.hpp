@@ -27,6 +27,13 @@ inline std::function<void()>& update_check() {
     return handler;
 }
 
+// Fired by SettingsPage when the user opens the change history. MainWindow
+// owns the dialog (journal UI plus page rebuilds after an undo).
+inline std::function<void()>& open_history() {
+    static std::function<void()> handler;
+    return handler;
+}
+
 inline winrt::hstring tr(std::wstring_view english) {
     return winrt::hstring{winchisel::core::loc(english)};
 }

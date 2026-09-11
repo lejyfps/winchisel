@@ -141,6 +141,9 @@ void SettingsPage::save_settings() {
 
 void SettingsPage::Restore_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::restore); }
 void SettingsPage::Repair_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::repair); }
+void SettingsPage::History_Click(IInspectable const&, RoutedEventArgs const&) {
+    if (auto open = winchisel::ui::open_history()) open();
+}
 
 void SettingsPage::Link_Click(IInspectable const& sender, RoutedEventArgs const&) {
     if (auto button = sender.try_as<Controls::Button>()) {
@@ -151,6 +154,7 @@ void SettingsPage::Link_Click(IInspectable const& sender, RoutedEventArgs const&
 void SettingsPage::set_busy(bool busy) {
     RestoreButton().IsEnabled(!busy);
     RepairButton().IsEnabled(!busy);
+    HistoryButton().IsEnabled(!busy);
 }
 
 void SettingsPage::show_result(bool ok, hstring const& text) {

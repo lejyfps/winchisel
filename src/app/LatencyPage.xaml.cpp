@@ -4,6 +4,7 @@
 #include "AsyncLifetime.hpp"
 #include "winchisel/platform/latency.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <sstream>
 
@@ -46,9 +47,6 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
 
     if (analysis_.valid()) return;
     progress_ = 0;
-    target_progress_ = 4;
-    progress_tick_ = 0;
-    pending_result_.reset();
     Progress().Value(progress_);
     ProgressPercent().Text(L"0%");
     Status().Text(L"Starting USB topology analysis...");
@@ -62,7 +60,12 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
             const auto status_text = to_hstring(status);
             winchisel::ui::enqueue_safe(queue, [weak, value, status_text] {
                 if (auto page = weak.get()) {
-                    page->target_progress_ = std::max(page->target_progress_, value);
+                    // Real worker values only: show them as-is, ignore stale ones.
+                    const int shown = std::clamp(value, 0, 100);
+                    if (shown < page->progress_) return;
+                    page->progress_ = shown;
+                    page->Progress().Value(shown);
+                    page->ProgressPercent().Text(to_hstring(std::to_string(shown) + "%"));
                     page->Status().Text(status_text);
                 }
             });
@@ -72,7 +75,7 @@ void LatencyPage::Analyze_Click(Windows::Foundation::IInspectable const&, Routed
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
-            if (auto self=error_weak.get()) { self->timer_.Stop(); self->pending_result_.reset(); self->AnalyzeButton().IsEnabled(true); self->AnalyzeButton().Content(box_value(L"Analyze again")); self->render_message(text,true); }
+            if (auto self=error_weak.get()) { self->timer_.Stop(); self->AnalyzeButton().IsEnabled(true); self->AnalyzeButton().Content(box_value(L"Analyze again")); self->render_message(text,true); }
         });
     }
 }
@@ -84,30 +87,16 @@ void LatencyPage::poll_analysis() {
     try {
         auto error_lifetime=get_strong();
 
-    if (analysis_.valid() && analysis_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        pending_result_.emplace(analysis_.get());
-        target_progress_ = 100;
-        Status().Text(L"Building final report...");
-    } else if (analysis_.valid() && ++progress_tick_ % 2 == 0 && target_progress_ < 98) {
-        const int step = target_progress_ < 35 ? 3 : target_progress_ < 75 ? 2 : 1;
-        target_progress_ = std::min(target_progress_ + step, 98);
-    }
+    if (!analysis_.valid()) return;
+    if (analysis_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
 
-    if (progress_ < target_progress_) {
-        // Once the worker is done, fill quickly so the status doesn't park on
-        // "Building final report..." for seconds while the bar catches up.
-        const int fill = pending_result_ ? 10 : 2;
-        progress_ = std::min(progress_ + fill, target_progress_);
-        Progress().Value(progress_);
-        ProgressPercent().Text(to_hstring(std::to_string(progress_) + "%"));
-    }
-    if (!pending_result_ || progress_ < 100) return;
-
-    auto result = std::move(*pending_result_);
-    pending_result_.reset();
+    auto result = analysis_.get();
     timer_.Stop();
     AnalyzeButton().IsEnabled(true);
     AnalyzeButton().Content(box_value(L"Analyze again"));
+    progress_ = 100;
+    Progress().Value(progress_);
+    ProgressPercent().Text(L"100%");
     if (result) {
         Status().Text(L"Analysis complete");
         render_report(*result);
@@ -118,7 +107,7 @@ void LatencyPage::poll_analysis() {
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
-            if (auto self=error_weak.get()) { self->timer_.Stop(); self->pending_result_.reset(); self->AnalyzeButton().IsEnabled(true); self->AnalyzeButton().Content(box_value(L"Analyze again")); self->render_message(text,true); }
+            if (auto self=error_weak.get()) { self->timer_.Stop(); self->AnalyzeButton().IsEnabled(true); self->AnalyzeButton().Content(box_value(L"Analyze again")); self->render_message(text,true); }
         });
     }
 }

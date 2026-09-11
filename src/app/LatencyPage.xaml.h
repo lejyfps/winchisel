@@ -5,7 +5,6 @@
 #include "winchisel/platform/latency.hpp"
 
 #include <future>
-#include <optional>
 
 namespace winrt::Winchisel::implementation {
 
@@ -19,12 +18,9 @@ private:
     void render_report(winchisel::platform::LatencyAnalysis const& report);
     void render_message(winrt::hstring const& message, bool is_error = false);
     std::future<winchisel::core::Result<winchisel::platform::LatencyAnalysis>> analysis_;
-    std::optional<winchisel::core::Result<winchisel::platform::LatencyAnalysis>> pending_result_;
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};
     winrt::event_token timer_token_{};
     int progress_{};
-    int target_progress_{};
-    int progress_tick_{};
 };
 
 }  // namespace winrt::Winchisel::implementation
