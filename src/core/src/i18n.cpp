@@ -148,6 +148,14 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
         {L"First error", L"Erster Fehler"},
         {L"Select all", L"Alle auswählen"},
         {L"Deselect all", L"Auswahl aufheben"},
+        {L"Change history", L"Änderungsverlauf"},
+        {L"Undo", L"Rückgängig"},
+        {L"Undo all", L"Alle rückgängig"},
+        {L"No changes have been recorded yet.", L"Es wurden noch keine Änderungen protokolliert."},
+        {L"Change undone.", L"Änderung rückgängig gemacht."},
+        {L"Could not undo the change.", L"Änderung konnte nicht rückgängig gemacht werden."},
+        {L"All changes were undone.", L"Alle Änderungen wurden rückgängig gemacht."},
+        {L"Some changes could not be undone.", L"Einige Änderungen konnten nicht rückgängig gemacht werden."},
     };
     return table;
 }

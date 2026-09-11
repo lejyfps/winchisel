@@ -3,6 +3,8 @@
 #include "ExtrasPage.xaml.h"
 #include "winchisel/application/session.hpp"
 #include "winchisel/core/risk.hpp"
+#include "winchisel/platform/registry.hpp"
+#include "winchisel/platform/revert.hpp"
 #include "winchisel/platform/system.hpp"
 
 #if __has_include("ExtrasPage.g.cpp")
@@ -14,14 +16,102 @@ namespace muxc=Microsoft::UI::Xaml::Controls;
 namespace muxm=Microsoft::UI::Xaml::Media;
 namespace {
 constexpr wchar_t policy_backup_path[]=L"SOFTWARE\\Winchisel\\PolicyBackup";
+using RegistryToggle = ExtrasPage::RegistryToggle;
 std::wstring backup_name(std::wstring_view group,std::wstring_view name,std::wstring_view suffix){return std::wstring(group)+L"."+std::wstring(name)+L"."+std::wstring(suffix);}
 bool backup_complete(HKEY backup,std::wstring const& marker,std::wstring const& saved,bool need_value){DWORD existing{},size=sizeof(existing);if(RegQueryValueExW(backup,marker.c_str(),nullptr,nullptr,reinterpret_cast<BYTE*>(&existing),&size)!=ERROR_SUCCESS)return false;if(!need_value||!existing)return true;size=0;return RegQueryValueExW(backup,saved.c_str(),nullptr,nullptr,nullptr,&size)==ERROR_SUCCESS;}
 bool backup_dword(std::wstring_view group,wchar_t const* path,wchar_t const* name){HKEY backup{};if(RegCreateKeyExW(HKEY_LOCAL_MACHINE,policy_backup_path,0,nullptr,0,KEY_QUERY_VALUE|KEY_SET_VALUE,nullptr,&backup,nullptr)!=ERROR_SUCCESS)return false;auto marker=backup_name(group,name,L"present"),saved=backup_name(group,name,L"value");DWORD value{},size=sizeof(value);if(backup_complete(backup,marker,saved,true)){RegCloseKey(backup);return true;}const auto status=RegGetValueW(HKEY_LOCAL_MACHINE,path,name,RRF_RT_REG_DWORD,nullptr,&value,&size);if(status!=ERROR_SUCCESS&&status!=ERROR_FILE_NOT_FOUND){RegCloseKey(backup);return false;}const bool present=status==ERROR_SUCCESS;DWORD flag=present?1:0;bool ok=true;if(present)ok=RegSetValueExW(backup,saved.c_str(),0,REG_DWORD,reinterpret_cast<BYTE*>(&value),sizeof(value))==ERROR_SUCCESS;if(ok)ok=RegSetValueExW(backup,marker.c_str(),0,REG_DWORD,reinterpret_cast<BYTE*>(&flag),sizeof(flag))==ERROR_SUCCESS;RegCloseKey(backup);return ok;}
 bool restore_dword(std::wstring_view group,wchar_t const* path,wchar_t const* name){HKEY backup{};if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,policy_backup_path,0,KEY_QUERY_VALUE|KEY_SET_VALUE,&backup)!=ERROR_SUCCESS)return false;auto marker=backup_name(group,name,L"present"),saved=backup_name(group,name,L"value");DWORD present{},value{},size=sizeof(DWORD);if(RegQueryValueExW(backup,marker.c_str(),nullptr,nullptr,reinterpret_cast<BYTE*>(&present),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}if(present){size=sizeof(value);if(RegQueryValueExW(backup,saved.c_str(),nullptr,nullptr,reinterpret_cast<BYTE*>(&value),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}}HKEY target{};bool ok=RegCreateKeyExW(HKEY_LOCAL_MACHINE,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&target,nullptr)==ERROR_SUCCESS;if(ok){const auto result=present?RegSetValueExW(target,name,0,REG_DWORD,reinterpret_cast<BYTE*>(&value),sizeof(value)):RegDeleteValueW(target,name);ok=result==ERROR_SUCCESS||(!present&&result==ERROR_FILE_NOT_FOUND);RegCloseKey(target);}if(ok){RegDeleteValueW(backup,marker.c_str());RegDeleteValueW(backup,saved.c_str());}RegCloseKey(backup);return ok;}
 bool backup_string(std::wstring_view group,wchar_t const* path,wchar_t const* name){HKEY backup{};if(RegCreateKeyExW(HKEY_LOCAL_MACHINE,policy_backup_path,0,nullptr,0,KEY_QUERY_VALUE|KEY_SET_VALUE,nullptr,&backup,nullptr)!=ERROR_SUCCESS)return false;auto marker=backup_name(group,name,L"present"),saved=backup_name(group,name,L"value");if(backup_complete(backup,marker,saved,true)){RegCloseKey(backup);return true;}DWORD size=0;const auto status=RegGetValueW(HKEY_LOCAL_MACHINE,path,name,RRF_RT_REG_SZ,nullptr,nullptr,&size);if(status!=ERROR_SUCCESS&&status!=ERROR_FILE_NOT_FOUND){RegCloseKey(backup);return false;}const bool present=status==ERROR_SUCCESS;std::vector<BYTE> value(size);if(present&&RegGetValueW(HKEY_LOCAL_MACHINE,path,name,RRF_RT_REG_SZ,nullptr,value.data(),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}DWORD flag=present?1:0;bool ok=true;if(present)ok=RegSetValueExW(backup,saved.c_str(),0,REG_SZ,value.data(),size)==ERROR_SUCCESS;if(ok)ok=RegSetValueExW(backup,marker.c_str(),0,REG_DWORD,reinterpret_cast<BYTE*>(&flag),sizeof(flag))==ERROR_SUCCESS;RegCloseKey(backup);return ok;}
 bool restore_string(std::wstring_view group,wchar_t const* path,wchar_t const* name){HKEY backup{};if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,policy_backup_path,0,KEY_QUERY_VALUE|KEY_SET_VALUE,&backup)!=ERROR_SUCCESS)return false;auto marker=backup_name(group,name,L"present"),saved=backup_name(group,name,L"value");DWORD present{},size=sizeof(present);if(RegQueryValueExW(backup,marker.c_str(),nullptr,nullptr,reinterpret_cast<BYTE*>(&present),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}std::vector<BYTE> value;if(present){size=0;if(RegQueryValueExW(backup,saved.c_str(),nullptr,nullptr,nullptr,&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}value.resize(size);if(RegQueryValueExW(backup,saved.c_str(),nullptr,nullptr,value.data(),&size)!=ERROR_SUCCESS){RegCloseKey(backup);return false;}}HKEY target{};bool ok=RegCreateKeyExW(HKEY_LOCAL_MACHINE,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&target,nullptr)==ERROR_SUCCESS;if(ok){const auto result=present?RegSetValueExW(target,name,0,REG_SZ,value.data(),size):RegDeleteValueW(target,name);ok=result==ERROR_SUCCESS||(!present&&result==ERROR_FILE_NOT_FOUND);RegCloseKey(target);}if(ok){RegDeleteValueW(backup,marker.c_str());RegDeleteValueW(backup,saved.c_str());}RegCloseKey(backup);return ok;}
-muxc::Border risk_badge(winchisel::core::TweakRisk risk) {
-    auto resources = winrt::Microsoft::UI::Xaml::Application::Current().Resources();
+
+// Journal support: the exact value set each registry toggle touches (mirror
+// of do_registry_work; Winchisel's own PolicyBackup bookkeeping is app state,
+// not system state, and is never journaled). Before/after comparison in
+// apply_registry_toggle decides whether an entry is recorded.
+std::vector<winchisel::core::RegistryTarget> extras_journal_targets(ExtrasPage::RegistryToggle which) {
+    using Hive = winchisel::core::RegistryHive;
+    using Type = winchisel::core::RegistryValueType;
+    using Target = winchisel::core::RegistryTarget;
+    const auto lm = Hive::local_machine;
+    const auto cu = Hive::current_user;
+    switch (which) {
+        case RegistryToggle::modern_standby:
+            return {{lm, "SYSTEM\\CurrentControlSet\\Control\\Power", "PlatformAoAcOverride", Type::dword}};
+        case RegistryToggle::sync_provider:
+            return {{cu, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+                "ShowSyncProviderNotifications", Type::dword}};
+        case RegistryToggle::ctfmon:
+            return {{lm, "Software\\Microsoft\\Input", "InputServiceEnabled", Type::dword},
+                {lm, "Software\\Microsoft\\Input", "InputServiceEnabledForCCI", Type::dword}};
+        case RegistryToggle::ctfmon_dll:
+            return {{lm, "SYSTEM\\CurrentControlSet\\Services\\TextInputManagementService\\Parameters", "ServiceDll",
+                Type::string}};
+        case RegistryToggle::timer_resolution:
+            return {{lm, "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",
+                "GlobalTimerResolutionRequests", Type::dword}};
+        case RegistryToggle::ipv6:
+            return {{lm, "SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters", "DisabledComponents",
+                Type::dword}};
+        case RegistryToggle::ps7:
+            return {{lm, "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+                "POWERSHELL_TELEMETRY_OPTOUT", Type::string}};
+        case RegistryToggle::long_paths:
+            return {{lm, "SYSTEM\\CurrentControlSet\\Control\\FileSystem", "LongPathsEnabled", Type::dword}};
+        case RegistryToggle::developer_mode:
+            return {{lm, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",
+                "AllowDevelopmentWithoutDevLicense", Type::dword}};
+        case RegistryToggle::verbose_boot:
+            return {{lm, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "VerboseStatus",
+                Type::dword}};
+        case RegistryToggle::brave: {
+            std::vector<Target> targets;
+            for (auto const* name : {"BraveRewardsDisabled", "BraveWalletDisabled", "BraveVPNDisabled",
+                     "BraveAIChatEnabled", "BraveStatsPingEnabled", "BraveNewsDisabled", "BraveTalkDisabled",
+                     "TorDisabled", "BraveP3AEnabled", "UrlKeyedAnonymizedDataCollectionEnabled",
+                     "SafeBrowsingExtendedReportingEnabled", "MetricsReportingEnabled"}) {
+                targets.push_back({lm, "SOFTWARE\\Policies\\BraveSoftware\\Brave", name, Type::dword});
+            }
+            return targets;
+        }
+        case RegistryToggle::edge: {
+            std::vector<Target> targets;
+            for (auto const* name : {"PersonalizationReportingEnabled", "ShowRecommendationsEnabled",
+                     "HideFirstRunExperience", "UserFeedbackAllowed", "ConfigureDoNotTrack",
+                     "AlternateErrorPagesEnabled", "EdgeCollectionsEnabled", "EdgeShoppingAssistantEnabled",
+                     "MicrosoftEdgeInsiderPromotionEnabled", "ShowMicrosoftRewards", "WebWidgetAllowed",
+                     "DiagnosticData", "EdgeAssetDeliveryServiceEnabled", "WalletDonationEnabled",
+                     "DefaultBrowserSettingsCampaignEnabled"}) {
+                targets.push_back({lm, "SOFTWARE\\Policies\\Microsoft\\Edge", name, Type::dword});
+            }
+            targets.push_back(
+                {lm, "SOFTWARE\\Policies\\Microsoft\\EdgeUpdate", "CreateDesktopShortcutDefault", Type::dword});
+            targets.push_back({lm, "SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist", "1",
+                Type::string});
+            return targets;
+        }
+    }
+    return {};
+}
+
+std::string extras_toggle_label(ExtrasPage::RegistryToggle which) {
+    char const* title = "Extras";
+    switch (which) {
+        case RegistryToggle::modern_standby: title = "Disable Modern Standby"; break;
+        case RegistryToggle::sync_provider: title = "Disable Sync Provider Notifications"; break;
+        case RegistryToggle::ctfmon: title = "Disable Microsoft input services"; break;
+        case RegistryToggle::ctfmon_dll: title = "Patch TextInputManagementService"; break;
+        case RegistryToggle::timer_resolution: title = "Windows 11 Timer Resolution"; break;
+        case RegistryToggle::ipv6: title = "IPv6 - Set IPv4 as Preferred"; break;
+        case RegistryToggle::ps7: title = "PowerShell 7 Telemetry - Disable"; break;
+        case RegistryToggle::brave: title = "Brave Browser - Debloat"; break;
+        case RegistryToggle::edge: title = "Microsoft Edge - Debloat"; break;
+        case RegistryToggle::long_paths: title = "Long Paths Support"; break;
+        case RegistryToggle::developer_mode: title = "Developer Mode"; break;
+        case RegistryToggle::verbose_boot: title = "Verbose Boot Messages"; break;
+    }
+    return std::string("Extras: ") + title;
+}
+muxc::Border risk_badge(winchisel::core::TweakRisk risk) {    auto resources = winrt::Microsoft::UI::Xaml::Application::Current().Resources();
     winrt::hstring brush_key = L"TextFillColorTertiaryBrush";
     if (risk == winchisel::core::TweakRisk::moderate) brush_key = L"SystemFillColorCautionBrush";
     else if (risk == winchisel::core::TweakRisk::risky) brush_key = L"SystemFillColorCriticalBrush";
@@ -357,7 +447,45 @@ winrt::fire_and_forget ExtrasPage::apply_registry_toggle(RegistryToggle which, m
         loading_ = true;
         winrt::apartment_context ui;
         co_await winrt::resume_background();
+        const auto journal_targets = extras_journal_targets(which);
+        std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryNativeValue>> journal_before;
+        bool journal_readable = !journal_targets.empty();
+        for (auto const& target : journal_targets) {
+            auto before = winchisel::platform::read_registry_native(target);
+            if (!before) {
+                journal_readable = false;
+                break;
+            }
+            journal_before.emplace_back(target, std::move(*before));
+        }
         const auto work = do_registry_work(which, enabled);
+        if (work.ok && journal_readable && !winchisel::platform::revert_recording_suppressed()) {
+            // Record only when something actually changed: re-read and compare
+            // against the before-state instead of duplicating write logic.
+            bool changed{};
+            for (auto const& [target, before] : journal_before) {
+                auto after = winchisel::platform::read_registry_native(target);
+                if (!after || after->missing != before.missing || after->type != before.type ||
+                    after->data != before.data) {
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) {
+                auto entry =
+                    winchisel::platform::make_revert_entry("extras", extras_toggle_label(which));
+                for (auto& [target, before] : journal_before) {
+                    winchisel::core::RevertRegistryStep step;
+                    step.target = std::move(target);
+                    step.before = std::move(before);
+                    entry.registry.push_back(std::move(step));
+                }
+                if (auto recorded = winchisel::platform::record_revert(std::move(entry)); !recorded) {
+                    winchisel::platform::boot_log(
+                        ("revert journal record failed: " + recorded.error().detail).c_str());
+                }
+            }
+        }
         const auto snapshot = read_registry_snapshot();
         co_await ui;
         if (auto self = weak.get()) {

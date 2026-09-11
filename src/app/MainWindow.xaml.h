@@ -2,6 +2,7 @@
 
 #include "MainWindow.g.h"
 #include "MainWindow.xaml.g.h"
+#include "winchisel/core/revert.hpp"
 #include "winchisel/platform/update.hpp"
 #include <cstdint>
 #include <filesystem>
@@ -26,6 +27,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void Update_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UpdateRestart_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UpdateDismiss_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void History_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void BugReport_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Donate_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
@@ -42,6 +44,15 @@ private:
     void update_titlebar_inset();
     winrt::fire_and_forget check_for_updates(UpdateCheckMode mode);
     winrt::fire_and_forget install_pending_update();
+    winrt::fire_and_forget show_history();
+    // Change-history dialog: rows newest-first with per-row Undo plus an
+    // Undo-all action. Any successful undo rebuilds the current page so the
+    // UI keeps showing the real system state.
+    void refresh_history_list(winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list,
+        std::vector<winchisel::core::RevertEntry> entries);
+    winrt::fire_and_forget undo_history_entry(std::string key,
+        winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list);
+    winrt::fire_and_forget undo_all_history(winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list);
     void notify_if_updated();
     void poll_for_updates();
     // Title-bar update states (Zed-style): the check button, a labeled

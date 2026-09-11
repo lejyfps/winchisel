@@ -1,6 +1,8 @@
 #include "winchisel/platform/performance.hpp"
 #include "winchisel/core/risk.hpp"
+#include "winchisel/core/tweak.hpp"
 #include "winchisel/platform/registry.hpp"
+#include "winchisel/platform/revert.hpp"
 #include "winchisel/platform/system.hpp"
 #include "process_wait.hpp"
 #include "com_apartment.hpp"
@@ -721,6 +723,15 @@ winchisel::core::Result<void> write_dns_profile(int index){
         original.detail += restored ? "; rolled back" : "; rollback incomplete";
         return std::unexpected(std::move(original));
     }
+    // A custom mix (7) cannot be replayed through the profile writer, so only
+    // known previous profiles are journaled. Unchanged selections stay silent.
+    if (!revert_recording_suppressed() && previous && *previous != 7 && *previous != index) {
+        auto entry = make_revert_entry("performance", "Performance: DNS servers");
+        entry.ints.push_back({"dns", "dns", *previous});
+        if (auto recorded = record_revert(std::move(entry)); !recorded) {
+            boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
+        }
+    }
     return {};
 }
 
@@ -876,7 +887,7 @@ winchisel::core::Result<void> write_update_policy(int index) {
     } else {
         update_erase(changes);
     }
-    return write_registry_values_atomic(changes);
+    return write_registry_values_atomic(changes, "performance", "Performance: Update policy");
 }
 // System Protection (restore points) has no registry switch: state is the
 // presence of protected volumes below SPP\Clients, toggling goes through the
@@ -1007,7 +1018,8 @@ winchisel::core::Result<void> apply_registry_and_tasks(
     std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& registry,
     std::vector<std::pair<std::string, bool>> const& tasks,
     std::optional<int> dns_profile,
-    std::optional<int> update_policy) {
+    std::optional<int> update_policy,
+    std::string_view page, std::string_view label) {
     std::vector<std::pair<winchisel::core::RegistryTarget, RegistryNativeValue>> previous_registry;
     previous_registry.reserve(registry.size());
     for (auto const& [target, _] : registry) {
@@ -1068,6 +1080,31 @@ winchisel::core::Result<void> apply_registry_and_tasks(
             return std::unexpected(std::move(original));
         }
     }
+    // DNS/policy replay through their own writers (journaled there); this
+    // entry covers the registry batch plus the task states, changed pairs
+    // only so matching re-applies stay silent.
+    if (!label.empty() && !revert_recording_suppressed()) {
+        auto entry = make_revert_entry(std::string(page), std::string(label));
+        for (std::size_t index{}; index < registry.size(); ++index) {
+            if (registry_native_matches(previous_registry[index].second, previous_registry[index].first,
+                    registry[index].second))
+                continue;
+            winchisel::core::RevertRegistryStep step;
+            step.target = previous_registry[index].first;
+            step.before.missing = previous_registry[index].second.missing;
+            step.before.type = previous_registry[index].second.type;
+            step.before.data = previous_registry[index].second.data;
+            entry.registry.push_back(std::move(step));
+        }
+        for (auto const& [id, was] : previous_tasks) {
+            const auto desired = std::ranges::find_if(
+                tasks, [&](auto const& item) { return item.first == id; });
+            if (desired != tasks.end() && desired->second != was) entry.tasks.push_back({id, was});
+        }
+        if (auto recorded = record_revert(std::move(entry)); !recorded) {
+            boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
+        }
+    }
     return {};
 }
 bool is_special_performance_toggle(std::string_view id) {
@@ -1088,15 +1125,37 @@ winchisel::core::Result<bool> read_special_performance_toggle(std::string_view i
     return std::unexpected(error("unknown special performance toggle"));
 }
 winchisel::core::Result<void> write_special_performance_toggle(std::string_view id, bool enabled) {
-    if (auto vendor = gpu_vendor_for(id)) return write_gpu_vendor_tweak(*vendor, enabled);
-    if (id == "gaming-usb-selective-suspend") return write_usb_selective_suspend(enabled);
-    if (id == "gaming-hibernate-fast-startup") return write_hibernate(enabled);
-    if (id == "updates-system-protection") return write_system_protection(enabled);
-    if (id == "explorer-classic-context-menu") return write_classic_context_menu(enabled);
-    if (id == "network-nic-power-saving") return write_nic_power_saving(enabled);
-    if (id == "power-pcie-link-state") return write_pcie_link_state(enabled);
-    if (is_nvidia_drs_toggle(id)) return write_nvidia_drs_toggle(id, enabled);
-    return std::unexpected(error("unknown special performance toggle"));
+    const auto before = read_special_performance_toggle(id);
+    winchisel::core::Result<void> result{std::unexpected(error("unknown special performance toggle"))};
+    if (auto vendor = gpu_vendor_for(id)) result = write_gpu_vendor_tweak(*vendor, enabled);
+    else if (id == "gaming-usb-selective-suspend") result = write_usb_selective_suspend(enabled);
+    else if (id == "gaming-hibernate-fast-startup") result = write_hibernate(enabled);
+    else if (id == "updates-system-protection") result = write_system_protection(enabled);
+    else if (id == "explorer-classic-context-menu") result = write_classic_context_menu(enabled);
+    else if (id == "network-nic-power-saving") result = write_nic_power_saving(enabled);
+    else if (id == "power-pcie-link-state") result = write_pcie_link_state(enabled);
+    else if (is_nvidia_drs_toggle(id)) result = write_nvidia_drs_toggle(id, enabled);
+    if (!result) return result;
+    // Unchanged toggles stay silent; the read path is the display path, so a
+    // matching read means the write was a no-op.
+    if (!revert_recording_suppressed() && before && *before != enabled) {
+        std::string label("Performance: ");
+        bool named{};
+        for (auto const& item : winchisel::core::get_performance_catalog()) {
+            if (item.id == id) {
+                label += item.name;
+                named = true;
+                break;
+            }
+        }
+        if (!named) label += std::string(id);
+        auto entry = make_revert_entry("performance", label);
+        entry.toggles.push_back({"special", std::string(id), *before});
+        if (auto recorded = record_revert(std::move(entry)); !recorded) {
+            boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
+        }
+    }
+    return {};
 }
 winchisel::core::Result<bool> is_special_available(std::string_view id) {
     if (auto vendor = gpu_vendor_for(id)) return !gpu_adapter_subkeys(*vendor).empty();

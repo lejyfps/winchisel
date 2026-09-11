@@ -1,6 +1,7 @@
 #include "winchisel/platform/startup.hpp"
 
 #include "winchisel/platform/registry.hpp"
+#include "winchisel/platform/revert.hpp"
 #include "winchisel/platform/system.hpp"
 #include "com_apartment.hpp"
 
@@ -16,6 +17,7 @@
 #include <filesystem>
 #include <iterator>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #pragma comment(lib, "ole32.lib")
@@ -553,7 +555,68 @@ winchisel::core::Result<void> set_scheduled_entry_enabled(std::string const& ful
     return {};
 }
 
+winchisel::core::Result<bool> read_scheduled_entry_enabled(std::string const& full_path) {
+    detail::ComApartment com;
+    if (!com) return std::unexpected(startup_error("COM initialization failed: " + std::to_string(com.hr)));
+    ITaskService* service{};
+    if (FAILED(CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&service))) || service == nullptr)
+        return std::unexpected(startup_error("task scheduler unavailable"));
+    VARIANT empty{};
+    VariantInit(&empty);
+    if (FAILED(service->Connect(empty, empty, empty, empty))) {
+        service->Release();
+        return std::unexpected(startup_error("task scheduler connect failed"));
+    }
+    BSTR root_path = SysAllocString(L"\\");
+    ITaskFolder* root{};
+    auto status = service->GetFolder(root_path, &root);
+    SysFreeString(root_path);
+    service->Release();
+    if (FAILED(status) || root == nullptr) return std::unexpected(startup_error("task folder unavailable"));
+    const auto wide_path = to_wide(full_path);
+    if (wide_path.empty()) {
+        root->Release();
+        return std::unexpected(startup_error("invalid task path"));
+    }
+    BSTR task_path = SysAllocString(wide_path.c_str());
+    IRegisteredTask* task{};
+    status = root->GetTask(task_path, &task);
+    SysFreeString(task_path);
+    root->Release();
+    if (FAILED(status) || task == nullptr) return std::unexpected(startup_error("task not found: " + full_path));
+    VARIANT_BOOL enabled{};
+    status = task->get_Enabled(&enabled);
+    task->Release();
+    if (FAILED(status)) return std::unexpected(startup_error("task state unreadable: " + std::to_string(status)));
+    return enabled == VARIANT_TRUE;
+}
+
 winchisel::core::Result<void> set_startup_entry_enabled(StartupEntry const& entry, bool enabled) {
+    // Exact before-state first: unchanged toggles stay silent in the journal.
+    // A failed before-read never blocks the write; that entry is then skipped.
+    std::optional<bool> before;
+    if (entry.location == StartupLocation::scheduled_task) {
+        if (auto state = read_scheduled_entry_enabled(entry.key)) before = *state;
+    } else if (entry.location == StartupLocation::uwp_task) {
+        const auto separator = entry.key.find('|');
+        if (separator != std::string::npos) {
+            winchisel::core::RegistryTarget target{winchisel::core::RegistryHive::current_user,
+                std::string(kSystemAppData) + "\\" + entry.key.substr(0, separator) + "\\" +
+                    entry.key.substr(separator + 1),
+                "State", winchisel::core::RegistryValueType::dword};
+            if (auto current = read_registry_value(target); current) {
+                if (const auto* state = std::get_if<std::uint32_t>(&*current)) {
+                    before = winchisel::core::parse_uwp_startup_state(*state).value_or(true);
+                } else if (std::holds_alternative<std::monostate>(*current)) {
+                    before = true;
+                }
+            }
+        }
+    } else {
+        const auto approved = approved_key_for(entry);
+        before = read_approved_flag(approved.first, approved.second, entry.key, true);
+    }
+    winchisel::core::Result<void> result{std::unexpected(startup_error("unknown startup entry"))};
     switch (entry.location) {
         case StartupLocation::registry_run_user:
         case StartupLocation::registry_run_machine:
@@ -564,11 +627,15 @@ winchisel::core::Result<void> set_startup_entry_enabled(StartupEntry const& entr
         case StartupLocation::folder_user:
         case StartupLocation::folder_machine: {
             const auto approved = approved_key_for(entry);
-            return write_approved_flag(approved.first, approved.second, entry.key, enabled);
+            result = write_approved_flag(approved.first, approved.second, entry.key, enabled);
+            break;
         }
         case StartupLocation::uwp_task: {
             const auto separator = entry.key.find('|');
-            if (separator == std::string::npos) return std::unexpected(startup_error("invalid packaged app key"));
+            if (separator == std::string::npos) {
+                result = std::unexpected(startup_error("invalid packaged app key"));
+                break;
+            }
             const std::string subkey =
                 std::string(kSystemAppData) + "\\" + entry.key.substr(0, separator) + "\\" + entry.key.substr(separator + 1);
             winchisel::core::RegistryTarget target{
@@ -577,10 +644,20 @@ winchisel::core::Result<void> set_startup_entry_enabled(StartupEntry const& entr
                 "State",
                 winchisel::core::RegistryValueType::dword,
             };
-            return write_registry_value(target, winchisel::core::RegistryValue{enabled ? std::uint32_t{2} : std::uint32_t{1}});
+            result = write_registry_value(target, winchisel::core::RegistryValue{enabled ? std::uint32_t{2} : std::uint32_t{1}});
+            break;
         }
-        case StartupLocation::scheduled_task: return set_scheduled_entry_enabled(entry.key, enabled);
+        case StartupLocation::scheduled_task: result = set_scheduled_entry_enabled(entry.key, enabled); break;
     }
-    return std::unexpected(startup_error("unknown startup entry"));
+    if (!result) return result;
+    if (!revert_recording_suppressed() && before && *before != enabled) {
+        auto journal = make_revert_entry(
+            entry.location == StartupLocation::scheduled_task ? "scheduled_tasks" : "startup", entry.name);
+        journal.startups.push_back({entry, *before});
+        if (auto recorded = record_revert(std::move(journal)); !recorded) {
+            boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
+        }
+    }
+    return {};
 }
 }  // namespace winchisel::platform

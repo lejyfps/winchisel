@@ -1,4 +1,5 @@
 #include "winchisel/platform/system.hpp"
+#include "winchisel/platform/revert.hpp"
 #include "process_wait.hpp"
 
 #include <windows.h>
@@ -342,6 +343,43 @@ void set_current_directory_to_exe() {
     SetCurrentDirectoryW(path.parent_path().c_str());
 }
 
+// Active power scheme GUID via powercfg (locale-free GUID match). Empty when
+// the query fails. Used to journal the before-state for power plan changes.
+std::string active_power_scheme_guid() {
+    auto [waited, output] = detail::run_captured(L"powercfg.exe /getactivescheme", 30 * 1000);
+    if (waited.exit_code != 0) return {};
+    static const std::regex guid_pattern(R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
+    std::smatch match;
+    if (!std::regex_search(output, match, guid_pattern)) return {};
+    return match[1].str();
+}
+
+void journal_power_plan(std::string const& label, std::string const& guid_before) {
+    if (revert_recording_suppressed() || guid_before.empty()) return;
+    const auto guid_after = active_power_scheme_guid();
+    if (guid_after.empty()) return;
+    auto lower = [](std::string text) {
+        std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return text;
+    };
+    if (lower(guid_after) == lower(guid_before)) return;
+    auto entry = make_revert_entry("extras", label);
+    entry.power = winchisel::core::RevertPowerStep{guid_before};
+    if (auto recorded = record_revert(std::move(entry)); !recorded) {
+        boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
+    }
+}
+
+void journal_extras_toggle(
+    std::string const& domain, std::string const& id, std::string const& label, bool was_enabled, bool enabled) {
+    if (revert_recording_suppressed() || was_enabled == enabled) return;
+    auto entry = make_revert_entry("extras", label);
+    entry.toggles.push_back({domain, id, was_enabled});
+    if (auto recorded = record_revert(std::move(entry)); !recorded) {
+        boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
+    }
+}
+
 winchisel::core::Result<void> fail(char const*, std::string detail) {
     return std::unexpected(winchisel::core::Error{.detail = std::move(detail)});
 }
@@ -495,6 +533,7 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
     if (!std::filesystem::exists(plan, ec)) {
         return fail("power_plan_failed", "Embedded power plan is missing: " + plan.string());
     }
+    const auto guid_before = active_power_scheme_guid();
 
     // The imported scheme is named Winchisel.  powercfg prints its GUID as part
     // of the import result; activating that exact GUID avoids changing another
@@ -529,6 +568,7 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
             static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
         RegCloseKey(key);
     }
+    journal_power_plan("Extras: Winchisel power plan", guid_before);
     return {};
 }
 
@@ -538,6 +578,7 @@ winchisel::core::Result<void> apply_ultimate_performance_plan() {
     // is GUID-based and never parses the localized plan name.
     static constexpr char k_ultimate_guid[] = "e9a42b02-d5df-448d-aa00-03f14749eb61";
     static const std::regex guid_pattern(R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
+    const auto guid_before = active_power_scheme_guid();
 
     auto lowercase = [](std::string text) {
         std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -576,6 +617,7 @@ winchisel::core::Result<void> apply_ultimate_performance_plan() {
         if (activated.exit_code != 0)
             return fail("power_plan_failed", command_error("powercfg /setactive", activated, std::move(activation_output)));
         save_guid(guid);
+        journal_power_plan("Extras: Ultimate Performance plan", guid_before);
         return {};
     };
 
@@ -615,6 +657,7 @@ winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
     if (status != ERROR_SUCCESS) return fail("teredo_failed", "Unable to open Tcpip6 parameters: " + std::to_string(status));
     DWORD current{}, bytes = sizeof(current), type{};
     if (RegQueryValueExW(key, L"DisabledComponents", nullptr, &type, reinterpret_cast<BYTE*>(&current), &bytes) != ERROR_SUCCESS || type != REG_DWORD) current = 0;
+    const bool was_disabled = (current & 0x01) != 0;
     const DWORD next = enabled ? current | 0x01 : current & ~0x01;
     status = RegSetValueExW(key, L"DisabledComponents", 0, REG_DWORD, reinterpret_cast<BYTE const*>(&next), sizeof(next));
     RegCloseKey(key);
@@ -630,6 +673,7 @@ winchisel::core::Result<void> set_teredo_disabled(bool enabled) {
         }
         return command;
     }
+    journal_extras_toggle("extras-teredo", "teredo", "Extras: Teredo disabled", was_disabled, enabled);
     return {};
 }
 
@@ -655,6 +699,9 @@ std::optional<std::optional<bool>> query_hpet_state() {
 }
 
 winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
+    // Before-state for the journal uses the same tri-state query as the UI
+    // read path, so replay restores exactly what was displayed.
+    const auto before = query_hpet_state();
     auto result = enabled
         ? run_hidden(L"bcdedit.exe /set useplatformclock false", "hpet_failed", 2 * 60 * 1000)
         : run_hidden(L"bcdedit.exe /deletevalue useplatformclock", "hpet_failed", 2 * 60 * 1000);
@@ -663,13 +710,21 @@ winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
     if (!*state) {
         // No entry present: the expected outcome of deletevalue, but a
         // failure when an explicit value was just written.
-        if (!enabled) return {};
+        if (!enabled) {
+            if (before && *before && **before != enabled) {
+                journal_extras_toggle("extras-hpet", "hpet", "Extras: HPET disabled", **before, enabled);
+            }
+            return {};
+        }
         if (!result) return result;
         return std::unexpected(winchisel::core::Error{.detail = "HPET state did not change"});
     }
     if (**state != enabled) {
         if (!result) return result;
         return std::unexpected(winchisel::core::Error{.detail = "HPET state did not change"});
+    }
+    if (before && *before && **before != enabled) {
+        journal_extras_toggle("extras-hpet", "hpet", "Extras: HPET disabled", **before, enabled);
     }
     return {};
 }
@@ -696,19 +751,28 @@ std::optional<std::optional<bool>> query_dynamic_tick_state() {
 }
 
 winchisel::core::Result<void> set_dynamic_tick_disabled(bool enabled) {
+    const auto before = query_dynamic_tick_state();
     auto result = enabled
         ? run_hidden(L"bcdedit.exe /set disabledynamictick yes", "dynamic_tick_failed", 2 * 60 * 1000)
         : run_hidden(L"bcdedit.exe /deletevalue disabledynamictick", "dynamic_tick_failed", 2 * 60 * 1000);
     const auto state = query_dynamic_tick_state();
     if (!state) return std::unexpected(winchisel::core::Error{.detail = "Dynamic tick state could not be verified"});
     if (!*state) {
-        if (!enabled) return {};
+        if (!enabled) {
+            if (before && *before && **before != enabled) {
+                journal_extras_toggle("extras-tick", "tick", "Extras: Dynamic tick disabled", **before, enabled);
+            }
+            return {};
+        }
         if (!result) return result;
         return std::unexpected(winchisel::core::Error{.detail = "Dynamic tick state did not change"});
     }
     if (**state != enabled) {
         if (!result) return result;
         return std::unexpected(winchisel::core::Error{.detail = "Dynamic tick state did not change"});
+    }
+    if (before && *before && **before != enabled) {
+        journal_extras_toggle("extras-tick", "tick", "Extras: Dynamic tick disabled", **before, enabled);
     }
     return {};
 }

@@ -11,7 +11,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid>
-            <Button x:Name="AnalyzeButton" Content="Analyze" Style="{StaticResource AccentButtonStyle}"
+            <Button x:Name="AnalyzeButton" Content="Analyze USB Latency" Style="{StaticResource AccentButtonStyle}"
                     Click="Analyze_Click" HorizontalAlignment="Left" VerticalAlignment="Center" />
         </Grid>
         <Grid Grid.Row="1" ColumnSpacing="12">

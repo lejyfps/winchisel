@@ -1,6 +1,5 @@
 #include "winchisel/platform/latency.hpp"
 #include "latency_database.generated.hpp"
-#include "process_wait.hpp"
 
 #include <windows.h>
 #include <cfgmgr32.h>
@@ -30,8 +29,9 @@ struct Controller {
     std::string msi_status{"Unknown"};
     std::optional<bool> selective_suspend;
 };
-struct Device { std::string name, vid, pid; int chip_count{}, hub_count{}; std::size_t controller{}; };
+struct Device { std::string name, vid, pid; int chip_count{}, hub_count{}; std::size_t controller{}; std::vector<std::string> hub_names; };
 struct UsbNode { std::string device_key, instance, parent_prefix, name; std::vector<std::string> compatible_ids; };
+struct TraceResult { std::size_t controller{}; int hubs{}; std::vector<std::string> hub_names; };
 
 struct RegKey {
     HKEY value{};
@@ -98,6 +98,31 @@ std::wstring wide(std::string const& value) {
 }
 
 std::string lower(std::string value) { std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); }); return value; }
+std::wstring lower_w(std::wstring value) { std::ranges::transform(value, value.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); }); return value; }
+bool is_hub_name_ci(std::string_view name) {
+    const auto text = lower(std::string(name));
+    return text.find("hub") != std::string::npos && text.find("root") == std::string::npos;
+}
+bool is_hub_label_w(std::wstring_view label) {
+    const auto text = lower_w(std::wstring(label));
+    return text.find(L"hub") != std::wstring::npos && text.find(L"root") == std::wstring::npos;
+}
+bool is_hub_node(UsbNode const& node) {
+    if (is_hub_name_ci(node.name)) return true;
+    for (auto const& id : node.compatible_ids) {
+        if (lower(id).find("class_09") != std::string::npos) return true;
+    }
+    return false;
+}
+std::string_view addon_vendor(std::string_view vid) {
+    if (vid == "1b21") return "ASMedia";
+    if (vid == "1106") return "VIA";
+    if (vid == "1b73") return "Fresco Logic";
+    if (vid == "1912") return "Renesas";
+    if (vid == "1b6f") return "Etron";
+    if (vid == "104c") return "Texas Instruments";
+    return {};
+}
 std::optional<std::string> extract_hex(std::string const& value, std::string_view marker) {
     const auto start = value.find(marker); if (start == std::string::npos || start + marker.size() + 4 > value.size()) return std::nullopt;
     return lower(value.substr(start + marker.size(), 4));
@@ -108,8 +133,17 @@ Controller lookup(std::string vid, std::string did, std::string instance, std::s
     for (auto const& item : latency_db::entries) if (item.vid == vid && item.did == did)
         return {std::move(vid), std::move(did), std::string(item.name), std::string(item.platform), std::string(item.usb), std::move(instance), std::move(bus), item.chip_level};
     const bool intel = vid == "8086", amd = vid == "1022";
-    return {std::move(vid), std::move(did), intel ? "Intel USB Controller" : amd ? "AMD USB Controller" : "Unknown USB Controller",
-        intel ? "Unknown PCH" : amd ? "Unknown Chipset" : "PCIe Add-in", "USB 3.x", std::move(instance), std::move(bus), 1};
+    if (intel) {
+        std::string platform = "Unknown PCH (DID:" + did + ")";
+        return {std::move(vid), std::move(did), "Intel USB Controller", std::move(platform), "USB 3.x", std::move(instance), std::move(bus), 1};
+    }
+    if (amd) {
+        std::string platform = "Unknown Chipset (DID:" + did + ")";
+        return {std::move(vid), std::move(did), "AMD USB Controller", std::move(platform), "USB 3.x", std::move(instance), std::move(bus), 1};
+    }
+    const auto vendor = addon_vendor(vid);
+    std::string name = vendor.empty() ? "Unknown USB Controller" : std::string(vendor) + " USB Controller";
+    return {std::move(vid), std::move(did), std::move(name), "PCIe Add-in", "USB 3.x", std::move(instance), std::move(bus), 1};
 }
 
 std::vector<Controller> scan_controllers() {
@@ -144,17 +178,18 @@ std::vector<UsbNode> scan_usb_tree() {
     return result;
 }
 
-std::optional<std::pair<std::size_t, int>> trace_chain(std::string current,
+std::optional<TraceResult> trace_chain(std::string current,
     std::unordered_map<std::string, std::size_t> const& prefixes, std::unordered_map<std::string, std::size_t> const& instances,
     std::vector<UsbNode> const& nodes, std::unordered_map<std::string, std::size_t> const& buses) {
-    int hubs{};
+    TraceResult result;
     for (int step{}; step < 20; ++step) {
         auto stripped = strip_last(current); if (!stripped) return std::nullopt;
         if (auto found = prefixes.find(*stripped); found != prefixes.end()) {
             auto const& parent = nodes[found->second]; auto upper = parent.device_key;
             std::ranges::transform(upper, upper.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-            if (upper.find("ROOT_HUB") != std::string::npos) { auto bus = strip_last(parent.instance); if (!bus) return std::nullopt; auto controller = buses.find(*bus); if (controller == buses.end()) return std::nullopt; return {{controller->second, hubs}}; }
-            ++hubs; current = parent.instance; continue;
+            if (upper.find("ROOT_HUB") != std::string::npos) { auto bus = strip_last(parent.instance); if (!bus) return std::nullopt; auto controller = buses.find(*bus); if (controller == buses.end()) return std::nullopt; result.controller = controller->second; return result; }
+            if (is_hub_node(parent)) { ++result.hubs; result.hub_names.push_back(parent.name); }
+            current = parent.instance; continue;
         }
         if (auto found = instances.find(*stripped); found != instances.end()) { current = nodes[found->second].instance; continue; }
         break;
@@ -162,11 +197,7 @@ std::optional<std::pair<std::size_t, int>> trace_chain(std::string current,
     return std::nullopt;
 }
 
-std::string run_command(wchar_t const* command) {
-    return detail::run_captured(std::wstring(command), 5 * 60 * 1000).second;
-}
-
-std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
+std::vector<Device> pnp_devices(std::vector<Controller> const& controllers, LatencyProgress const& notify) {
     std::vector<Device> result;
     const auto devices = SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES | DIGCF_PRESENT);
     if (devices == INVALID_HANDLE_VALUE) return result;
@@ -185,6 +216,8 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
         return CM_Get_DevNode_PropertyW(node, &key, &type, reinterpret_cast<PBYTE>(value.data()), &bytes, 0) == CR_SUCCESS
             ? std::wstring(value.data()) : std::wstring{};
     };
+    struct Candidate { SP_DEVINFO_DATA info; std::wstring id; };
+    std::vector<Candidate> candidates;
     for (DWORD index{};; ++index) {
         SP_DEVINFO_DATA info{sizeof(info)};
         if (!SetupDiEnumDeviceInfo(devices, index, &info)) break;
@@ -195,9 +228,24 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
         std::ranges::transform(lowered, lowered.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
         if (!lowered.contains(L"class_03") && !lowered.contains(L"xboxcomposite") &&
             !lowered.contains(L"xnacomposite") && !lowered.contains(L"xusbclass")) continue;
+        candidates.push_back({info, std::move(id)});
+    }
+    const std::size_t total = candidates.size();
+    std::size_t done{};
+    for (auto& candidate : candidates) {
+        ++done;
+        if (notify && total && done % 2 == 0) {
+            const int pct = 55 + static_cast<int>(done * 27 / total);
+            char status[64]{};
+            std::snprintf(status, sizeof(status), "Tracing device %zu of %zu...", done, total);
+            notify(pct, status);
+        }
+        SP_DEVINFO_DATA info = candidate.info;
+        auto const& id = candidate.id;
 
         DEVINST current = info.DevInst;
         int hubs{};
+        std::vector<std::string> hub_names;
         std::wstring controller_id;
         for (int step{}; step < 15; ++step) {
             auto current_id = instance_id(current);
@@ -208,7 +256,7 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
             if (upper.contains(L"ROOT_HUB")) { controller_id = instance_id(parent); break; }
             auto label = node_property(current, DEVPKEY_Device_FriendlyName);
             if (label.empty()) label = node_property(current, DEVPKEY_Device_DeviceDesc);
-            if (label.contains(L"Hub") && !label.contains(L"Root")) ++hubs;
+            if (is_hub_label_w(label)) { ++hubs; hub_names.push_back(utf8(label)); }
             current = parent;
         }
         if (controller_id.empty()) continue;
@@ -224,7 +272,7 @@ std::vector<Device> pnp_devices(std::vector<Controller> const& controllers) {
         if (name.empty()) name = property(info, SPDRP_FRIENDLYNAME);
         if (name.empty()) name = property(info, SPDRP_DEVICEDESC);
         const auto controller_index = static_cast<std::size_t>(controller - controllers.begin());
-        result.push_back({utf8(name), std::move(vid), std::move(pid), controller->chip_level + hubs, hubs, controller_index});
+        result.push_back({utf8(name), std::move(vid), std::move(pid), controller->chip_level + hubs, hubs, controller_index, std::move(hub_names)});
     }
     SetupDiDestroyDeviceInfoList(devices);
     return result;
@@ -253,7 +301,7 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
     notify(5, "Checking power settings..."); const auto suspend = system_suspend();
     notify(15, "Scanning USB controllers..."); auto controllers = scan_controllers();
     notify(35, "Scanning USB registry tree..."); const auto nodes = scan_usb_tree();
-    notify(55, "Finding input devices..."); auto devices = pnp_devices(controllers);
+    notify(55, "Finding input devices..."); auto devices = pnp_devices(controllers, LatencyProgress{notify});
 
     std::unordered_set<std::string> seen; for (auto const& device : devices) seen.insert(device.vid + ':' + device.pid);
     std::unordered_map<std::string, std::size_t> prefixes, instances, buses;
@@ -262,7 +310,12 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
     notify(82, "Verifying fallback USB tree...");
     for (auto const& node : nodes) {
         const bool hid = std::ranges::any_of(node.compatible_ids, [](auto const& id) { return lower(id).find("class_03") != std::string::npos; }); if (!hid) continue;
-        auto base = node.device_key; if (auto mi = base.find("&MI_"); mi != std::string::npos) base.resize(mi); if (!seen.insert(base).second) continue;
+        auto base = node.device_key; if (auto mi = base.find("&MI_"); mi != std::string::npos) base.resize(mi);
+        const auto vid = extract_hex(node.device_key, "VID_").value_or("????");
+        const auto pid = extract_hex(node.device_key, "PID_").value_or("????");
+        const bool has_ids = vid != "????" && pid != "????";
+        const std::string dedup_key = has_ids ? vid + ':' + pid : lower(base) + '|' + lower(node.instance);
+        if (!seen.insert(dedup_key).second) continue;
         const bool composite_interface = node.device_key.find("&MI_") != std::string::npos;
         const auto trace_instance = composite_interface ? strip_last(node.instance).value_or(node.instance) : node.instance;
         auto trace = trace_chain(trace_instance, prefixes, instances, nodes, buses); if (!trace) continue;
@@ -273,7 +326,8 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
                     return candidate.device_key.find("&MI_") == std::string::npos && candidate.device_key.starts_with(base) && candidate.instance == composite_instance;
                 }); parent != nodes.end()) name = parent->name;
         }
-        const auto [controller, hubs] = *trace; devices.push_back({std::move(name), "????", "????", controllers[controller].chip_level + hubs, hubs, controller});
+        const auto& [controller, hubs, hub_names] = *trace;
+        devices.push_back({std::move(name), vid, pid, controllers[controller].chip_level + hubs, hubs, controller, hub_names});
     }
 
     notify(95, "Building report..."); LatencyAnalysis result; auto& out = result.lines;
@@ -297,7 +351,16 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
     add(out, "  CONTROLLERS", LatencyColor::normal, true); add(out, "  ---------------------------------------------------------------------", LatencyColor::separator);
     for (std::size_t i{}; i < controllers.size(); ++i) { auto const& controller = controllers[i]; add(out); add(out, "  " + chip_label(controller.chip_level), chip_color(controller.chip_level), true); add(out, "      " + controller.name); add(out, "      VID:" + controller.vid + " DID:" + controller.did + " | " + controller.platform + " | " + controller.usb, LatencyColor::muted); add(out, "      IRQ: " + controller.msi_status + (controller.msi_status == "MSI" ? " (low latency interrupts)" : controller.msi_status == "Line-Based" ? " (higher latency)" : ""), controller.msi_status == "MSI" ? LatencyColor::success : controller.msi_status == "Line-Based" ? LatencyColor::critical : LatencyColor::muted); if (controller.selective_suspend == true) add(out, "      ! Selective Suspend ENABLED (causes latency spikes)", LatencyColor::warning); bool heading{}; for (auto const& device : devices) if (device.controller == i) { if (!heading) { add(out, "      Devices:", LatencyColor::muted); heading = true; } add(out, "        |- " + device.name + (device.hub_count ? " (+hub)" : "")); } }
     add(out); add(out, "  INPUT DEVICES", LatencyColor::normal, true); add(out, "  ---------------------------------------------------------------------", LatencyColor::separator);
-    std::ranges::sort(devices, {}, &Device::chip_count); for (auto const& device : devices) { add(out); add(out, "  " + device.name); add(out, "      VID:" + device.vid + " PID:" + device.pid, LatencyColor::muted); add(out, "      " + chip_label(device.chip_count), chip_color(device.chip_count)); add(out, "      via " + controllers[device.controller].name + " (" + controllers[device.controller].platform + ")", LatencyColor::muted); }
+    std::ranges::sort(devices, {}, &Device::chip_count);
+    for (auto const& device : devices) {
+        add(out); add(out, "  " + device.name); add(out, "      VID:" + device.vid + " PID:" + device.pid, LatencyColor::muted); add(out, "      " + chip_label(device.chip_count), chip_color(device.chip_count));
+        if (!device.hub_names.empty()) {
+            std::string hubs = "      Hubs: ";
+            for (std::size_t i{}; i < device.hub_names.size(); ++i) { if (i) hubs += " -> "; hubs += device.hub_names[i]; }
+            add(out, hubs, LatencyColor::muted);
+        }
+        add(out, "      via " + controllers[device.controller].name + " (" + controllers[device.controller].platform + ")", LatencyColor::muted);
+    }
     const bool has_optimizations = suspend == true || std::ranges::any_of(controllers, [](auto const& c) { return c.msi_status == "Line-Based" || c.selective_suspend == true; });
     if (has_optimizations) { add(out); add(out, "  OPTIMIZATIONS AVAILABLE", LatencyColor::normal, true); add(out, "  ---------------------------------------------------------------------", LatencyColor::separator); add(out); if (suspend == true) add(out, "  ! Disable USB Selective Suspend in current power plan", LatencyColor::warning); for (auto const& controller : controllers) { if (controller.msi_status == "Line-Based") add(out, "  ! Enable MSI interrupts on " + controller.name, LatencyColor::critical); if (controller.selective_suspend == true) add(out, "  ! Disable Selective Suspend on " + controller.name, LatencyColor::warning); } }
     add(out); add(out, "  =====================================================================", LatencyColor::separator); add(out); notify(100, "Ready"); return result;

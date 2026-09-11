@@ -37,5 +37,6 @@ winchisel::core::Result<void> apply_registry_and_tasks(
     std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& registry,
     std::vector<std::pair<std::string, bool>> const& tasks,
     std::optional<int> dns_profile = std::nullopt,
-    std::optional<int> update_policy = std::nullopt);
+    std::optional<int> update_policy = std::nullopt,
+    std::string_view page = {}, std::string_view label = {});
 }

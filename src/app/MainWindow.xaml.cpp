@@ -23,6 +23,7 @@
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/navigation.hpp"
 #include "winchisel/core/tweak.hpp"
+#include "winchisel/platform/revert.hpp"
 #include "winchisel/platform/shell.hpp"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/update.hpp"
@@ -369,6 +370,235 @@ void MainWindow::BugReport_Click(IInspectable const&, RoutedEventArgs const&) {
 void MainWindow::Donate_Click(IInspectable const&, RoutedEventArgs const&) {
     if (!winchisel::platform::open_https_url(L"https://pally.gg/p/lejy"))
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Winchisel", L"Could not open the donation page.");
+}
+
+void MainWindow::History_Click(IInspectable const&, RoutedEventArgs const&) {
+    show_history();
+}
+
+namespace {
+
+std::wstring history_page_name(std::string_view page) {
+    if (page == "performance") return winchisel::core::loc(L"Performance");
+    if (page == "privacy_security") return winchisel::core::loc(L"Privacy & Security");
+    if (page == "extras") return winchisel::core::loc(L"Extras");
+    if (page == "processes") return winchisel::core::loc(L"Processes");
+    if (page == "startup") return winchisel::core::loc(L"Startup Manager");
+    if (page == "scheduled_tasks") return winchisel::core::loc(L"Scheduled Tasks");
+    return std::wstring(page.begin(), page.end());
+}
+
+}  // namespace
+
+void MainWindow::refresh_history_list(
+    Controls::StackPanel const& list, std::vector<winchisel::core::RevertEntry> entries) {
+    list.Children().Clear();
+    for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
+        auto const& entry = *it;
+        auto row = Controls::Grid();
+        row.ColumnSpacing(12);
+        row.Margin({0, 0, 0, 4});
+        row.ColumnDefinitions().Append(Controls::ColumnDefinition());
+        auto action_column = Controls::ColumnDefinition();
+        action_column.Width(GridLength{0, GridUnitType::Auto});
+        row.ColumnDefinitions().Append(action_column);
+        auto text = Controls::StackPanel();
+        text.Spacing(2);
+        text.VerticalAlignment(VerticalAlignment::Center);
+        auto title = Controls::TextBlock();
+        title.Text(to_hstring(entry.label));
+        title.TextWrapping(TextWrapping::WrapWholeWords);
+        title.Style(Application::Current()
+                        .Resources()
+                        .Lookup(box_value(L"BodyStrongTextBlockStyle"))
+                        .try_as<winrt::Microsoft::UI::Xaml::Style>());
+        text.Children().Append(title);
+        auto detail = Controls::TextBlock();
+        detail.Text(hstring{history_page_name(entry.page) + L" · " + std::wstring(to_hstring(entry.timestamp))});
+        detail.Style(Application::Current()
+                         .Resources()
+                         .Lookup(box_value(L"CaptionTextBlockStyle"))
+                         .try_as<winrt::Microsoft::UI::Xaml::Style>());
+        text.Children().Append(detail);
+        row.Children().Append(text);
+        auto undo = Controls::Button();
+        undo.Content(box_value(winchisel::ui::tr(L"Undo")));
+        undo.VerticalAlignment(VerticalAlignment::Center);
+        const std::string key = entry.key;
+        auto weak = get_weak();
+        undo.Click([weak, key, list](auto&&, auto&&) {
+            if (auto self = weak.get()) self->undo_history_entry(key, list);
+        });
+        Controls::Grid::SetColumn(undo, 1);
+        row.Children().Append(undo);
+        list.Children().Append(row);
+    }
+}
+
+winrt::fire_and_forget MainWindow::undo_history_entry(
+    std::string key, Controls::StackPanel const& list) {
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try {
+        error_queue = DispatcherQueue();
+    } catch (...) {
+    }
+    try {
+        auto lifetime = get_strong();
+        list.IsHitTestVisible(false);
+        winrt::apartment_context ui;
+        co_await winrt::resume_background();
+        auto journal = winchisel::platform::read_revert_journal();
+        winchisel::core::Result<winchisel::platform::RevertApplySummary> applied{
+            std::unexpected(winchisel::core::Error{.detail = "entry not found"})};
+        if (journal) {
+            const auto found =
+                std::ranges::find_if(*journal, [&](auto const& item) { return item.key == key; });
+            if (found != journal->end()) applied = winchisel::platform::apply_revert_entry(*found);
+        }
+        if (applied && applied->failed == 0) {
+            (void)winchisel::platform::drop_revert_entry(key);
+        }
+        auto refreshed = winchisel::platform::read_revert_journal();
+        co_await ui;
+        auto self = get_strong();
+        (void)self;
+        if (refreshed) refresh_history_list(list, std::move(*refreshed));
+        list.IsHitTestVisible(true);
+        // The system changed behind the pages' backs: rebuild so every tweak
+        // shows the real state again instead of a stale control.
+        reload_language();
+        if (!journal) {
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Error,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()),
+                std::wstring(to_hstring(journal.error().detail)));
+        } else if (!applied || applied->failed > 0) {
+            std::wstring message = winchisel::core::loc(L"Could not undo the change.");
+            if (applied && !applied->first_error.empty()) message += L" " + to_hstring(applied->first_error);
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Error,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()), message);
+        } else {
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Success,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()),
+                winchisel::core::loc(L"Change undone."));
+        }
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [](winrt::hstring const&) {});
+    }
+}
+
+winrt::fire_and_forget MainWindow::undo_all_history(Controls::StackPanel const& list) {
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try {
+        error_queue = DispatcherQueue();
+    } catch (...) {
+    }
+    try {
+        auto lifetime = get_strong();
+        list.IsHitTestVisible(false);
+        winrt::apartment_context ui;
+        co_await winrt::resume_background();
+        auto journal = winchisel::platform::read_revert_journal();
+        std::size_t undone{};
+        std::size_t failed{};
+        std::string first_error;
+        if (journal) {
+            for (auto it = journal->rbegin(); it != journal->rend(); ++it) {
+                auto applied = winchisel::platform::apply_revert_entry(*it);
+                if (applied && applied->failed == 0) {
+                    (void)winchisel::platform::drop_revert_entry(it->key);
+                    ++undone;
+                } else {
+                    ++failed;
+                    if (first_error.empty()) {
+                        first_error = applied ? applied->first_error : applied.error().detail;
+                    }
+                }
+            }
+        }
+        auto refreshed = winchisel::platform::read_revert_journal();
+        co_await ui;
+        auto self = get_strong();
+        (void)self;
+        if (refreshed) refresh_history_list(list, std::move(*refreshed));
+        list.IsHitTestVisible(true);
+        reload_language();
+        if (!journal) {
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Error,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()),
+                std::wstring(to_hstring(journal.error().detail)));
+        } else if (failed > 0) {
+            std::wstring message = winchisel::core::loc(L"Some changes could not be undone.");
+            if (!first_error.empty()) message += L" " + to_hstring(first_error);
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Warning,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()), message);
+        } else {
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Success,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()),
+                winchisel::core::loc(L"All changes were undone."));
+        }
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [](winrt::hstring const&) {});
+    }
+}
+
+winrt::fire_and_forget MainWindow::show_history() {
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try {
+        error_queue = DispatcherQueue();
+    } catch (...) {
+    }
+    try {
+        auto lifetime = get_strong();
+        winrt::apartment_context ui;
+        co_await winrt::resume_background();
+        auto journal = winchisel::platform::read_revert_journal();
+        co_await ui;
+        if (!journal) {
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Error,
+                std::wstring(winchisel::ui::tr(L"Change history").c_str()),
+                std::wstring(to_hstring(journal.error().detail)));
+            co_return;
+        }
+        winchisel::core::DialogSlot dialog_slot;
+        if (!winchisel::ui::dialog_available(dialog_slot)) co_return;
+        Controls::ContentDialog dialog;
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Title(box_value(winchisel::ui::tr(L"Change history")));
+        auto content = Controls::StackPanel();
+        content.Spacing(8);
+        content.MinWidth(480);
+        if (journal->empty()) {
+            auto empty = Controls::TextBlock();
+            empty.Text(winchisel::ui::tr(L"No changes have been recorded yet."));
+            empty.TextWrapping(TextWrapping::Wrap);
+            content.Children().Append(empty);
+        } else {
+            auto list = Controls::StackPanel();
+            list.Spacing(2);
+            refresh_history_list(list, *journal);
+            auto scroll = Controls::ScrollViewer();
+            scroll.MaxHeight(360);
+            scroll.Content(list);
+            content.Children().Append(scroll);
+            auto footer = Controls::StackPanel();
+            footer.Orientation(Controls::Orientation::Horizontal);
+            footer.HorizontalAlignment(HorizontalAlignment::Right);
+            auto undo_all = Controls::Button();
+            undo_all.Content(box_value(winchisel::ui::tr(L"Undo all")));
+            auto weak = get_weak();
+            undo_all.Click([weak, list](auto&&, auto&&) {
+                if (auto self = weak.get()) self->undo_all_history(list);
+            });
+            footer.Children().Append(undo_all);
+            content.Children().Append(footer);
+        }
+        dialog.Content(content);
+        dialog.CloseButtonText(winchisel::ui::tr(L"Cancel"));
+        dialog.DefaultButton(Controls::ContentDialogButton::Close);
+        co_await dialog.ShowAsync();
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [](winrt::hstring const&) {});
+    }
 }
 
 void MainWindow::CheckForUpdates(bool manual) {

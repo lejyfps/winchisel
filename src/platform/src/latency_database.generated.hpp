@@ -3,7 +3,7 @@
 #include <string_view>
 namespace winchisel::platform::latency_db {
 struct Entry { std::string_view vid, did; int chip_level; std::string_view name, platform, usb; };
-inline constexpr std::array<Entry, 118> entries{{
+inline constexpr std::array<Entry, 120> entries{{
     {"8086", "8a13", 0, "Ice Lake Thunderbolt 3 USB", "Ice Lake (10th Gen)", "USB 3.2/TB3"},
     {"8086", "9a13", 0, "Tiger Lake-LP Thunderbolt 4 USB", "Tiger Lake (11th Gen)", "USB4/TB4"},
     {"8086", "9a17", 0, "Tiger Lake-H Thunderbolt 4 USB", "Tiger Lake-H (11th Gen)", "USB4/TB4"},
@@ -14,6 +14,8 @@ inline constexpr std::array<Entry, 118> entries{{
     {"8086", "a831", 0, "Lunar Lake-M Thunderbolt 4 USB", "Lunar Lake", "USB4/TB4"},
     {"8086", "5782", 0, "JHL9580 Thunderbolt 5 USB", "Barlow Ridge 80G", "USB4/TB5"},
     {"8086", "5785", 0, "JHL9540 Thunderbolt 4 USB", "Barlow Ridge 40G", "USB4/TB4"},
+    {"8086", "5787", 0, "JHL9480 Thunderbolt 5 USB", "Barlow Ridge Hub 80G", "USB4/TB5"},
+    {"8086", "57a5", 0, "JHL9440 Thunderbolt 4 USB", "Barlow Ridge Hub 40G", "USB4/TB4"},
     {"8086", "1138", 0, "Thunderbolt 4 USB [Maple Ridge 4C]", "Maple Ridge 4C", "USB4/TB4"},
     {"8086", "1135", 0, "Thunderbolt 4 USB [Maple Ridge 2C]", "Maple Ridge 2C", "USB4/TB4"},
     {"8086", "0b27", 0, "Thunderbolt 4 USB [Goshen Ridge]", "Goshen Ridge", "USB4/TB4"},

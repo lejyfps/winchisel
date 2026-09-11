@@ -31,4 +31,14 @@ inline bool registry_value_matches(RegistryValue const& actual, RegistryValue co
     return actual == expected;
 }
 
+// Exact on-disk form of one value: `missing` means the value did not exist
+// (restoring deletes it), otherwise `type` is the raw registry type and
+// `data` the raw bytes. Pure data, so the revert journal in Core can reuse
+// it without depending on Platform.
+struct RegistryNativeValue {
+    bool missing{true};
+    std::uint32_t type{};
+    std::vector<std::uint8_t> data;
+};
+
 }  // namespace winchisel::core

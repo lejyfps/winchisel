@@ -1,4 +1,5 @@
 #include "winchisel/platform/registry.hpp"
+#include "winchisel/platform/revert.hpp"
 #include "winchisel/platform/system.hpp"
 
 #include <windows.h>
@@ -59,6 +60,48 @@ bool expected_type_matches(RegistryValueType expected, DWORD actual) {
     }
     return false;
 }
+
+}  // namespace
+
+// True when writing `desired` would leave the stored value untouched, so the
+// journal can skip no-op pairs (re-applying an already-matching profile
+// stays silent).
+bool registry_native_matches(winchisel::core::RegistryNativeValue const& before, RegistryTarget const& target,
+    RegistryValue const& desired) {
+    (void)target;
+    if (const auto* missing = std::get_if<std::monostate>(&desired)) {
+        (void)missing;
+        return before.missing;
+    }
+    if (before.missing) return false;
+    if (const auto* dword = std::get_if<std::uint32_t>(&desired)) {
+        if (before.type != REG_DWORD || before.data.size() != sizeof(std::uint32_t)) return false;
+        std::uint32_t stored{};
+        std::memcpy(&stored, before.data.data(), sizeof(stored));
+        return stored == *dword;
+    }
+    if (const auto* text = std::get_if<std::string>(&desired)) {
+        if (before.type != REG_SZ && before.type != REG_EXPAND_SZ) return false;
+        if (before.data.size() % sizeof(wchar_t) != 0) return false;
+        const auto chars = before.data.size() / sizeof(wchar_t);
+        std::wstring wide(reinterpret_cast<wchar_t const*>(before.data.data()), chars);
+        while (!wide.empty() && wide.back() == L'\0') wide.pop_back();
+        const int length =
+            WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+        if (length <= 0) return false;
+        std::string utf8(static_cast<std::size_t>(length), '\0');
+        if (WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), utf8.data(), length, nullptr,
+                nullptr) <= 0)
+            return false;
+        return utf8 == *text;
+    }
+    if (const auto* binary = std::get_if<std::vector<std::uint8_t>>(&desired)) {
+        return before.type == REG_BINARY && before.data == *binary;
+    }
+    return false;
+}
+
+namespace {
 
 struct RawRegistryValue {
     bool missing{true};
@@ -235,7 +278,8 @@ winchisel::core::Result<void> write_registry_value(RegistryTarget const& target,
 }
 
 winchisel::core::Result<void> write_registry_values_atomic(
-    std::vector<std::pair<RegistryTarget, RegistryValue>> const& changes) {
+    std::vector<std::pair<RegistryTarget, RegistryValue>> const& changes, std::string_view page,
+    std::string_view label) {
     std::vector<RawRegistryValue> previous;
     previous.reserve(changes.size());
     for (auto const& [target, _] : changes) {
@@ -254,6 +298,21 @@ winchisel::core::Result<void> write_registry_values_atomic(
         }
         if (!rollback_ok) original_error.detail += "; rollback incomplete";
         return std::unexpected(std::move(original_error));
+    }
+    if (!label.empty() && !revert_recording_suppressed()) {
+        winchisel::core::RevertEntry entry = make_revert_entry(std::string(page), std::string(label));
+        for (std::size_t index{}; index < changes.size(); ++index) {
+            winchisel::core::RegistryNativeValue before{
+                previous[index].missing, previous[index].type, previous[index].data};
+            if (registry_native_matches(before, changes[index].first, changes[index].second)) continue;
+            winchisel::core::RevertRegistryStep step;
+            step.target = changes[index].first;
+            step.before = std::move(before);
+            entry.registry.push_back(std::move(step));
+        }
+        if (auto recorded = record_revert(std::move(entry)); !recorded) {
+            boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
+        }
     }
     return {};
 }

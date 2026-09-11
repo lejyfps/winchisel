@@ -1,4 +1,5 @@
 #include "winchisel/core/cleanup.hpp"
+#include "winchisel/core/revert.hpp"
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/settings.hpp"
 #include "winchisel/core/affinity.hpp"
@@ -219,6 +220,56 @@ int main() {
         expect(!cleanup_is_appdata_located(CleanupCategory::windows_temp), "cleanup win temp real");
         expect(!cleanup_is_appdata_located(CleanupCategory::recycle_bin), "cleanup bin real");
         expect(!cleanup_is_appdata_located(CleanupCategory::delivery_optimization), "cleanup do real");
+    }
+    {
+        RevertEntry entry;
+        entry.key = "20260911-120000-1";
+        entry.timestamp = "2026-09-11 12:00";
+        entry.page = "performance";
+        entry.label = "Gaming: Test \"tweak\"\nnewline";
+        entry.registry.push_back(RevertRegistryStep{
+            RegistryTarget{RegistryHive::local_machine, "SYSTEM\\Test", "Value", RegistryValueType::dword},
+            RegistryNativeValue{false, 4, {0x01, 0x00, 0x00, 0x00}}});
+        entry.registry.push_back(RevertRegistryStep{
+            RegistryTarget{RegistryHive::current_user, "Software\\Test", "Gone", RegistryValueType::string},
+            RegistryNativeValue{true, 0, {}}});
+        entry.tasks.push_back(RevertTaskStep{"task-id", true});
+        StartupEntry startup{"id", "Name", "cmd", "detail", "key", StartupLocation::scheduled_task, true, "pub", 3,
+            "C:\\path"};
+        entry.startups.push_back(RevertStartupStep{startup, false});
+        entry.toggles.push_back(RevertToggleStep{"special", "gpu-id", true});
+        entry.ints.push_back(RevertIntStep{"dns", "dns", 1});
+        entry.power = RevertPowerStep{"381b4222-fb38-11d3-bd01-00aa00b7b32"};
+        expect(!revert_entry_empty(entry), "revert nonempty");
+        expect(revert_entry_empty(RevertEntry{}), "revert empty");
+        const auto revert_json = serialize_revert_journal({entry});
+        const auto revert_parsed = parse_revert_journal(revert_json);
+        expect(revert_parsed.size() == 1, "revert roundtrip count");
+        expect(revert_parsed[0].key == entry.key, "revert roundtrip key");
+        expect(revert_parsed[0].label == entry.label, "revert roundtrip label escapes");
+        expect(revert_parsed[0].registry.size() == 2, "revert roundtrip registry");
+        expect(revert_parsed[0].registry[0].target.key_path == "SYSTEM\\Test", "revert roundtrip path");
+        expect(revert_parsed[0].registry[0].before.type == 4, "revert roundtrip type");
+        expect(revert_parsed[0].registry[0].before.data == std::vector<std::uint8_t>({0x01, 0x00, 0x00, 0x00}),
+            "revert roundtrip bytes");
+        expect(revert_parsed[0].registry[1].before.missing, "revert roundtrip missing");
+        expect(revert_parsed[0].tasks[0].id == "task-id" && revert_parsed[0].tasks[0].was_enabled, "revert roundtrip task");
+        expect(revert_parsed[0].startups[0].entry.command == "cmd" &&
+                revert_parsed[0].startups[0].entry.location == StartupLocation::scheduled_task &&
+                !revert_parsed[0].startups[0].was_enabled,
+            "revert roundtrip startup");
+        expect(revert_parsed[0].toggles[0].domain == "special" && revert_parsed[0].toggles[0].was_enabled, "revert roundtrip toggle");
+        expect(revert_parsed[0].ints[0].was_value == 1, "revert roundtrip int");
+        expect(revert_parsed[0].power && revert_parsed[0].power->scheme_guid == "381b4222-fb38-11d3-bd01-00aa00b7b32",
+            "revert roundtrip power");
+        expect(parse_revert_journal("").empty(), "revert empty text");
+        expect(parse_revert_journal("{garbage").empty(), "revert garbage");
+        expect(parse_revert_journal(R"({"version":1})").empty(), "revert no entries");
+        expect(parse_revert_journal(R"({"version":1,"entries":[{"key":"k"}]})").empty(), "revert bad entry skipped");
+        expect(parse_revert_journal(R"({"version":1,"entries":[{"key":"k","timestamp":"t","page":"p","label":"l","registry":[{"hive":9,"key":"k","name":"n","missing":false,"type":4,"data":"zz"}]}]})")
+                .empty(),
+            "revert bad step skipped");
+        expect(parse_revert_journal(std::string(2 * 1024 * 1024, 'x')).empty(), "revert oversize rejected");
     }
     return failed ? 1 : 0;
 }
