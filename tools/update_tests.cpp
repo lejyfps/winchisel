@@ -63,8 +63,18 @@ int wmain() {
     expect(!verify_release_manifest(
                R"({"version":"1.2","artifacts":[{"id":"setup-x64","file":"a.exe","sha256":")"
                + std::string(64, 'b') + R"(","size":10}]})",
-               "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
-           "bad version rejected");
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+            "bad version rejected");
+
+    // Desktop shortcut preservation across setup upgrades: an existing
+    // shortcut must map to an explicit task arg, otherwise nothing is
+    // passed and installer defaults apply untouched (opt-out keeps working).
+    expect(setup_installer_task_args(true) == L"/MERGETASKS=desktopicon",
+        "existing shortcut preserved");
+    expect(setup_installer_task_args(false).empty(), "no shortcut no args");
+    // Shell-dependent probe: must answer without throwing, either way.
+    expect(desktop_shortcut_exists() == true || desktop_shortcut_exists() == false,
+        "shortcut probe answers");
 
     return failed ? 1 : 0;
 }

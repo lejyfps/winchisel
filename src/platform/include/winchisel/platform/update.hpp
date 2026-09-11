@@ -67,6 +67,16 @@ bool is_packaged_install();
 // stays Store-policy compliant.
 bool open_store_updates_page();
 std::string_view update_artifact_id();
+// True when a Winchisel desktop shortcut exists (common or per-user
+// desktop). The setup installer's desktopicon task defaults to unchecked and
+// task state only survives for task-recorded installs, so an upgrade can
+// delete a manually created Winchisel.lnk (silent runs skip the task page
+// that would otherwise preserve it).
+bool desktop_shortcut_exists();
+// Maps shortcut presence to installer task args: keeps an existing shortcut
+// selected across the upgrade, changes nothing otherwise (opting out keeps
+// working). Pure logic, unit-tested.
+std::wstring setup_installer_task_args(bool has_desktop_icon);
 winchisel::core::Result<void> launch_staged_update(
     std::filesystem::path const& staged, ReleaseArtifact const& artifact);
 

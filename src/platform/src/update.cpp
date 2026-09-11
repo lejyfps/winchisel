@@ -438,6 +438,29 @@ bool is_portable_install() {
 
 std::string_view update_artifact_id() { return is_portable_install() ? "portable-x64" : "setup-x64"; }
 
+bool desktop_shortcut_exists() {
+    // The setup installer manages {autodesktop}\Winchisel.lnk, which is the
+    // common desktop for admin installs. Also honor a per-user copy so a
+    // manually placed shortcut is never mistaken for "unwanted".
+    for (const auto folder : {FOLDERID_PublicDesktop, FOLDERID_Desktop}) {
+        PWSTR raw{};
+        if (FAILED(SHGetKnownFolderPath(folder, 0, nullptr, &raw)) || !raw) continue;
+        const std::filesystem::path candidate = std::filesystem::path(raw) / L"Winchisel.lnk";
+        CoTaskMemFree(raw);
+        std::error_code error;
+        if (std::filesystem::is_regular_file(candidate, error) && !error) return true;
+    }
+    return false;
+}
+
+std::wstring setup_installer_task_args(bool has_desktop_icon) {
+    // /MERGETASKS merges into the installer's task selection (previous tasks
+    // or defaults): an existing shortcut stays selected in the wizard and
+    // survives upgrades whose task page is skipped; without one nothing is
+    // passed and the defaults apply untouched.
+    return has_desktop_icon ? L"/MERGETASKS=desktopicon" : L"";
+}
+
 bool is_packaged_install() {
     // APPMODEL_ERROR_NO_PACKAGE means the process runs unpackaged (classic
     // setup or portable). Any other result, including ERROR_INSUFFICIENT_BUFFER
@@ -463,7 +486,13 @@ winchisel::core::Result<void> launch_staged_update(
         const auto staged_size = std::filesystem::file_size(staged, size_error);
         if (size_error || staged_size != artifact.size || sha256_hex_file(staged) != artifact.sha256)
             return std::unexpected(winchisel::core::Error{.detail="Staged update failed verification"});
-        const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", staged.c_str(), nullptr,
+        // Preserve the desktop shortcut across the upgrade (see
+        // desktop_shortcut_exists): observed state travels explicitly so the
+        // installer keeps it with or without its task page. Interactive
+        // users can still change the checkbox in the wizard.
+        const auto task_args = setup_installer_task_args(desktop_shortcut_exists());
+        const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", staged.c_str(),
+            task_args.empty() ? nullptr : task_args.c_str(),
             staged.parent_path().c_str(), SW_SHOWNORMAL));
         if (result <= 32) return std::unexpected(winchisel::core::Error{.detail=std::to_string(result)});
         return {};
