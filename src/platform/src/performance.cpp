@@ -1047,6 +1047,10 @@ winchisel::core::Result<void> apply_registry_and_tasks(
         previous_update = *policy;
     }
     auto restore = [&] {
+        // Rollback must never pollute the revert journal: the writers below
+        // (tasks, DNS, update policy) journal on their own, and replaying a
+        // failed apply would otherwise record its own undo.
+        RevertSuppressGuard suppress;
         bool ok = true;
         for (auto it = previous_registry.rbegin(); it != previous_registry.rend(); ++it)
             ok = static_cast<bool>(write_registry_native(it->first, it->second)) && ok;

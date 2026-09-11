@@ -567,6 +567,18 @@ winrt::fire_and_forget MainWindow::show_history() {
         auto content = Controls::StackPanel();
         content.Spacing(8);
         content.MinWidth(480);
+        // Best-effort notice (spec: no promise broken, restore point stays the
+        // safety net). Shown in both states so an empty/corrupt journal still
+        // points at the fallback: a corrupt file reads back as empty.
+        auto notice = Controls::TextBlock();
+        notice.Text(winchisel::ui::tr(
+            L"Undo is best-effort. For broad changes, create a system restore point first (Settings)."));
+        notice.TextWrapping(TextWrapping::Wrap);
+        notice.Style(Application::Current()
+                         .Resources()
+                         .Lookup(box_value(L"CaptionTextBlockStyle"))
+                         .try_as<winrt::Microsoft::UI::Xaml::Style>());
+        content.Children().Append(notice);
         if (journal->empty()) {
             auto empty = Controls::TextBlock();
             empty.Text(winchisel::ui::tr(L"No changes have been recorded yet."));

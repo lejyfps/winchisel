@@ -156,6 +156,8 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
         {L"Could not undo the change.", L"Änderung konnte nicht rückgängig gemacht werden."},
         {L"All changes were undone.", L"Alle Änderungen wurden rückgängig gemacht."},
         {L"Some changes could not be undone.", L"Einige Änderungen konnten nicht rückgängig gemacht werden."},
+        {L"Undo is best-effort. For broad changes, create a system restore point first (Settings).",
+            L"Rückgängig ist Best-Effort. Für größere Änderungen vorher einen Wiederherstellungspunkt erstellen (Einstellungen)."},
     };
     return table;
 }

@@ -100,6 +100,7 @@ Winget and Microsoft Store releases are in preparation and will be announced her
 
 - **Restore points:** create a Windows restore point from Settings before making changes
 - **Atomic applies:** registry batches apply atomically with snapshot rollback on failure; every error reports its full Windows error code
+- **Change history:** every applied tweak records its before-state; undo single entries or all of them from the History button in the title bar (best-effort — the restore point stays the safety net)
 - **Risk badges:** each tweak is labeled Safe, Moderate, or Risky; new tweaks carry a NEW badge until the next release
 - **Nothing automatic:** every change happens only when you click it — no background modifications
 - **Signed updates:** release manifests are ECDSA-signed and artifacts are SHA-256 verified before installing
@@ -126,7 +127,7 @@ Enable **Settings → Nightly updates**. Pre-release builds are then offered thr
 No usage telemetry, no accounts, no phone-home. The only network access is the release check on startup plus automatic background update checks (both toggleable in Settings) plus downloads you explicitly start (winget packages, updates).
 
 **How do I undo a change?**
-Flip the toggle back, use the per-tweak Default button, apply a Defaults profile, or restore the system restore point you created first.
+Open Change history (title-bar button) and undo the entry — or Undo all. Alternatively flip the toggle back, use the per-tweak Default button, apply a Defaults profile, or restore the system restore point you created first.
 
 **Does it work on Windows 10?**
 No — Winchisel targets Windows 11 22H2+ (build 22621+) on x64 only.
