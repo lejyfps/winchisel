@@ -396,7 +396,10 @@ fire_and_forget SettingsPage::clear_revert_data() {
         (void)self;
         set_busy(false);
         if (cleared && refreshed && refreshed->empty()) {
-            show_result(true, hstring{winchisel::ui::tr(L"Revert data cleared.")});
+            ResultBar().IsOpen(false);
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Success,
+                winchisel::core::loc(L"Settings"),
+                std::wstring(winchisel::ui::tr(L"Revert data cleared.").c_str()));
         } else {
             std::wstring message = winchisel::core::loc(L"Could not clear revert data.");
             if (!cleared && !cleared.error().detail.empty()) message += L" " + to_hstring(cleared.error().detail);
