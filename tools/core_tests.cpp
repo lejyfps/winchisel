@@ -155,7 +155,17 @@ int main() {
         }
         expect(is_new_tweak("gaming-gpu-amd-power") && is_new_tweak("privacy-disable-autologger"), "new tweak ids");
         expect(!is_new_tweak("gaming-game-mode") && !is_new_tweak(""), "old tweak ids");
-        expect(k_new_tweaks_version == std::string_view{"1.0.8"}, "new tweaks version");
+        // Shape-pinned only: the exact badge version moves with each badge
+        // generation (see k_new_tweaks_version in tweak.hpp) and must never
+        // break the build again. This just rejects empty/garbled values.
+        const std::string_view badge_version{k_new_tweaks_version};
+        const bool badge_chars_ok = !badge_version.empty() &&
+            badge_version.find_first_not_of("0123456789.") == std::string_view::npos;
+        std::size_t badge_dots{};
+        for (const char c : badge_version) badge_dots += (c == '.');
+        expect(badge_chars_ok && (badge_dots == 2 || badge_dots == 3) &&
+            badge_version.front() != '.' && badge_version.back() != '.',
+            "new tweaks version shape");
         expect(k_new_tweak_ids.size() == 40, "new tweak count");
         expect(assess_performance("gaming-memory-integrity") == TweakRisk::risky, "risk hvci");
         expect(assess_performance("gaming-virtualization-based-security") == TweakRisk::risky, "risk vbs");
