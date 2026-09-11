@@ -119,6 +119,9 @@
     <ClInclude Include="ScheduledTasksPage.xaml.h">
       <DependentUpon>ScheduledTasksPage.xaml</DependentUpon>
     </ClInclude>
+    <ClInclude Include="CleanupPage.xaml.h">
+      <DependentUpon>CleanupPage.xaml</DependentUpon>
+    </ClInclude>
     <ClInclude Include="ExtrasPage.xaml.h">
       <DependentUpon>ExtrasPage.xaml</DependentUpon>
     </ClInclude>
@@ -171,6 +174,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="CleanupPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="ExtrasPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -216,6 +223,9 @@
     </ClCompile>
     <ClCompile Include="ScheduledTasksPage.xaml.cpp">
       <DependentUpon>ScheduledTasksPage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="CleanupPage.xaml.cpp">
+      <DependentUpon>CleanupPage.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="ExtrasPage.xaml.cpp">
       <DependentUpon>ExtrasPage.xaml</DependentUpon>
@@ -274,6 +284,9 @@
     <Midl Include="ScheduledTasksPage.idl">
       <DependentUpon>ScheduledTasksPage.xaml</DependentUpon>
     </Midl>
+    <Midl Include="CleanupPage.idl">
+      <DependentUpon>CleanupPage.xaml</DependentUpon>
+    </Midl>
     <Midl Include="ExtrasPage.idl">
       <DependentUpon>ExtrasPage.xaml</DependentUpon>
     </Midl>
@@ -325,6 +338,7 @@
     <Copy SourceFiles="$(OutDir)LatencyPage.xbf" DestinationFiles="$(OutDir)LatencyPage.xaml" />
     <Copy SourceFiles="$(OutDir)StartupPage.xbf" DestinationFiles="$(OutDir)StartupPage.xaml" />
     <Copy SourceFiles="$(OutDir)ScheduledTasksPage.xbf" DestinationFiles="$(OutDir)ScheduledTasksPage.xaml" />
+    <Copy SourceFiles="$(OutDir)CleanupPage.xbf" DestinationFiles="$(OutDir)CleanupPage.xaml" />
     <Copy SourceFiles="$(OutDir)ExtrasPage.xbf" DestinationFiles="$(OutDir)ExtrasPage.xaml" />
     <Copy SourceFiles="$(OutDir)SettingsPage.xbf" DestinationFiles="$(OutDir)SettingsPage.xaml" />
   </Target>

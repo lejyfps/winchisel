@@ -62,3 +62,4 @@ docs/releasing.md
 installer/Package.appxmanifest
 installer/Winchisel.iss
 .env
+/docs/competitor-takeaways.md

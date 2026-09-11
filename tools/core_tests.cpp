@@ -1,3 +1,4 @@
+#include "winchisel/core/cleanup.hpp"
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/settings.hpp"
 #include "winchisel/core/affinity.hpp"
@@ -194,6 +195,23 @@ int main() {
         expect(assess_extras("ipv6") == TweakRisk::moderate, "risk extras moderate");
         expect(assess_extras("unknown-key") == TweakRisk::moderate, "risk extras fallback");
         expect(risk_label_key(TweakRisk::risky) == std::string_view{"Risky"}, "risk label");
+    }
+    {
+        expect(k_cleanup_categories.size() == 9, "cleanup category count");
+        std::size_t phase_a{}, phase_b{};
+        for (auto const& info : k_cleanup_categories) {
+            if (info.phase_b) ++phase_b; else ++phase_a;
+            expect(cleanup_category_from_id(info.id) == info.category, "cleanup id roundtrip");
+            expect(!cleanup_category_id(info.category).empty(), "cleanup id nonempty");
+            expect(cleanup_is_phase_b(info.category) == info.phase_b, "cleanup phase flag");
+            expect(info.requires_admin == info.phase_b, "cleanup admin matches phase");
+        }
+        expect(phase_a == k_cleanup_phase_a_count, "cleanup phase a count");
+        expect(phase_b == 3, "cleanup phase b count");
+        expect(!cleanup_category_from_id("no-such-category").has_value(), "cleanup unknown id");
+        expect(cleanup_category_id(CleanupCategory::recycle_bin) == std::string_view{"recycle-bin"}, "cleanup bin id");
+        expect(!cleanup_is_phase_b(CleanupCategory::user_temp), "cleanup temp is phase a");
+        expect(cleanup_is_phase_b(CleanupCategory::update_cleanup), "cleanup dism is phase b");
     }
     return failed ? 1 : 0;
 }

@@ -1,0 +1,7 @@
+namespace Winchisel
+{
+    unsealed runtimeclass CleanupPage : Microsoft.UI.Xaml.Controls.UserControl
+    {
+        CleanupPage();
+    }
+}

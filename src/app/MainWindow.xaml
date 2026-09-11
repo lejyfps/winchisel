@@ -103,6 +103,9 @@
             <NavigationViewItem Content="Scheduled Tasks" Tag="scheduled_tasks">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Calendar" /></NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem Content="Cleanup" Tag="cleanup">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Clear" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem Content="Extras" Tag="extras">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="More" /></NavigationViewItem.Icon>
             </NavigationViewItem>

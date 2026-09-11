@@ -16,6 +16,7 @@ enum class Screen : std::uint8_t {
     scheduled_tasks,
     extras,
     settings,
+    cleanup,
 };
 
 }  // namespace winchisel::core

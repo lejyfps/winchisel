@@ -57,6 +57,7 @@
     <ClInclude Include="include\winchisel\platform\update.hpp" />
     <ClInclude Include="include\winchisel\platform\shell.hpp" />
     <ClInclude Include="include\winchisel\platform\process.hpp" />
+    <ClInclude Include="include\winchisel\platform\cleanup.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\performance.cpp" />
@@ -70,6 +71,7 @@
     <ClCompile Include="src\shell.cpp" />
     <ClCompile Include="src\process.cpp" />
     <ClCompile Include="src\startup.cpp" />
+    <ClCompile Include="src\cleanup.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">

@@ -78,6 +78,12 @@ Winget and Microsoft Store releases are in preparation and will be announced her
 
 - Autostart entries and boot/logon tasks with status, toggle, search, and filters
 
+### Cleanup 🧹
+
+- Disk cleanup across 6 safe categories (user/system temp, recycle bin, thumbnails, delivery optimization, shader caches) with per-category sizes
+- 3 gated system categories (update cleanup via DISM, previous installations, prefetch): hidden in Store builds, require elevation otherwise
+- Confirm dialog with total, live progress with cancel, per-file error report, automatic rescan
+
 ### Extras 🧰
 
 - Extra maintenance controls, including the Winchisel and Ultimate Performance power plans, Long Paths, Developer Mode, Verbose Boot, HPET, and Dynamic Tick
