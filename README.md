@@ -82,6 +82,7 @@ Winget and Microsoft Store releases are in preparation and will be announced her
 
 - Disk cleanup across 6 safe categories (user/system temp, recycle bin, thumbnails, delivery optimization, shader caches) with per-category sizes
 - 3 gated system categories (update cleanup via DISM, previous installations, prefetch): hidden in Store builds, require elevation otherwise
+- Store builds additionally hide the user-temp, thumbnail, and shader-cache categories: packaged file virtualization would redirect those deletes into the private per-app location instead of freeing the real files
 - Confirm dialog with total, live progress with cancel, per-file error report, automatic rescan
 
 ### Extras 🧰

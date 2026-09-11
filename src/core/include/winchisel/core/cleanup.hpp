@@ -28,18 +28,23 @@ struct CleanupCategoryInfo {
     std::string_view id;
     bool phase_b;
     bool requires_admin;
+    // True when the category lives below the user's AppData. Packaged
+    // (Store) builds run with file-system virtualization there: reads merge
+    // with a private per-app location and deletes never reach the real
+    // files, so these categories must stay hidden on packaged builds.
+    bool appdata_located;
 };
 
 inline constexpr std::array k_cleanup_categories{
-    CleanupCategoryInfo{CleanupCategory::user_temp, "user-temp", false, false},
-    CleanupCategoryInfo{CleanupCategory::windows_temp, "windows-temp", false, false},
-    CleanupCategoryInfo{CleanupCategory::recycle_bin, "recycle-bin", false, false},
-    CleanupCategoryInfo{CleanupCategory::thumbnails, "thumbnails", false, false},
-    CleanupCategoryInfo{CleanupCategory::delivery_optimization, "delivery-optimization", false, false},
-    CleanupCategoryInfo{CleanupCategory::shader_cache, "shader-cache", false, false},
-    CleanupCategoryInfo{CleanupCategory::update_cleanup, "update-cleanup", true, true},
-    CleanupCategoryInfo{CleanupCategory::previous_installations, "previous-installations", true, true},
-    CleanupCategoryInfo{CleanupCategory::prefetch, "prefetch", true, true},
+    CleanupCategoryInfo{CleanupCategory::user_temp, "user-temp", false, false, true},
+    CleanupCategoryInfo{CleanupCategory::windows_temp, "windows-temp", false, false, false},
+    CleanupCategoryInfo{CleanupCategory::recycle_bin, "recycle-bin", false, false, false},
+    CleanupCategoryInfo{CleanupCategory::thumbnails, "thumbnails", false, false, true},
+    CleanupCategoryInfo{CleanupCategory::delivery_optimization, "delivery-optimization", false, false, false},
+    CleanupCategoryInfo{CleanupCategory::shader_cache, "shader-cache", false, false, true},
+    CleanupCategoryInfo{CleanupCategory::update_cleanup, "update-cleanup", true, true, false},
+    CleanupCategoryInfo{CleanupCategory::previous_installations, "previous-installations", true, true, false},
+    CleanupCategoryInfo{CleanupCategory::prefetch, "prefetch", true, true, false},
 };
 
 inline constexpr std::size_t k_cleanup_phase_a_count = 6;
@@ -47,6 +52,13 @@ inline constexpr std::size_t k_cleanup_phase_a_count = 6;
 inline bool cleanup_is_phase_b(CleanupCategory category) {
     for (auto const& info : k_cleanup_categories) {
         if (info.category == category) return info.phase_b;
+    }
+    return false;
+}
+
+inline bool cleanup_is_appdata_located(CleanupCategory category) {
+    for (auto const& info : k_cleanup_categories) {
+        if (info.category == category) return info.appdata_located;
     }
     return false;
 }

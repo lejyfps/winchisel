@@ -24,9 +24,11 @@ struct CleanupScanEntry {
 using CleanupScan = std::vector<CleanupScanEntry>;
 
 // Sums reclaimable sizes per category. Never fails the whole scan for one
-// unreadable location: denied or missing paths contribute zero. Call from a
-// background worker; a full SoftwareDistribution walk can take seconds.
-winchisel::core::Result<CleanupScan> scan_cleanup();
+// unreadable location: denied or missing paths contribute zero. Checks
+// `cancel` while walking directories; on cancel the scan stops early and
+// reports cancellation. Call from a background worker; a full
+// SoftwareDistribution walk can take seconds.
+winchisel::core::Result<CleanupScan> scan_cleanup(std::atomic<bool> const& cancel);
 
 // Deletes the selected categories. Locked or access-denied files are counted
 // as skipped (not errors) and reported; anything else records an error but
@@ -52,6 +54,12 @@ winchisel::core::Result<CleanupSummary> clean_cleanup(
 // elevation and stays hidden on packaged Store builds, where elevation via
 // runas is unavailable and system-file deletion risks certification.
 bool cleanup_phase_b_visible();
+// Single visibility gate for the UI and the scan: phase B follows
+// cleanup_phase_b_visible(); AppData-located categories are additionally
+// hidden on packaged builds because file-system virtualization redirects
+// their reads and deletes into the private per-app location, so cleanup
+// there would neither report nor free the user's real files.
+bool cleanup_category_visible(winchisel::core::CleanupCategory category);
 // True elevation state (TokenElevation), not just admin group membership.
 bool cleanup_process_elevated();
 

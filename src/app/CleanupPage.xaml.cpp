@@ -118,6 +118,7 @@ CleanupPage::CleanupPage() {
     RefreshButton().Content(box_value(winchisel::ui::tr(L"Refresh")));
     CleanButton().Content(box_value(winchisel::ui::tr(L"Clean selected")));
     CancelButton().Content(box_value(winchisel::ui::tr(L"Cancel")));
+    SelectAllButton().Content(box_value(winchisel::ui::tr(L"Select all")));
     ElevateButton().Content(box_value(winchisel::ui::tr(L"Restart as administrator")));
     AdminNote().Text(winchisel::ui::tr(L"Restart Winchisel as administrator to enable the system categories."));
     poll_timer_ = DispatcherQueue().CreateTimer();
@@ -145,8 +146,39 @@ void CleanupPage::Refresh_Click(Windows::Foundation::IInspectable const&, Routed
 void CleanupPage::Cancel_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
     if (!busy_ || !op_) return;
     op_->cancel.store(true);
-    Status().Text(winchisel::ui::tr(L"Cancelling..."));
+    Activity().Text(winchisel::ui::tr(L"Cancelling..."));
     CancelButton().IsEnabled(false);
+}
+
+void CleanupPage::SelectAll_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+    if (busy_) return;
+    bool all_checked = true;
+    for (auto const& row : rows_) {
+        if (row.box && row.box.IsEnabled() && !winrt::unbox_value_or<bool>(row.box.IsChecked(), false)) {
+            all_checked = false;
+            break;
+        }
+    }
+    const bool target = !all_checked;
+    for (auto& row : rows_) {
+        if (row.box && row.box.IsEnabled()) row.box.IsChecked(target);
+    }
+    refresh_select_label();
+}
+
+void CleanupPage::refresh_select_label() {
+    bool any_enabled{};
+    bool all_checked = true;
+    for (auto const& row : rows_) {
+        if (!row.box || !row.box.IsEnabled()) continue;
+        any_enabled = true;
+        if (!winrt::unbox_value_or<bool>(row.box.IsChecked(), false)) {
+            all_checked = false;
+            break;
+        }
+    }
+    SelectAllButton().Content(
+        box_value(winchisel::ui::tr(all_checked && any_enabled ? L"Deselect all" : L"Select all")));
 }
 
 void CleanupPage::Elevate_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
@@ -166,11 +198,12 @@ void CleanupPage::start_scan() {
     auto op = std::make_shared<Operation>();
     op->job = Job::scanning;
     op_ = op;
-    Status().Text(winchisel::ui::tr(L"Scanning cleanup categories..."));
+    Status().Text(hstring{});
+    Activity().Text(winchisel::ui::tr(L"Scanning cleanup categories..."));
     update_chrome();
     std::thread([op] {
         try {
-            op->scan_result = winchisel::platform::scan_cleanup();
+            op->scan_result = winchisel::platform::scan_cleanup(op->cancel);
         } catch (...) {
             op->scan_result = std::unexpected(winchisel::core::Error{.detail = "Cleanup scan failed unexpectedly."});
         }
@@ -191,7 +224,7 @@ void CleanupPage::poll() {
                 current = op->progress_file;
             }
             if (!current.empty()) {
-                Status().Text(hstring{
+                Activity().Text(hstring{
                     std::wstring(winchisel::ui::tr(L"Cleaning...").c_str()) + L" " + to_hstring(current)});
             }
         }
@@ -201,9 +234,14 @@ void CleanupPage::poll() {
     op_ = nullptr;
     busy_ = false;
     if (op->job == Job::scanning) {
+        Activity().Text(hstring{});
         if (!op->scan_result) {
-            show_write_error(op->scan_result.error().detail);
-            Status().Text(winchisel::ui::tr(L"Scan failed"));
+            if (op->cancel.load()) {
+                Status().Text(winchisel::ui::tr(L"Cleanup was cancelled."));
+            } else {
+                show_write_error(op->scan_result.error().detail);
+                Status().Text(winchisel::ui::tr(L"Scan failed"));
+            }
         } else {
             scan_ = std::move(*op->scan_result);
             render();
@@ -215,7 +253,8 @@ void CleanupPage::poll() {
             Status().Text(winchisel::ui::tr(L"Ready"));
         }
     } else {
-        finish_clean(op->clean_result);
+        Activity().Text(hstring{});
+        finish_clean(op, op->clean_result);
         // Sizes changed: rescan so cards show the honest post-clean state.
         start_scan();
         return;
@@ -223,9 +262,12 @@ void CleanupPage::poll() {
     update_chrome();
 }
 
-void CleanupPage::finish_clean(winchisel::core::Result<winchisel::platform::CleanupSummary> const& result) {
+void CleanupPage::finish_clean(
+    std::shared_ptr<Operation> const& op, winchisel::core::Result<winchisel::platform::CleanupSummary> const& result) {
     if (!result) {
-        const bool cancelled = result.error().detail.find("cancel") != std::string::npos;
+        // Cancel state comes from the flag, never from sniffing the message:
+        // a real failure could mention "cancel" in a path or detail string.
+        const bool cancelled = op && op->cancel.load();
         ResultBar().Title(hstring{winchisel::core::loc(
             cancelled ? L"Cleanup was cancelled." : L"Cleanup failed.")});
         ResultBar().Message(to_hstring(result.error().detail));
@@ -235,6 +277,9 @@ void CleanupPage::finish_clean(winchisel::core::Result<winchisel::platform::Clea
         return;
     }
     auto const& summary = *result;
+    // A cancelled run can still have freed files: report the partial work
+    // instead of pretending nothing happened.
+    const bool cancelled = op && op->cancel.load();
     std::wstring message = std::wstring(format_bytes(summary.bytes_freed).c_str());
     message += L" ";
     message += winchisel::core::loc(L"freed");
@@ -256,13 +301,16 @@ void CleanupPage::finish_clean(winchisel::core::Result<winchisel::platform::Clea
         message += winchisel::core::loc(L"First error");
         message += L": " + to_hstring(summary.first_error);
     }
-    ResultBar().Title(hstring{winchisel::core::loc(L"Cleanup finished.")});
+    ResultBar().Title(hstring{winchisel::core::loc(
+        cancelled ? L"Cleanup was cancelled." : L"Cleanup finished.")});
     ResultBar().Message(message);
-    ResultBar().Severity(summary.errors == 0 ? Controls::InfoBarSeverity::Success
-                                            : Controls::InfoBarSeverity::Warning);
+    ResultBar().Severity(cancelled ? Controls::InfoBarSeverity::Informational
+        : summary.errors == 0   ? Controls::InfoBarSeverity::Success
+                                : Controls::InfoBarSeverity::Warning);
     ResultBar().IsOpen(true);
-    winchisel::ui::show_toast(summary.errors == 0 ? Controls::InfoBarSeverity::Success
-                                                 : Controls::InfoBarSeverity::Warning,
+    winchisel::ui::show_toast(cancelled ? Controls::InfoBarSeverity::Informational
+        : summary.errors == 0         ? Controls::InfoBarSeverity::Success
+                                      : Controls::InfoBarSeverity::Warning,
         std::wstring(winchisel::ui::tr(L"Cleanup").c_str()), message);
 }
 
@@ -276,10 +324,24 @@ winrt::fire_and_forget CleanupPage::confirm_and_clean() {
     try {
         auto error_lifetime = get_strong();
         if (busy_) co_return;
-        std::vector<Row*> selected;
+        // Snapshot values, never live Row pointers: rows_ is rebuilt by
+        // render() and the dialog below awaits, so pointers could dangle.
+        struct Pick {
+            winchisel::core::CleanupCategory category{};
+            hstring title{};
+            std::uint64_t bytes{};
+        };
+        std::vector<Pick> selected;
         for (auto& row : rows_) {
             if (row.box && row.box.IsEnabled() && winrt::unbox_value_or<bool>(row.box.IsChecked(), false)) {
-                selected.push_back(&row);
+                std::uint64_t bytes{};
+                for (auto const& entry : scan_) {
+                    if (entry.category == row.category) {
+                        bytes = entry.bytes;
+                        break;
+                    }
+                }
+                selected.push_back(Pick{row.category, category_title(row.category), bytes});
             }
         }
         if (selected.empty()) {
@@ -291,15 +353,10 @@ winrt::fire_and_forget CleanupPage::confirm_and_clean() {
         std::uint64_t total{};
         bool has_previous{};
         bool has_update{};
-        for (auto const* row : selected) {
-            for (auto const& entry : scan_) {
-                if (entry.category == row->category) {
-                    total += entry.bytes;
-                    break;
-                }
-            }
-            has_previous = has_previous || row->category == winchisel::core::CleanupCategory::previous_installations;
-            has_update = has_update || row->category == winchisel::core::CleanupCategory::update_cleanup;
+        for (auto const& pick : selected) {
+            total += pick.bytes;
+            has_previous = has_previous || pick.category == winchisel::core::CleanupCategory::previous_installations;
+            has_update = has_update || pick.category == winchisel::core::CleanupCategory::update_cleanup;
         }
         winchisel::core::DialogSlot dialog_slot;
         if (!winchisel::ui::dialog_available(dialog_slot)) co_return;
@@ -315,9 +372,9 @@ winrt::fire_and_forget CleanupPage::confirm_and_clean() {
         content.Children().Append(headline);
         auto list = Controls::StackPanel();
         list.Spacing(2);
-        for (auto const* row : selected) {
+        for (auto const& pick : selected) {
             auto line = Controls::TextBlock();
-            line.Text(hstring{L"\u2022 " + std::wstring(category_title(row->category).c_str())});
+            line.Text(hstring{L"\u2022 " + std::wstring(pick.title.c_str())});
             line.TextWrapping(TextWrapping::Wrap);
             list.Children().Append(line);
         }
@@ -343,9 +400,10 @@ winrt::fire_and_forget CleanupPage::confirm_and_clean() {
         ResultBar().IsOpen(false);
         auto op = std::make_shared<Operation>();
         op->job = Job::cleaning;
-        for (auto const* row : selected) op->selection.push_back(row->category);
+        for (auto const& pick : selected) op->selection.push_back(pick.category);
         op_ = op;
-        Status().Text(winchisel::ui::tr(L"Cleaning..."));
+        Status().Text(hstring{});
+        Activity().Text(winchisel::ui::tr(L"Cleaning..."));
         update_chrome();
         std::thread([op] {
             try {
@@ -389,7 +447,9 @@ void CleanupPage::render() {
         return fallback;
     };
     for (auto const& entry : scan_) {
-        if (winchisel::core::cleanup_is_phase_b(entry.category) && !phase_b_visible_) continue;
+        // Defense in depth: the scan already filters, but the gate stays
+        // here so a stale scan_ can never render a hidden category.
+        if (!winchisel::platform::cleanup_category_visible(entry.category)) continue;
         auto box = Controls::CheckBox();
         box.Content(box_value(category_title(entry.category)));
         const bool admin_locked =
@@ -397,6 +457,9 @@ void CleanupPage::render() {
         box.IsEnabled(!admin_locked);
         const bool fallback = !winchisel::core::cleanup_is_phase_b(entry.category) && entry.bytes > 0;
         box.IsChecked(admin_locked ? false : checked_for(entry.category, fallback));
+        auto weak = get_weak();
+        box.Checked([weak](auto&&, auto&&) { if (auto self = weak.get()) self->refresh_select_label(); });
+        box.Unchecked([weak](auto&&, auto&&) { if (auto self = weak.get()) self->refresh_select_label(); });
         if (admin_locked) {
             Controls::ToolTipService::SetToolTip(box, box_value(winchisel::ui::tr(L"Requires administrator")));
         }
@@ -431,8 +494,12 @@ void CleanupPage::update_chrome() {
     RefreshButton().IsEnabled(!busy_);
     CleanButton().IsEnabled(!busy_ && has_scan);
     CancelButton().IsEnabled(busy_);
+    SelectAllButton().IsEnabled(!busy_ && has_scan);
+    BusyRing().IsActive(busy_);
+    BusyRing().Visibility(busy_ ? Visibility::Visible : Visibility::Collapsed);
     AdminBox().Visibility(
         phase_b_visible_ && !elevated_ ? Visibility::Visible : Visibility::Collapsed);
+    refresh_select_label();
 }
 
 }  // namespace winrt::Winchisel::implementation

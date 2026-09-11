@@ -28,6 +28,9 @@ struct CleanupPage : CleanupPageT<CleanupPage> {
     void Cancel_Click(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void SelectAll_Click(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Elevate_Click(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -56,10 +59,12 @@ private:
 
     void start_scan();
     void poll();
-    void finish_clean(winchisel::core::Result<winchisel::platform::CleanupSummary> const& result);
+    void finish_clean(std::shared_ptr<Operation> const& op,
+        winchisel::core::Result<winchisel::platform::CleanupSummary> const& result);
     winrt::fire_and_forget confirm_and_clean();
     void render();
     void update_chrome();
+    void refresh_select_label();
     void show_write_error(std::string const& detail = {});
 
     std::vector<winchisel::platform::CleanupScanEntry> scan_{};

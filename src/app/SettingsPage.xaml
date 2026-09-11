@@ -342,54 +342,6 @@
                         </Grid>
                     </Border>
 
-                    <Border Padding="16,12"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            CornerRadius="4">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Disk Cleanup - Run" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <TextBlock Text="Runs Disk Cleanup on drive C: and removes old Windows updates."
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource CaptionTextBlockStyle}" />
-                            </StackPanel>
-                            <Button x:Name="CleanupButton"
-                                    Grid.Column="1"
-                                    Content="Run"
-                                    VerticalAlignment="Center"
-                                    Click="Cleanup_Click" />
-                        </Grid>
-                    </Border>
-
-                    <Border Padding="16,12"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            CornerRadius="4">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Temporary Files - Remove" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <TextBlock Text="Erase TEMP folders."
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource CaptionTextBlockStyle}" />
-                            </StackPanel>
-                            <Button x:Name="TempButton"
-                                    Grid.Column="1"
-                                    Content="Remove"
-                                    VerticalAlignment="Center"
-                                    Click="Temp_Click" />
-                        </Grid>
-                    </Border>
-
                     <TextBlock Text="About" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,16,0,0" />
                     <Border Padding="16"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -418,12 +370,6 @@
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>
-            <ProgressBar x:Name="Loading"
-                         IsIndeterminate="True"
-                         Visibility="Collapsed"
-                         HorizontalAlignment="Stretch"
-                         VerticalAlignment="Top"
-                         AutomationProperties.Name="System operation progress" />
         </Grid>
     </Grid>
 </UserControl>

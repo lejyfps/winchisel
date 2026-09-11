@@ -40,11 +40,7 @@ SettingsPage::SettingsPage() {
     save_timer_.Interval(std::chrono::milliseconds(600));
     auto weak = get_weak();
     save_timer_token_ = save_timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) self->save_settings(); });
-    poll_timer_ = DispatcherTimer();
-    poll_timer_.Interval(std::chrono::milliseconds(200));
-    poll_timer_token_ = poll_timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) self->poll_worker(); });
-    Loaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { if (self->action_ != Action::none) self->poll_timer_.Start(); } });
-    Unloaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { self->flush_pending_save(); self->poll_timer_.Stop(); } });
+    Unloaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { self->flush_pending_save(); } });
 }
 
 SettingsPage::~SettingsPage() {
@@ -53,14 +49,9 @@ SettingsPage::~SettingsPage() {
         save_timer_.Tick(save_timer_token_);
         save_timer_.Stop();
     }
-    if (poll_timer_) {
-        poll_timer_.Tick(poll_timer_token_);
-        poll_timer_.Stop();
-    }
     if (action_dialog_) {
         action_dialog_.Hide();
     }
-    winchisel::ui::finish_in_background(worker_);
     winchisel::ui::finish_in_background(dialog_worker_);
 }
 
@@ -150,8 +141,6 @@ void SettingsPage::save_settings() {
 
 void SettingsPage::Restore_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::restore); }
 void SettingsPage::Repair_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::repair); }
-void SettingsPage::Cleanup_Click(IInspectable const&, RoutedEventArgs const&) { start_cleanup(); }
-void SettingsPage::Temp_Click(IInspectable const&, RoutedEventArgs const&) { run_dialog(Action::temp); }
 
 void SettingsPage::Link_Click(IInspectable const& sender, RoutedEventArgs const&) {
     if (auto button = sender.try_as<Controls::Button>()) {
@@ -159,62 +148,9 @@ void SettingsPage::Link_Click(IInspectable const& sender, RoutedEventArgs const&
     }
 }
 
-void SettingsPage::start_cleanup() {
-    auto error_weak=get_weak();
-    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
-    try { error_queue=DispatcherQueue(); } catch (...) {}
-    try {
-        auto error_lifetime=get_strong();
-
-    if (action_ != Action::none) {
-        winchisel::ui::show_toast(Controls::InfoBarSeverity::Informational, L"Busy", L"Another maintenance task is still running.");
-        return;
-    }
-    action_ = Action::cleanup;
-    ResultBar().IsOpen(false);
-    set_busy(true);
-    worker_ = std::async(std::launch::async, [] { return winchisel::platform::run_disk_cleanup(); });
-    poll_timer_.Start();
-
-    } catch (...) {
-        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
-            if (auto self=error_weak.get()) { self->poll_timer_.Stop(); if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
-        });
-    }
-}
-
-void SettingsPage::poll_worker() {
-    auto error_weak=get_weak();
-    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
-    try { error_queue=DispatcherQueue(); } catch (...) {}
-    try {
-        auto error_lifetime=get_strong();
-
-    if (action_ != Action::cleanup) {
-        return;
-    }
-    if (!worker_.valid() || worker_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-        return;
-    }
-    auto result = worker_.get();
-    action_ = Action::none;
-    poll_timer_.Stop();
-    set_busy(false);
-    show_result(static_cast<bool>(result), result ? L"Disk Cleanup finished successfully." : L"Disk Cleanup failed.");
-
-    } catch (...) {
-        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
-            if (auto self=error_weak.get()) { self->poll_timer_.Stop(); if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
-        });
-    }
-}
-
 void SettingsPage::set_busy(bool busy) {
-    Loading().Visibility(busy && action_ == Action::cleanup ? Visibility::Visible : Visibility::Collapsed);
     RestoreButton().IsEnabled(!busy);
     RepairButton().IsEnabled(!busy);
-    CleanupButton().IsEnabled(!busy);
-    TempButton().IsEnabled(!busy);
 }
 
 void SettingsPage::show_result(bool ok, hstring const& text) {
@@ -274,12 +210,8 @@ void SettingsPage::finish_dialog(winchisel::core::Result<void> const& result) {
     const bool ok = static_cast<bool>(result);
     hstring message = action_ == Action::restore
         ? (ok ? L"Restore point created successfully." : L"Restore point failed.")
-        : action_ == Action::repair
-        ? (ok ? L"System repair finished successfully." : L"System repair failed.")
-        : (ok ? L"Temporary files were removed successfully." : L"Temporary file cleanup failed.");
-    hstring fail_title = action_ == Action::restore ? L"Restore point failed"
-        : action_ == Action::repair ? L"System repair failed"
-        : L"Temporary Files - Remove";
+        : (ok ? L"System repair finished successfully." : L"System repair failed.");
+    hstring fail_title = action_ == Action::restore ? L"Restore point failed" : L"System repair failed";
     if (!ok && !result.error().detail.empty()) {
         append_log(result.error().detail);
         flush_log();
@@ -319,13 +251,10 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
     set_busy(true);
     log_lines_.clear();
 
-    const bool with_log = action == Action::repair || action == Action::temp;
-    hstring title = action == Action::restore ? L"Create Restore Point"
-        : action == Action::repair ? L"System Repair"
-        : L"Temporary Files - Remove";
-    hstring initial = action == Action::restore ? L"Creating restore point. This can take a moment..."
-        : action == Action::repair ? L"Repair running..."
-        : L"Removing temporary files...";
+    const bool with_log = action == Action::repair;
+    hstring title = action == Action::restore ? L"Create Restore Point" : L"System Repair";
+    hstring initial =
+        action == Action::restore ? L"Creating restore point. This can take a moment..." : L"Repair running...";
 
     auto content = Controls::StackPanel();
     content.Spacing(12);
@@ -393,7 +322,6 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
         switch (action) {
         case Action::restore: return winchisel::platform::create_restore_point();
         case Action::repair: return winchisel::platform::run_system_repair(progress);
-        case Action::temp: return winchisel::platform::remove_temp_files(progress);
         default: return {};
         }
         });
@@ -414,7 +342,7 @@ fire_and_forget SettingsPage::run_dialog(Action action) {
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
-            if (auto self=error_weak.get()) { self->poll_timer_.Stop(); if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
+            if (auto self=error_weak.get()) { if(self->action_dialog_)self->action_dialog_.Hide(); self->action_=Action::none; self->set_busy(false); self->show_result(false,text); }
         });
     }
 }

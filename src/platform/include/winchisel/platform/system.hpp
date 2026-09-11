@@ -39,8 +39,6 @@ using ProtectionProgress = std::function<void(bool is_stage, std::string_view te
 
 winchisel::core::Result<void> create_restore_point();
 winchisel::core::Result<void> run_system_repair(ProtectionProgress const& progress);
-winchisel::core::Result<void> run_disk_cleanup();
-winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progress);
 
 // Command-based Extras actions.  These functions never create a visible console
 // window and are intended to be called from a background worker by the UI.

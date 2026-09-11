@@ -1,5 +1,6 @@
 #include "winchisel/platform/cleanup.hpp"
 #include "winchisel/platform/update.hpp"
+#include "com_apartment.hpp"
 #include "process_wait.hpp"
 
 #include <windows.h>
@@ -69,15 +70,16 @@ struct DirSize {
     std::uint64_t files{};
 };
 
-DirSize directory_size(std::filesystem::path const& root) {
+DirSize directory_size(std::filesystem::path const& root, std::atomic<bool> const& cancel) {
     DirSize total;
     std::error_code ec;
-    if (root.empty() || !std::filesystem::exists(root, ec)) return total;
+    if (root.empty() || cancel.load() || !std::filesystem::exists(root, ec)) return total;
     std::filesystem::recursive_directory_iterator it(
         root, std::filesystem::directory_options::skip_permission_denied, ec);
     const std::filesystem::recursive_directory_iterator end;
     if (ec) return total;
     for (; it != end; it.increment(ec)) {
+        if (cancel.load()) return total;
         if (ec) {
             ec.clear();
             continue;
@@ -160,7 +162,8 @@ void clean_directory_contents(std::filesystem::path const& root, CleanupCategory
             }
             continue;
         }
-        const auto before = directory_size(path);
+        const auto before = directory_size(path, cancel);
+        if (cancel.load()) return;
         std::error_code tree_ec;
         const auto removed = std::filesystem::remove_all(path, tree_ec);
         if (tree_ec) {
@@ -225,13 +228,14 @@ void clean_matching_files(std::filesystem::path const& root,
 }
 
 DirSize matching_files_size(std::filesystem::path const& root,
-    std::function<bool(std::filesystem::path const&)> const& accept) {
+    std::function<bool(std::filesystem::path const&)> const& accept, std::atomic<bool> const& cancel) {
     DirSize total;
     std::error_code ec;
-    if (root.empty()) return total;
+    if (root.empty() || cancel.load()) return total;
     std::filesystem::directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, ec), end;
     if (ec) return total;
     for (; it != end; it.increment(ec)) {
+        if (cancel.load()) return total;
         if (ec) {
             ec.clear();
             continue;
@@ -318,7 +322,9 @@ Result<void> run_cancellable(std::wstring command, std::atomic<bool> const& canc
     if (job) CloseHandle(job);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    if (!done || exit_code != 0) {
+    // ERROR_SUCCESS_REBOOT_REQUIRED (3010) is success with a pending reboot,
+    // same convention as the debloater DISM path.
+    if (!done || (exit_code != 0 && exit_code != ERROR_SUCCESS_REBOOT_REQUIRED)) {
         return fail<void>("Cleanup helper failed with exit code " + std::to_string(exit_code) + ".");
     }
     return {};
@@ -332,6 +338,12 @@ bool cleanup_phase_b_visible() {
     return !is_packaged_install();
 }
 
+bool cleanup_category_visible(CleanupCategory category) {
+    if (winchisel::core::cleanup_is_phase_b(category)) return cleanup_phase_b_visible();
+    if (is_packaged_install() && winchisel::core::cleanup_is_appdata_located(category)) return false;
+    return true;
+}
+
 bool cleanup_process_elevated() {
     HANDLE token{};
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return false;
@@ -343,21 +355,29 @@ bool cleanup_process_elevated() {
     return elevated;
 }
 
-Result<CleanupScan> scan_cleanup() {
+Result<CleanupScan> scan_cleanup(std::atomic<bool> const& cancel) {
+    // Shell folder APIs need COM on this worker thread (the UI must never
+    // block on a SoftwareDistribution walk). Balanced init/uninit per call.
+    const detail::ComApartment com;
+    (void)com;
     CleanupScan scan;
     const auto windows = windows_dir();
     const auto local_appdata = local_appdata_dir();
     const auto drive = system_drive_root();
     auto push = [&](CleanupCategory category, DirSize size, bool unknown = false) {
+        if (cancel.load()) return;
+        if (!cleanup_category_visible(category)) return;
         scan.push_back(CleanupScanEntry{category, size.bytes, size.files, unknown});
     };
-    push(CleanupCategory::user_temp, directory_size(user_temp_dir()));
-    push(CleanupCategory::windows_temp, windows.empty() ? DirSize{} : directory_size(windows / L"Temp"));
+    // Sizes are best-effort stats: each walker already checks cancel, so a
+    // cancelled scan simply stops contributing further categories below.
+    push(CleanupCategory::user_temp, directory_size(user_temp_dir(), cancel));
+    push(CleanupCategory::windows_temp, windows.empty() ? DirSize{} : directory_size(windows / L"Temp", cancel));
     {
         SHQUERYRBINFO info{};
         info.cbSize = sizeof(info);
         DirSize bin;
-        if (SUCCEEDED(SHQueryRecycleBinW(nullptr, &info))) {
+        if (!cancel.load() && SUCCEEDED(SHQueryRecycleBinW(nullptr, &info))) {
             bin.bytes = static_cast<std::uint64_t>(info.i64Size);
             bin.files = static_cast<std::uint64_t>(info.i64NumItems);
         }
@@ -365,21 +385,22 @@ Result<CleanupScan> scan_cleanup() {
     }
     {
         DirSize thumbs;
-        if (!local_appdata.empty()) {
+        if (!local_appdata.empty() && !cancel.load()) {
             const auto explorer = local_appdata / L"Microsoft" / L"Windows" / L"Explorer";
             auto accept = [](std::filesystem::path const& path) {
                 return matches_pattern(path, L"thumbcache_", L".db") || matches_pattern(path, L"iconcache_", L".db");
             };
-            thumbs = matching_files_size(explorer, accept);
+            thumbs = matching_files_size(explorer, accept, cancel);
         }
         push(CleanupCategory::thumbnails, thumbs);
     }
     push(CleanupCategory::delivery_optimization,
-        windows.empty() ? DirSize{} : directory_size(windows / L"SoftwareDistribution" / L"DeliveryOptimization"));
+        windows.empty() ? DirSize{} : directory_size(windows / L"SoftwareDistribution" / L"DeliveryOptimization", cancel));
     {
         DirSize shaders;
         for (auto const& dir : shader_cache_dirs(local_appdata)) {
-            const auto size = directory_size(dir);
+            if (cancel.load()) break;
+            const auto size = directory_size(dir, cancel);
             shaders.bytes += size.bytes;
             shaders.files += size.files;
         }
@@ -389,22 +410,27 @@ Result<CleanupScan> scan_cleanup() {
         push(CleanupCategory::update_cleanup, DirSize{}, true);
         DirSize previous;
         for (auto const& dir : previous_install_dirs(drive)) {
-            const auto size = directory_size(dir);
+            if (cancel.load()) break;
+            const auto size = directory_size(dir, cancel);
             previous.bytes += size.bytes;
             previous.files += size.files;
         }
         push(CleanupCategory::previous_installations, previous);
         push(CleanupCategory::prefetch,
-            windows.empty()
+            windows.empty() || cancel.load()
                 ? DirSize{}
                 : matching_files_size(windows / L"Prefetch",
-                      [](std::filesystem::path const& path) { return matches_pattern(path, L"", L".pf"); }));
+                      [](std::filesystem::path const& path) { return matches_pattern(path, L"", L".pf"); }, cancel));
     }
+    if (cancel.load()) return fail<CleanupScan>("Cleanup scan was cancelled.");
     return scan;
 }
 
 Result<CleanupSummary> clean_cleanup(std::vector<CleanupCategory> const& categories,
     CleanupProgress const& progress, std::atomic<bool> const& cancel) {
+    // SHEmptyRecycleBinW needs COM on this worker thread; see scan_cleanup.
+    const detail::ComApartment com;
+    (void)com;
     CleanupSummary summary;
     CleanStats stats;
     const auto windows = windows_dir();
@@ -471,7 +497,8 @@ Result<CleanupSummary> clean_cleanup(std::vector<CleanupCategory> const& categor
                 for (auto const& dir : previous_install_dirs(drive)) {
                     if (cancel.load()) break;
                     std::error_code ec;
-                    const auto before = directory_size(dir);
+                    const auto before = directory_size(dir, cancel);
+                    if (cancel.load()) break;
                     const auto removed = std::filesystem::remove_all(dir, ec);
                     if (ec) {
                         if (is_skip_error(ec)) ++stats.skipped;

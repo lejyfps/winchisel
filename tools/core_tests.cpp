@@ -205,6 +205,7 @@ int main() {
             expect(!cleanup_category_id(info.category).empty(), "cleanup id nonempty");
             expect(cleanup_is_phase_b(info.category) == info.phase_b, "cleanup phase flag");
             expect(info.requires_admin == info.phase_b, "cleanup admin matches phase");
+            expect(cleanup_is_appdata_located(info.category) == info.appdata_located, "cleanup appdata flag");
         }
         expect(phase_a == k_cleanup_phase_a_count, "cleanup phase a count");
         expect(phase_b == 3, "cleanup phase b count");
@@ -212,6 +213,12 @@ int main() {
         expect(cleanup_category_id(CleanupCategory::recycle_bin) == std::string_view{"recycle-bin"}, "cleanup bin id");
         expect(!cleanup_is_phase_b(CleanupCategory::user_temp), "cleanup temp is phase a");
         expect(cleanup_is_phase_b(CleanupCategory::update_cleanup), "cleanup dism is phase b");
+        expect(cleanup_is_appdata_located(CleanupCategory::user_temp), "cleanup temp virtualized");
+        expect(cleanup_is_appdata_located(CleanupCategory::thumbnails), "cleanup thumbs virtualized");
+        expect(cleanup_is_appdata_located(CleanupCategory::shader_cache), "cleanup shaders virtualized");
+        expect(!cleanup_is_appdata_located(CleanupCategory::windows_temp), "cleanup win temp real");
+        expect(!cleanup_is_appdata_located(CleanupCategory::recycle_bin), "cleanup bin real");
+        expect(!cleanup_is_appdata_located(CleanupCategory::delivery_optimization), "cleanup do real");
     }
     return failed ? 1 : 0;
 }

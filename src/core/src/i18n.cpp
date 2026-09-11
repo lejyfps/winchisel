@@ -146,6 +146,8 @@ std::unordered_map<std::wstring, std::wstring> const& german() {
         {L"skipped", L"übersprungen"},
         {L"errors", L"Fehler"},
         {L"First error", L"Erster Fehler"},
+        {L"Select all", L"Alle auswählen"},
+        {L"Deselect all", L"Auswahl aufheben"},
     };
     return table;
 }
