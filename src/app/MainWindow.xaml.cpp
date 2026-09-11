@@ -365,7 +365,7 @@ void MainWindow::notify_if_updated() {
 }
 
 void MainWindow::BugReport_Click(IInspectable const&, RoutedEventArgs const&) {
-    if (!winchisel::platform::open_https_url(L"https://github.com/lyrx2k/winchisel/issues"))
+    if (!winchisel::platform::open_https_url(L"https://github.com/lejyfps/winchisel/issues"))
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Winchisel", L"Could not open the bug report page.");
 }
 

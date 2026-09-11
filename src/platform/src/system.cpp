@@ -111,7 +111,8 @@ bool restart_elevated() {
         std::wstring host(host_size, L'\0');
         if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), host_size)) {
             if (!host.empty() && host.back() == L'\0') host.pop_back();
-            if (!host.empty()) arguments = L"--portable-host " + quote_arg(host);
+            if (auto trusted = detail::trusted_exe_path(host))
+                arguments = L"--portable-host " + quote_arg(*trusted);
         }
     }
     const INT_PTR rc = reinterpret_cast<INT_PTR>(ShellExecuteW(
@@ -125,7 +126,7 @@ std::optional<std::wstring> autostart_host() {
         std::wstring host(size, L'\0');
         if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), size)) {
             if (!host.empty() && host.back() == L'\0') host.pop_back();
-            if (!host.empty()) return host;
+            if (auto trusted = detail::trusted_exe_path(host)) return trusted;
         }
     }
     int count{};
@@ -134,7 +135,7 @@ std::optional<std::wstring> autostart_host() {
     std::optional<std::wstring> host;
     for (int index = 1; index + 1 < count; ++index) {
         if (std::wstring_view(arguments[index]) == L"--portable-host") {
-            host = arguments[index + 1];
+            host = detail::trusted_exe_path(arguments[index + 1]);
             break;
         }
     }
@@ -539,9 +540,9 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
     // of the import result; activating that exact GUID avoids changing another
     // existing plan with the same name. The temp copy uses a unique name so
     // concurrent runs cannot collide on a fixed file name.
-    std::array<wchar_t, MAX_PATH> temp_dir{}, temp_seed{};
-    if (!GetTempPathW(static_cast<DWORD>(temp_dir.size()), temp_dir.data()) ||
-        !GetTempFileNameW(temp_dir.data(), L"wci", 0, temp_seed.data())) {
+    const auto temp_dir = detail::trusted_temp_dir();
+    std::array<wchar_t, MAX_PATH> temp_seed{};
+    if (temp_dir.empty() || !GetTempFileNameW(temp_dir.c_str(), L"wci", 0, temp_seed.data())) {
         return fail("power_plan_failed", "Unable to create a temporary file");
     }
     const std::filesystem::path temp = std::wstring(temp_seed.data()) + L".pow";

@@ -528,7 +528,7 @@ std::string status_text(Api const& api, NvStatus status) {
 }
 winchisel::core::Result<Api> open() {
     Api api;
-    api.dll = LoadLibraryW(L"nvapi64.dll");
+    api.dll = LoadLibraryExW(L"nvapi64.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!api.dll) return std::unexpected(error("NVIDIA driver API not found (nvapi64.dll missing)"));
     auto query = reinterpret_cast<QueryFn>(GetProcAddress(api.dll, "nvapi_QueryInterface"));
     if (!query) {

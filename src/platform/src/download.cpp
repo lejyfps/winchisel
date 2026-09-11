@@ -75,7 +75,10 @@ StringSet registry_display_names(HKEY root, std::wstring const& path) {
 }
 
 winchisel::core::Result<StringSet> winget_ids() {
-    std::array<wchar_t,MAX_PATH> temp{},path{};if(!GetTempPathW(static_cast<DWORD>(temp.size()),temp.data())||!GetTempFileNameW(temp.data(),L"wci",0,path.data()))return std::unexpected(error("Temporary export path unavailable"));
+    const auto temp = detail::trusted_temp_dir();
+    std::array<wchar_t, MAX_PATH> path{};
+    if (temp.empty() || !GetTempFileNameW(temp.c_str(), L"wci", 0, path.data()))
+        return std::unexpected(error("Temporary export path unavailable"));
     auto command=run_hidden(L"winget.exe export --output \""+std::wstring(path.data())+L"\" --accept-source-agreements --nowarn --disable-interactivity", 3 * 60 * 1000);
     std::string json;
     {

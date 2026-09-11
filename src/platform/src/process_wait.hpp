@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -156,6 +157,30 @@ inline std::wstring newest_winget_under(std::wstring const& root) {
     } while (FindNextFileW(find, &data));
     FindClose(find);
     return best;
+}
+
+inline std::wstring trusted_temp_dir() {
+    const auto local = known_folder_path(FOLDERID_LocalAppData);
+    if (local.empty()) return {};
+    auto dir = local + L"\\Temp";
+    const auto attr = GetFileAttributesW(dir.c_str());
+    if (attr == INVALID_FILE_ATTRIBUTES) {
+        if (!CreateDirectoryW(dir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return {};
+    } else if ((attr & FILE_ATTRIBUTE_DIRECTORY) == 0 || (attr & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        return {};
+    }
+    return dir;
+}
+
+inline std::optional<std::wstring> trusted_exe_path(std::wstring const& value) {
+    std::error_code error;
+    auto path = std::filesystem::weakly_canonical(std::filesystem::path(value), error);
+    if (error || !path.is_absolute() || _wcsicmp(path.extension().c_str(), L".exe") != 0) return std::nullopt;
+    if (!std::filesystem::is_regular_file(path, error) || error) return std::nullopt;
+    if (std::filesystem::is_symlink(path, error) || error) return std::nullopt;
+    const auto attr = GetFileAttributesW(path.c_str());
+    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_REPARSE_POINT)) return std::nullopt;
+    return path.wstring();
 }
 
 inline std::wstring resolve_winget() {

@@ -34,7 +34,14 @@ int wmain(int argc, wchar_t** argv) {
             std::cerr << "FAIL relative planting rejected\n";
             return 1;
         }
-        std::cout << "ok process path resolution\n";
+        if (winchisel::platform::detail::trusted_exe_path(L"C:\\Windows\\System32\\cmd.exe") &&
+            !winchisel::platform::detail::trusted_exe_path(L".\\cmd.exe") &&
+            !winchisel::platform::detail::trusted_temp_dir().empty()) {
+            std::cout << "ok process path resolution\n";
+        } else {
+            std::cerr << "FAIL trusted exe/temp paths\n";
+            return 1;
+        }
     }
     auto [timeout, output] = winchisel::platform::detail::run_captured(command + L" --flood", 150);
     if (!timeout.timed_out || timeout.exit_code != ERROR_TIMEOUT || GetTickCount64() - start > 5000 || output.empty()) {

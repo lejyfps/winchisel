@@ -1,4 +1,5 @@
 #include "winchisel/platform/update.hpp"
+#include "process_wait.hpp"
 
 #include <windows.h>
 #include <appmodel.h>
@@ -72,6 +73,15 @@ winchisel::core::Result<HttpsRequest> open_https_get(std::string_view url, wchar
     parts.dwUrlPathLength = static_cast<DWORD>(path.size());
     if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS)
         return std::unexpected(winchisel::core::Error{.detail="Invalid HTTPS URL"});
+    auto host_is = [&](wchar_t const* allowed) {
+        const auto n = wcslen(allowed);
+        return parts.dwHostNameLength == n && _wcsnicmp(host.data(), allowed, n) == 0;
+    };
+    if (!host_is(L"github.com") && !host_is(L"api.github.com") &&
+        !host_is(L"objects.githubusercontent.com") &&
+        !host_is(L"release-assets.githubusercontent.com") &&
+        !host_is(L"github-releases.githubusercontent.com"))
+        return std::unexpected(winchisel::core::Error{.detail="HTTPS host is not a GitHub download endpoint"});
     HttpsRequest http;
     http.session = WinHttpHandle(WinHttpOpen(L"Winchisel/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
@@ -306,24 +316,13 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
     return {};
 }
 
-std::optional<std::wstring> trusted_host_path(std::wstring const& value) {
-    std::error_code error;
-    auto path = std::filesystem::weakly_canonical(std::filesystem::path(value), error);
-    if (error || !path.is_absolute() || _wcsicmp(path.extension().c_str(), L".exe") != 0) return std::nullopt;
-    if (!std::filesystem::is_regular_file(path, error) || error) return std::nullopt;
-    if (std::filesystem::is_symlink(path, error) || error) return std::nullopt;
-    const auto attr = GetFileAttributesW(path.c_str());
-    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_REPARSE_POINT)) return std::nullopt;
-    return path.wstring();
-}
-
 std::optional<std::wstring> portable_host() {
     const auto size = GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", nullptr, 0);
     if (size > 1) {
         std::wstring host(size, L'\0');
         if (GetEnvironmentVariableW(L"WINCHISEL_PORTABLE_HOST", host.data(), size)) {
             if (host.back() == L'\0') host.pop_back();
-            if (auto trusted = trusted_host_path(host)) return trusted;
+            if (auto trusted = detail::trusted_exe_path(host)) return trusted;
         }
     }
     int count{};
@@ -332,7 +331,7 @@ std::optional<std::wstring> portable_host() {
     std::optional<std::wstring> host;
     for (int index = 1; index + 1 < count; ++index) {
         if (std::wstring_view(arguments[index]) == L"--portable-host") {
-            host = trusted_host_path(arguments[index + 1]);
+            host = detail::trusted_exe_path(arguments[index + 1]);
             break;
         }
     }
