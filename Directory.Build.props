@@ -8,4 +8,17 @@
     <TreatWarningAsError>true</TreatWarningAsError>
     <EnableASAN Condition="'$(WinchiselEnableASan)'=='true'">true</EnableASAN>
   </PropertyGroup>
+  <!-- Statically link the CRT in Release so the shipped EXEs run on clean
+    machines (winget validation VMs, Store, portable) without requiring a
+    separate VCRedist install. This was the STATUS_DLL_NOT_FOUND failure for
+    Winchisel.exe / Winchisel.Updater.exe in winget validation: both pulled
+    MSVCP140/VCRUNTIME140 dynamically. The WindowsAppSDK framework DLLs are
+    already self-contained, so after this no shipped binary needs VCRedist.
+    ASan builds require the dynamic CRT, so they are excluded. Debug stays
+    dynamic on purpose (never shipped, faster dev loop). -->
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release' And '$(WinchiselEnableASan)'!='true'">
+    <ClCompile>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
 </Project>
