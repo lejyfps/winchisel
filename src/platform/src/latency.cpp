@@ -361,8 +361,11 @@ winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress pr
         }
         add(out, "      via " + controllers[device.controller].name + " (" + controllers[device.controller].platform + ")", LatencyColor::muted);
     }
-    const bool has_optimizations = suspend == true || std::ranges::any_of(controllers, [](auto const& c) { return c.msi_status == "Line-Based" || c.selective_suspend == true; });
-    if (has_optimizations) { add(out); add(out, "  OPTIMIZATIONS AVAILABLE", LatencyColor::normal, true); add(out, "  ---------------------------------------------------------------------", LatencyColor::separator); add(out); if (suspend == true) add(out, "  ! Disable USB Selective Suspend in current power plan", LatencyColor::warning); for (auto const& controller : controllers) { if (controller.msi_status == "Line-Based") add(out, "  ! Enable MSI interrupts on " + controller.name, LatencyColor::critical); if (controller.selective_suspend == true) add(out, "  ! Disable Selective Suspend on " + controller.name, LatencyColor::warning); } }
+    if (suspend == true) result.optimizations.push_back({"! Disable USB Selective Suspend in current power plan", LatencyColor::warning, false});
+    for (auto const& controller : controllers) {
+        if (controller.msi_status == "Line-Based") result.optimizations.push_back({"! Enable MSI interrupts on " + controller.name, LatencyColor::critical, false});
+        if (controller.selective_suspend == true) result.optimizations.push_back({"! Disable Selective Suspend on " + controller.name, LatencyColor::warning, false});
+    }
     add(out); add(out, "  =====================================================================", LatencyColor::separator); add(out); notify(100, "Ready"); return result;
 }
 

@@ -149,9 +149,46 @@ void LatencyPage::render_report(winchisel::platform::LatencyAnalysis const& repo
         paragraph.Inlines().Append(run);
         Report().Blocks().Append(paragraph);
     }
+
+    auto brush_for = [&](winchisel::platform::LatencyColor color) {
+        switch (color) {
+        case winchisel::platform::LatencyColor::success: return success;
+        case winchisel::platform::LatencyColor::warning: return caution;
+        case winchisel::platform::LatencyColor::critical: return critical;
+        case winchisel::platform::LatencyColor::accent: return accent;
+        default: return muted;
+        }
+    };
+    auto card_background = resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>();
+    auto card_stroke = resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>();
+    OptimizationsList().Children().Clear();
+    if (report.optimizations.empty()) {
+        OptimizationsCard().Visibility(Visibility::Collapsed);
+    } else {
+        for (auto const& opt : report.optimizations) {
+            auto card = Controls::Border();
+            card.Padding({16, 12, 16, 12});
+            card.Background(card_background);
+            card.BorderBrush(card_stroke);
+            card.BorderThickness({1, 1, 1, 1});
+            card.CornerRadius({4, 4, 4, 4});
+            auto text = Controls::TextBlock();
+            text.Text(to_hstring(opt.text));
+            text.TextWrapping(TextWrapping::Wrap);
+            text.Foreground(brush_for(opt.color));
+            card.Child(text);
+            OptimizationsList().Children().Append(card);
+        }
+        const auto count = report.optimizations.size();
+        OptimizationsCard().Header(box_value(L"Optimizations available (" + std::to_wstring(count) + L")"));
+        OptimizationsCard().Visibility(Visibility::Visible);
+        OptimizationsCard().IsExpanded(false);
+    }
 }
 
 void LatencyPage::render_message(hstring const& message, bool is_error) {
+    OptimizationsList().Children().Clear();
+    OptimizationsCard().Visibility(Visibility::Collapsed);
     winchisel::platform::LatencyAnalysis report;
     report.lines.push_back({to_string(message), is_error ? winchisel::platform::LatencyColor::critical : winchisel::platform::LatencyColor::muted, false});
     render_report(report);

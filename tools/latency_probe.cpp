@@ -9,4 +9,10 @@ int main() {
         return 1;
     }
     for (auto const& line : result->lines) std::cout << line.text << '\n';
+    if (!result->optimizations.empty()) {
+        std::cout << '\n' << "  OPTIMIZATIONS AVAILABLE" << '\n';
+        std::cout << "  ---------------------------------------------------------------------" << '\n' << '\n';
+        for (auto const& opt : result->optimizations) std::cout << "  " << opt.text << '\n';
+        std::cout << '\n';
+    }
 }

@@ -9,6 +9,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid>
             <Button x:Name="AnalyzeButton" Content="Analyze USB Latency" Style="{StaticResource AccentButtonStyle}"
@@ -32,5 +33,10 @@
                                LineHeight="20" LineStackingStrategy="BlockLineHeight" />
             </ScrollViewer>
         </Border>
+        <Expander x:Name="OptimizationsCard" Grid.Row="4" Header="Optimizations available"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                  IsExpanded="False" Visibility="Collapsed">
+            <StackPanel x:Name="OptimizationsList" Spacing="8" Padding="0,8,0,0" />
+        </Expander>
     </Grid>
 </UserControl>
