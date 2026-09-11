@@ -45,14 +45,18 @@ winchisel::core::Result<void> remove_temp_files(ProtectionProgress const& progre
 // Command-based Extras actions.  These functions never create a visible console
 // window and are intended to be called from a background worker by the UI.
 winchisel::core::Result<void> apply_winchisel_power_plan();
+winchisel::core::Result<void> apply_ultimate_performance_plan();
 winchisel::core::Result<void> set_widgets_removed(bool enabled);
 winchisel::core::Result<void> set_teredo_disabled(bool enabled);
 winchisel::core::Result<void> set_hpet_disabled(bool enabled);
+winchisel::core::Result<void> set_dynamic_tick_disabled(bool enabled);
 
 struct ExtrasCommandState {
     bool power_plan_active{};
+    bool ultimate_plan_active{};
     bool widgets_removed{};
     std::optional<bool> hpet_disabled;
+    std::optional<bool> dynamic_tick_disabled;
 };
 ExtrasCommandState read_extras_command_state();
 

@@ -12,8 +12,9 @@ struct ExtrasPage : ExtrasPageT<ExtrasPage> {
     ExtrasPage();
     void ToggleChanged(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void PowerPlanClick(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void UltimatePlanClick(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
-    enum class CommandAction { power_plan, widgets, teredo, hpet };
+    enum class CommandAction { power_plan, ultimate_plan, widgets, teredo, hpet, dynamic_tick };
     enum class RegistryToggle { modern_standby, sync_provider, ctfmon, ctfmon_dll, timer_resolution, ipv6, ps7, brave, edge, long_paths, developer_mode, verbose_boot };
     struct RegistrySnapshot {
         bool modern_standby{}, sync_provider{}, brave{}, edge{}, ctfmon{}, ctfmon_dll{}, timer_resolution{}, ipv6{}, teredo{}, ps7{}, long_paths{}, developer_mode{}, verbose_boot{};

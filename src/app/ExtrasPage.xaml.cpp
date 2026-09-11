@@ -133,7 +133,7 @@ ExtrasPage::ExtrasPage(){
     }
     // Per-tweak Recommended/Default quick-set buttons (Winhance-style).
     for (auto toggle : {ModernStandby(), SyncProvider(), Brave(), Edge(), Widgets(), Ctfmon(), CtfmonDll(),
-                        TimerResolution(), Ipv6(), Teredo(), Ps7(), LongPaths(), DeveloperMode(), VerboseBoot(), Hpet()}) {
+                        TimerResolution(), Ipv6(), Teredo(), Ps7(), LongPaths(), DeveloperMode(), VerboseBoot(), Hpet(), DynamicTick()}) {
         if (toggle) attach_quick_set(toggle);
     }
     load_states();load_command_states();
@@ -380,6 +380,7 @@ void ExtrasPage::ToggleChanged(Windows::Foundation::IInspectable const& sender,M
     if(toggle==Widgets()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::widgets,enabled);return;}
     else if(toggle==Teredo()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::teredo,enabled);return;}
     else if(toggle==Hpet()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::hpet,enabled);return;}
+    else if(toggle==DynamicTick()){loading_=true;toggle.IsOn(!enabled);loading_=false;run_command(CommandAction::dynamic_tick,enabled);return;}
     RegistryToggle which{};
     if(toggle==ModernStandby())which=RegistryToggle::modern_standby;
     else if(toggle==SyncProvider())which=RegistryToggle::sync_provider;
@@ -397,7 +398,7 @@ void ExtrasPage::ToggleChanged(Windows::Foundation::IInspectable const& sender,M
     apply_registry_toggle(which, toggle, enabled);
 }
 void ExtrasPage::set_command_busy(bool busy) {
- command_running_=busy; Loading().Visibility(busy?Microsoft::UI::Xaml::Visibility::Visible:Microsoft::UI::Xaml::Visibility::Collapsed); Items().IsHitTestVisible(!busy); PowerPlanButton().IsEnabled(!busy);
+ command_running_=busy; Loading().Visibility(busy?Microsoft::UI::Xaml::Visibility::Visible:Microsoft::UI::Xaml::Visibility::Collapsed); Items().IsHitTestVisible(!busy); PowerPlanButton().IsEnabled(!busy); UltimatePlanButton().IsEnabled(!busy);
 }
 
 winrt::fire_and_forget ExtrasPage::load_command_states() {
@@ -411,8 +412,8 @@ winrt::fire_and_forget ExtrasPage::load_command_states() {
   co_await winrt::resume_background(); const auto state=winchisel::platform::read_extras_command_state();
   if (!winchisel::ui::enqueue_safe(queue, [lifetime, state] {
    lifetime->command_running_=false; lifetime->Loading().Visibility(Microsoft::UI::Xaml::Visibility::Collapsed); lifetime->Items().IsHitTestVisible(true);
-   lifetime->loading_=true; lifetime->Widgets().IsOn(state.widgets_removed); if(state.hpet_disabled) lifetime->Hpet().IsOn(*state.hpet_disabled);
-   if(state.power_plan_active) lifetime->PowerPlanButton().Content(box_value(L"Active")); lifetime->loading_=false;
+   lifetime->loading_=true; lifetime->Widgets().IsOn(state.widgets_removed); if(state.hpet_disabled) lifetime->Hpet().IsOn(*state.hpet_disabled); if(state.dynamic_tick_disabled) lifetime->DynamicTick().IsOn(*state.dynamic_tick_disabled);
+   lifetime->PowerPlanButton().Content(box_value(state.power_plan_active ? L"Active" : L"Apply")); lifetime->UltimatePlanButton().Content(box_value(state.ultimate_plan_active ? L"Active" : L"Apply")); lifetime->loading_=false;
   })) {
    lifetime->command_running_=false; lifetime->Loading().Visibility(Microsoft::UI::Xaml::Visibility::Collapsed); lifetime->Items().IsHitTestVisible(true);
    co_return;
@@ -435,13 +436,13 @@ winrt::fire_and_forget ExtrasPage::run_command(CommandAction action, bool enable
  auto lifetime=get_strong(); if(command_running_) co_return; set_command_busy(true); ResultBar().IsOpen(false); auto queue=DispatcherQueue();
  co_await winrt::resume_background();
  winchisel::core::Result<void> result{};
- switch(action){case CommandAction::power_plan: result=winchisel::platform::apply_winchisel_power_plan(); break; case CommandAction::widgets: result=winchisel::platform::set_widgets_removed(enabled); break; case CommandAction::teredo: result=winchisel::platform::set_teredo_disabled(enabled); break; case CommandAction::hpet: result=winchisel::platform::set_hpet_disabled(enabled); break;}
+ switch(action){case CommandAction::power_plan: result=winchisel::platform::apply_winchisel_power_plan(); break; case CommandAction::ultimate_plan: result=winchisel::platform::apply_ultimate_performance_plan(); break; case CommandAction::widgets: result=winchisel::platform::set_widgets_removed(enabled); break; case CommandAction::teredo: result=winchisel::platform::set_teredo_disabled(enabled); break; case CommandAction::hpet: result=winchisel::platform::set_hpet_disabled(enabled); break; case CommandAction::dynamic_tick: result=winchisel::platform::set_dynamic_tick_disabled(enabled); break;}
   const bool enqueued = winchisel::ui::enqueue_safe(queue, [lifetime, action, enabled, result] {
    lifetime->set_command_busy(false);
    if(!result){lifetime->load_states();lifetime->show_result(false,std::wstring(L"Could not apply the setting: ")+std::wstring(winrt::to_hstring(result.error().detail)));return;}
    lifetime->loading_=true;
-   if(action==CommandAction::widgets)lifetime->Widgets().IsOn(enabled); else if(action==CommandAction::teredo)lifetime->Teredo().IsOn(enabled); else if(action==CommandAction::hpet)lifetime->Hpet().IsOn(enabled); else lifetime->PowerPlanButton().Content(box_value(L"Active"));
-   lifetime->loading_=false; lifetime->show_result(true,action==CommandAction::power_plan?L"Winchisel power plan applied successfully.":L"Setting applied.");
+   if(action==CommandAction::widgets)lifetime->Widgets().IsOn(enabled); else if(action==CommandAction::teredo)lifetime->Teredo().IsOn(enabled); else if(action==CommandAction::hpet)lifetime->Hpet().IsOn(enabled); else if(action==CommandAction::dynamic_tick)lifetime->DynamicTick().IsOn(enabled); else if(action==CommandAction::ultimate_plan){lifetime->UltimatePlanButton().Content(box_value(L"Active")); lifetime->PowerPlanButton().Content(box_value(L"Apply"));} else {lifetime->PowerPlanButton().Content(box_value(L"Active")); lifetime->UltimatePlanButton().Content(box_value(L"Apply"));}
+   lifetime->loading_=false; lifetime->show_result(true,action==CommandAction::power_plan?L"Winchisel power plan applied successfully.":action==CommandAction::ultimate_plan?L"Ultimate Performance plan applied successfully.":L"Setting applied.");
   });
   if (!enqueued) { set_command_busy(false); co_return; }
 
@@ -452,4 +453,5 @@ winrt::fire_and_forget ExtrasPage::run_command(CommandAction action, bool enable
     }
 }
 void ExtrasPage::PowerPlanClick(Windows::Foundation::IInspectable const&,Microsoft::UI::Xaml::RoutedEventArgs const&){run_command(CommandAction::power_plan);}
+void ExtrasPage::UltimatePlanClick(Windows::Foundation::IInspectable const&,Microsoft::UI::Xaml::RoutedEventArgs const&){run_command(CommandAction::ultimate_plan);}
 }

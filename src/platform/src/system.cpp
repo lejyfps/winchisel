@@ -596,6 +596,76 @@ winchisel::core::Result<void> apply_winchisel_power_plan() {
     return {};
 }
 
+winchisel::core::Result<void> apply_ultimate_performance_plan() {
+    // Stock Microsoft Ultimate Performance scheme. The GUID itself is stable
+    // across languages (only the display name is localized), so all detection
+    // is GUID-based and never parses the localized plan name.
+    static constexpr char k_ultimate_guid[] = "e9a42b02-d5df-448d-aa00-03f14749eb61";
+    static const std::regex guid_pattern(R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
+
+    auto lowercase = [](std::string text) {
+        std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return text;
+    };
+
+    auto read_stored_guid = []() -> std::string {
+        std::array<wchar_t, 64> saved_guid{};
+        DWORD saved_size = sizeof(saved_guid);
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Winchisel", L"UltimatePlanGuid", RRF_RT_REG_SZ,
+                nullptr, saved_guid.data(), &saved_size) != ERROR_SUCCESS) {
+            return {};
+        }
+        const auto chars = WideCharToMultiByte(CP_UTF8, 0, saved_guid.data(), -1, nullptr, 0, nullptr, nullptr);
+        if (chars <= 1) return {};
+        std::string expected(static_cast<std::size_t>(chars), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, saved_guid.data(), -1, expected.data(), chars, nullptr, nullptr);
+        expected.pop_back();
+        return expected;
+    };
+
+    auto save_guid = [](std::string const& guid) {
+        HKEY key{};
+        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Winchisel", 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) ==
+            ERROR_SUCCESS) {
+            const std::wstring value(guid.begin(), guid.end());
+            RegSetValueExW(key, L"UltimatePlanGuid", 0, REG_SZ, reinterpret_cast<BYTE const*>(value.c_str()),
+                static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+            RegCloseKey(key);
+        }
+    };
+
+    auto activate = [&](std::string const& guid) -> winchisel::core::Result<void> {
+        auto [activated, activation_output] =
+            detail::run_captured(L"powercfg.exe /setactive " + std::wstring(guid.begin(), guid.end()), 2 * 60 * 1000);
+        if (activated.exit_code != 0)
+            return fail("power_plan_failed", command_error("powercfg /setactive", activated, std::move(activation_output)));
+        save_guid(guid);
+        return {};
+    };
+
+    // Reuse an already visible scheme instead of duplicating it on every click:
+    // a stored duplicate from a previous run wins, then the stock GUID.
+    const std::string stored = read_stored_guid();
+    auto [listed, list_output] = detail::run_captured(L"powercfg.exe /list", 2 * 60 * 1000);
+    if (listed.exit_code == 0) {
+        const auto haystack = lowercase(list_output);
+        if (!stored.empty() && haystack.find(lowercase(stored)) != std::string::npos) return activate(stored);
+        if (haystack.find(k_ultimate_guid) != std::string::npos) return activate(k_ultimate_guid);
+    }
+
+    // Hidden on this machine: unhide it via duplicatescheme, then activate
+    // the exact GUID powercfg reports (avoids touching a same-named scheme).
+    auto [duplicated, duplicate_output] = detail::run_captured(
+        L"powercfg.exe /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61", 2 * 60 * 1000);
+    if (duplicated.exit_code != 0)
+        return fail("power_plan_failed", command_error("powercfg /duplicatescheme", duplicated, std::move(duplicate_output)));
+    std::smatch match;
+    if (!std::regex_search(duplicate_output, match, guid_pattern))
+        return fail("power_plan_failed",
+            "powercfg /duplicatescheme succeeded, but returned no power plan GUID. Output: " + duplicate_output);
+    return activate(match[1].str());
+}
+
 winchisel::core::Result<void> set_widgets_removed(bool enabled) {
     const auto command = enabled
         ? L"winget.exe uninstall --name \"Windows Web Experience Pack\" --exact --disable-interactivity"
@@ -668,6 +738,45 @@ winchisel::core::Result<void> set_hpet_disabled(bool enabled) {
     return {};
 }
 
+// Same tri-state BCD model as HPET: nullopt = query failed, empty = no entry
+// present, otherwise the parsed disabled state. "Yes" means the dynamic tick
+// is disabled; anything unrecognized stays unknown instead of being claimed.
+std::optional<std::optional<bool>> query_dynamic_tick_state() {
+    auto [waited, output] = detail::run_captured(L"bcdedit.exe /enum {current}", 2 * 60 * 1000);
+    if (waited.exit_code != 0) return std::nullopt;
+    static const std::regex pattern(R"(disabledynamictick\s+(\S+))", std::regex::icase);
+    std::smatch match;
+    if (!std::regex_search(output, match, pattern)) return std::optional<std::optional<bool>>{std::nullopt};
+    auto value = match[1].str();
+    std::ranges::transform(value, value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    static constexpr std::string_view disabled_words[] = {
+        "false", "no", "0", "nein", "aus", "off", "non", "falso", "nee", "niet", "nem", "ei"};
+    static constexpr std::string_view enabled_words[] = {
+        "true", "yes", "1", "ja", "an", "on", "oui", "si", "sim", "evet"};
+    // Note the inversion: bcdedit "Yes" DISABLES the dynamic tick.
+    for (auto word : enabled_words) if (value == word) return std::optional<std::optional<bool>>{true};
+    for (auto word : disabled_words) if (value == word) return std::optional<std::optional<bool>>{false};
+    return std::optional<std::optional<bool>>{std::nullopt};
+}
+
+winchisel::core::Result<void> set_dynamic_tick_disabled(bool enabled) {
+    auto result = enabled
+        ? run_hidden(L"bcdedit.exe /set disabledynamictick yes", "dynamic_tick_failed", 2 * 60 * 1000)
+        : run_hidden(L"bcdedit.exe /deletevalue disabledynamictick", "dynamic_tick_failed", 2 * 60 * 1000);
+    const auto state = query_dynamic_tick_state();
+    if (!state) return std::unexpected(winchisel::core::Error{.detail = "Dynamic tick state could not be verified"});
+    if (!*state) {
+        if (!enabled) return {};
+        if (!result) return result;
+        return std::unexpected(winchisel::core::Error{.detail = "Dynamic tick state did not change"});
+    }
+    if (**state != enabled) {
+        if (!result) return result;
+        return std::unexpected(winchisel::core::Error{.detail = "Dynamic tick state did not change"});
+    }
+    return {};
+}
+
 ExtrasCommandState read_extras_command_state() {
     auto capture = [](std::wstring command) -> std::pair<DWORD, std::string> {
         auto [waited, output] = detail::run_captured(std::move(command), 2 * 60 * 1000);
@@ -680,13 +789,30 @@ ExtrasCommandState read_extras_command_state() {
     const bool has_saved_guid=RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Winchisel",L"PowerPlanGuid",RRF_RT_REG_SZ,nullptr,saved_guid.data(),&saved_size)==ERROR_SUCCESS;
     std::string expected;
     if(has_saved_guid){const auto chars=WideCharToMultiByte(CP_UTF8,0,saved_guid.data(),-1,nullptr,0,nullptr,nullptr);if(chars>1){expected.resize(chars);WideCharToMultiByte(CP_UTF8,0,saved_guid.data(),-1,expected.data(),chars,nullptr,nullptr);expected.pop_back();}}
+    std::array<wchar_t, 64> saved_ultimate{}; DWORD saved_ultimate_size=sizeof(saved_ultimate);
+    const bool has_ultimate_guid=RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Winchisel",L"UltimatePlanGuid",RRF_RT_REG_SZ,nullptr,saved_ultimate.data(),&saved_ultimate_size)==ERROR_SUCCESS;
+    std::string expected_ultimate;
+    if(has_ultimate_guid){const auto chars=WideCharToMultiByte(CP_UTF8,0,saved_ultimate.data(),-1,nullptr,0,nullptr,nullptr);if(chars>1){expected_ultimate.resize(chars);WideCharToMultiByte(CP_UTF8,0,saved_ultimate.data(),-1,expected_ultimate.data(),chars,nullptr,nullptr);expected_ultimate.pop_back();}}
     state.power_plan_active = false;
-    if (power_code == 0 && !expected.empty()) {
+    state.ultimate_plan_active = false;
+    if (power_code == 0) {
         auto haystack = power;
         std::ranges::transform(haystack, haystack.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        auto needle = expected;
-        std::ranges::transform(needle, needle.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        state.power_plan_active = haystack.find(needle) != std::string::npos;
+        if (!expected.empty()) {
+            auto needle = expected;
+            std::ranges::transform(needle, needle.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            state.power_plan_active = haystack.find(needle) != std::string::npos;
+        }
+        // Stock Ultimate GUID is stable across languages; a stored duplicate
+        // from /duplicatescheme is accepted as well.
+        constexpr std::string_view k_ultimate_guid = "e9a42b02-d5df-448d-aa00-03f14749eb61";
+        if (haystack.find(k_ultimate_guid) != std::string::npos) {
+            state.ultimate_plan_active = true;
+        } else if (!expected_ultimate.empty()) {
+            auto needle = expected_ultimate;
+            std::ranges::transform(needle, needle.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            state.ultimate_plan_active = haystack.find(needle) != std::string::npos;
+        }
     }
     HKEY widgets{};
     state.widgets_removed = true;
@@ -709,6 +835,9 @@ ExtrasCommandState read_extras_command_state() {
         // Absent or unrecognized entries stay unknown instead of being
         // claimed as enabled; callers already handle nullopt.
         state.hpet_disabled = *hpet;
+    }
+    if (const auto dynamic_tick = query_dynamic_tick_state()) {
+        state.dynamic_tick_disabled = *dynamic_tick;
     }
     return state;
 }

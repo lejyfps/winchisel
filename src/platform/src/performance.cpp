@@ -8,6 +8,7 @@
 #include <taskschd.h>
 #include <comdef.h>
 #include <Wbemidl.h>
+#include <powrprof.h>
 #include <array>
 #include <algorithm>
 #include <cctype>
@@ -15,6 +16,7 @@
 #include <cstring>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <mutex>
 #include <vector>
@@ -22,6 +24,7 @@
 #pragma comment(lib, "taskschd.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "wbemuuid.lib")
+#pragma comment(lib, "powrprof.lib")
 namespace winchisel::platform { namespace {
 struct NetshResult { DWORD code{}; bool timed_out{}; std::string output; };
 NetshResult run_netsh(std::wstring command, DWORD timeout_ms = 60 * 1000) {
@@ -287,6 +290,392 @@ std::optional<GpuVendor> gpu_vendor_for(std::string_view id) {
     if (id == "gaming-gpu-nvidia-power") return GpuVendor::nvidia;
     if (id == "gaming-gpu-intel-display") return GpuVendor::intel;
     return std::nullopt;
+}
+
+// Classic Windows 10 context menu (WinUtil parity). Presence of the
+// InprocServer32 key with an empty default value restores the full menu;
+// deleting the CLSID key restores the Windows 11 menu. Explorer is restarted
+// afterwards (it relaunches automatically), otherwise nothing visibly changes.
+constexpr wchar_t kClassicMenuClsid[] = L"Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}";
+constexpr wchar_t kClassicMenuServer[] = L"Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32";
+winchisel::core::Result<bool> read_classic_context_menu() {
+    HKEY key{};
+    const auto status = RegOpenKeyExW(HKEY_CURRENT_USER, kClassicMenuServer, 0, KEY_READ, &key);
+    if (status == ERROR_FILE_NOT_FOUND) return false;
+    if (status != ERROR_SUCCESS) return std::unexpected(error("classic context menu state unreadable: " + std::to_string(status)));
+    RegCloseKey(key);
+    return true;
+}
+void restart_explorer() {
+    // Best effort: Explorer relaunches on its own after termination, which is
+    // the same mechanism WinUtil relies on. Open Explorer windows are closed.
+    auto [waited, output] = detail::run_captured(L"taskkill.exe /f /im explorer.exe", 60 * 1000);
+    (void)waited.exit_code;
+    (void)output;
+}
+winchisel::core::Result<void> write_classic_context_menu(bool enabled) {
+    if (enabled) {
+        HKEY key{};
+        auto status = RegCreateKeyExW(HKEY_CURRENT_USER, kClassicMenuServer, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr);
+        if (status != ERROR_SUCCESS) return std::unexpected(error("classic context menu change failed: " + std::to_string(status)));
+        status = RegSetValueExW(key, nullptr, 0, REG_SZ, reinterpret_cast<BYTE const*>(L""), sizeof(wchar_t));
+        RegCloseKey(key);
+        if (status != ERROR_SUCCESS) return std::unexpected(error("classic context menu change failed: " + std::to_string(status)));
+    } else {
+        const auto status = RegDeleteTreeW(HKEY_CURRENT_USER, kClassicMenuClsid);
+        if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND)
+            return std::unexpected(error("classic context menu change failed: " + std::to_string(status)));
+    }
+    restart_explorer();
+    return {};
+}
+
+// NIC power saving. Advanced NIC properties live under per-adapter Net-class
+// subkeys with vendor-specific value names, so only values that already exist
+// are ever touched (never created). Every listed value means "power saving
+// enabled" when "1", so the toggle forces "0" (off) and restores "1".
+// Virtual adapters (WAN miniports, VPN, Hyper-V, Bluetooth, debug) are
+// skipped by DriverDesc keywords.
+constexpr wchar_t kNetClassKey[] = L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e972-e325-11ce-bfc1-08002be10318}";
+constexpr wchar_t const* kNicOffNames[] = {L"*EEE", L"EEE", L"*GreenEthernet", L"GreenEthernet",
+    L"*EnergyEfficientEthernet", L"*InterruptModeration", L"EnablePowerManagement", L"PowerSavingMode",
+    L"*WakeOnMagicPacket", L"*WakeOnPattern", L"WakeOnPattern"};
+constexpr wchar_t const* kNicSkipKeywords[] = {L"wan miniport", L"miniport", L"virtual", L"vpn", L"bluetooth",
+    L"debug", L"kernel", L"monitor", L"loopback", L"tap", L"hyper-v", L"vmware", L"virtualbox",
+    L"wireguard", L"tailscale", L"filter", L"protocol"};
+bool nic_description_eligible(std::wstring_view description) {
+    std::wstring lowered(description);
+    std::ranges::transform(lowered, lowered.begin(), towlower);
+    for (auto keyword : kNicSkipKeywords) {
+        if (lowered.find(keyword) != std::wstring::npos) return false;
+    }
+    return true;
+}
+struct NicPowerTarget {
+    winchisel::core::RegistryTarget target;
+    std::string on_value;
+    std::string off_value;
+};
+// Every (adapter, known value) pair that exists on an eligible physical
+// adapter. Empty when no supported adapter is present.
+std::vector<NicPowerTarget> nic_power_targets() {
+    std::vector<NicPowerTarget> targets;
+    HKEY parent{};
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kNetClassKey, 0, KEY_ENUMERATE_SUB_KEYS, &parent) != ERROR_SUCCESS) return targets;
+    for (DWORD index{};; ++index) {
+        wchar_t name[16]{};
+        DWORD length = static_cast<DWORD>(std::size(name));
+        if (RegEnumKeyExW(parent, index, name, &length, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) break;
+        if (length != 4) continue;
+        bool digits = true;
+        for (DWORD i{}; i < length; ++i) {
+            if (name[i] < L'0' || name[i] > L'9') { digits = false; break; }
+        }
+        if (!digits) continue;
+        const std::wstring sub = std::wstring(kNetClassKey) + L"\\" + std::wstring(name, length);
+        wchar_t description[256]{};
+        DWORD size = sizeof(description);
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, sub.c_str(), L"DriverDesc", RRF_RT_REG_SZ, nullptr, description, &size) != ERROR_SUCCESS) continue;
+        if (!nic_description_eligible(description)) continue;
+        DWORD instance_size{};
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, sub.c_str(), L"NetCfgInstanceId", RRF_RT_REG_SZ, nullptr, nullptr, &instance_size) != ERROR_SUCCESS) continue;
+        std::string key_path;
+        key_path.reserve(sub.size());
+        for (wchar_t c : sub) key_path.push_back(static_cast<char>(c));
+        auto known = [&](wchar_t const* value_name) {
+            DWORD value_size{};
+            if (RegGetValueW(HKEY_LOCAL_MACHINE, sub.c_str(), value_name, RRF_RT_REG_SZ, nullptr, nullptr, &value_size) != ERROR_SUCCESS) return;
+            std::string narrow_name;
+            for (wchar_t const* p = value_name; *p; ++p) narrow_name.push_back(static_cast<char>(*p));
+            targets.push_back({{winchisel::core::RegistryHive::local_machine, key_path, narrow_name,
+                winchisel::core::RegistryValueType::string},
+                std::string{"0"}, std::string{"1"}});
+        };
+        for (auto value_name : kNicOffNames) known(value_name);
+    }
+    RegCloseKey(parent);
+    return targets;
+}
+winchisel::core::Result<bool> read_nic_power_saving() {
+    const auto targets = nic_power_targets();
+    if (targets.empty()) return false;
+    for (auto const& entry : targets) {
+        auto current = read_registry_value(entry.target);
+        if (!current) return std::unexpected(current.error());
+        const auto text = std::get_if<std::string>(&*current);
+        if (!text || *text != entry.on_value) return false;
+    }
+    return true;
+}
+winchisel::core::Result<void> write_nic_power_saving(bool enabled) {
+    const auto targets = nic_power_targets();
+    if (targets.empty()) return std::unexpected(error("no supported physical network adapter found"));
+    std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> changes;
+    for (auto const& entry : targets) {
+        changes.emplace_back(entry.target, winchisel::core::RegistryValue{enabled ? entry.on_value : entry.off_value});
+    }
+    // Snapshot + rollback on partial failure, same as any catalog batch.
+    return write_registry_values_atomic(changes);
+}
+
+// PCIe Link State Power Management (ASPM) off while plugged in. GUIDs are
+// stable across languages; state is read from the active scheme's registry
+// values (locale-independent) and written through the native power APIs.
+constexpr GUID kPcieSubgroup{0x501a4d13, 0x42af, 0x4429, {0x9f, 0xd1, 0xa8, 0x21, 0x8c, 0x26, 0x8e, 0x20}};
+constexpr GUID kAspmSetting{0xee12f906, 0xd277, 0x404b, {0xb6, 0xda, 0xe5, 0xfa, 0x1a, 0x57, 0x6d, 0xf5}};
+winchisel::core::Result<bool> read_pcie_link_state() {
+    GUID* active{};
+    if (PowerGetActiveScheme(nullptr, &active) != ERROR_SUCCESS || !active) {
+        return std::unexpected(error("PCIe power state unreadable"));
+    }
+    wchar_t scheme_text[64]{};
+    StringFromGUID2(*active, scheme_text, static_cast<int>(std::size(scheme_text)));
+    LocalFree(active);
+    wchar_t subgroup_text[64]{}, setting_text[64]{};
+    StringFromGUID2(kPcieSubgroup, subgroup_text, static_cast<int>(std::size(subgroup_text)));
+    StringFromGUID2(kAspmSetting, setting_text, static_cast<int>(std::size(setting_text)));
+    const std::wstring key = std::wstring(L"SYSTEM\\CurrentControlSet\\Control\\Power\\User\\PowerSchemes\\") +
+        scheme_text + L"\\" + subgroup_text + L"\\" + setting_text;
+    DWORD index{}, size = sizeof(index), type{};
+    const auto status = RegGetValueW(HKEY_LOCAL_MACHINE, key.c_str(), L"ACSettingIndex", RRF_RT_REG_DWORD, &type, &index, &size);
+    if (status == ERROR_FILE_NOT_FOUND) return false;
+    if (status != ERROR_SUCCESS) return std::unexpected(error("PCIe power state unreadable: " + std::to_string(status)));
+    return index == 0;
+}
+winchisel::core::Result<void> write_pcie_link_state(bool enabled) {
+    GUID* active{};
+    if (PowerGetActiveScheme(nullptr, &active) != ERROR_SUCCESS || !active) {
+        return std::unexpected(error("PCIe power change failed: active scheme unknown"));
+    }
+    const DWORD desired = enabled ? 0 : 1;
+    DWORD status = PowerWriteACValueIndex(nullptr, active, &kPcieSubgroup, &kAspmSetting, desired);
+    if (status == ERROR_SUCCESS) status = PowerSetActiveScheme(nullptr, active);
+    LocalFree(active);
+    if (status != ERROR_SUCCESS) return std::unexpected(error("PCIe power change failed: " + std::to_string(status)));
+    return {};
+}
+// NVIDIA Control Panel values through the driver settings API (what
+// nvidiaProfileInspector uses). Setting IDs and values come from NVIDIA's own
+// MIT-licensed headers (github.com/NVIDIA/nvapi: NvApiDriverSettings.h) and
+// NVIDIA's Driver Settings Programming Guide (PG-5116-001):
+//   PREFERRED_PSTATE (0x1057EB71): 1 = Prefer Maximum Performance, 5 = Optimal Power (driver default)
+//   PRERENDERLIMIT (0x007BA09E): 1 = one queued frame (Control Panel "On"), 0 = application controlled (default)
+//   SHADERDISKCACHE_MAX_SIZE (0x00AC8497, MB): 0x2800 = 10GB, 0x4000 = 16GB (current driver default)
+// nvapi64.dll is loaded dynamically and every call is status-checked, so
+// machines without an NVIDIA driver get a clear error instead of a crash.
+namespace nvidia_drs {
+using NvU32 = std::uint32_t;
+using NvStatus = std::int32_t;
+constexpr NvStatus kOk = 0;
+#pragma pack(push, 8)
+struct Setting {
+    NvU32 version{};
+    char16_t name[2048]{};
+    NvU32 id{}, type{}, location{}, is_current_predefined{}, is_predefined_valid{};
+    union {
+        NvU32 u32{};
+        struct {
+            NvU32 length;
+            std::uint8_t data[4096];
+        } binary;
+        char16_t text[2048];
+        std::uint64_t u64;
+    } predefined{}, current{};
+};
+#pragma pack(pop)
+static_assert(sizeof(Setting) == 12328, "NVDRS_SETTING_V1 layout mismatch");
+static_assert(offsetof(Setting, id) == 4100, "NVDRS_SETTING_V1 id offset mismatch");
+static_assert(offsetof(Setting, current) == 8224, "NVDRS_SETTING_V1 current offset mismatch");
+constexpr NvU32 kSettingVersion = static_cast<NvU32>(sizeof(Setting) | (1u << 16));
+constexpr NvU32 kDwordType = 0;
+constexpr NvU32 kInitializeId = 0x0150E828;
+constexpr NvU32 kCreateSessionId = 0x0694D52E;
+constexpr NvU32 kDestroySessionId = 0xDAD9CFF8;
+constexpr NvU32 kLoadSettingsId = 0x375DBD6B;
+constexpr NvU32 kSaveSettingsId = 0xFCBC7E14;
+constexpr NvU32 kGetBaseProfileId = 0xDA8466A0;
+constexpr NvU32 kGetSettingId = 0xEA99498D;
+constexpr NvU32 kGetSettingFallbackId = 0x73BF8338;
+constexpr NvU32 kSetSettingId = 0x8A2CF5F5;
+constexpr NvU32 kSetSettingFallbackId = 0x577DD202;
+constexpr NvU32 kGetErrorMessageId = 0x6C2D048C;
+using QueryFn = void*(__cdecl*)(NvU32);
+using SimpleFn = NvStatus(__cdecl*)();
+using CreateSessionFn = NvStatus(__cdecl*)(void**);
+using SessionFn = NvStatus(__cdecl*)(void*);
+using GetBaseProfileFn = NvStatus(__cdecl*)(void*, void**);
+using GetSettingFn = NvStatus(__cdecl*)(void*, void*, NvU32, Setting*, NvU32*);
+using SetSettingFn = NvStatus(__cdecl*)(void*, void*, Setting*, NvU32, NvU32);
+using GetErrorMessageFn = NvStatus(__cdecl*)(NvStatus, char*);
+struct Api {
+    HMODULE dll{};
+    SimpleFn initialize{};
+    CreateSessionFn create_session{};
+    SessionFn destroy_session{}, load_settings{}, save_settings{};
+    GetBaseProfileFn get_base_profile{};
+    GetSettingFn get_setting{};
+    SetSettingFn set_setting{};
+    GetErrorMessageFn get_error_message{};
+};
+std::string status_text(Api const& api, NvStatus status) {
+    if (api.get_error_message) {
+        char text[64]{};
+        if (api.get_error_message(status, text) == kOk && text[0]) return text;
+    }
+    return "nvapi status " + std::to_string(status);
+}
+winchisel::core::Result<Api> open() {
+    Api api;
+    api.dll = LoadLibraryW(L"nvapi64.dll");
+    if (!api.dll) return std::unexpected(error("NVIDIA driver API not found (nvapi64.dll missing)"));
+    auto query = reinterpret_cast<QueryFn>(GetProcAddress(api.dll, "nvapi_QueryInterface"));
+    if (!query) {
+        FreeLibrary(api.dll);
+        return std::unexpected(error("NVIDIA driver API entry point missing"));
+    }
+    auto resolve = [&](NvU32 id) { return query(id); };
+    api.initialize = reinterpret_cast<SimpleFn>(resolve(kInitializeId));
+    api.create_session = reinterpret_cast<CreateSessionFn>(resolve(kCreateSessionId));
+    api.destroy_session = reinterpret_cast<SessionFn>(resolve(kDestroySessionId));
+    api.load_settings = reinterpret_cast<SessionFn>(resolve(kLoadSettingsId));
+    api.save_settings = reinterpret_cast<SessionFn>(resolve(kSaveSettingsId));
+    api.get_base_profile = reinterpret_cast<GetBaseProfileFn>(resolve(kGetBaseProfileId));
+    api.get_setting = reinterpret_cast<GetSettingFn>(resolve(kGetSettingId));
+    if (!api.get_setting) api.get_setting = reinterpret_cast<GetSettingFn>(resolve(kGetSettingFallbackId));
+    api.set_setting = reinterpret_cast<SetSettingFn>(resolve(kSetSettingId));
+    if (!api.set_setting) api.set_setting = reinterpret_cast<SetSettingFn>(resolve(kSetSettingFallbackId));
+    api.get_error_message = reinterpret_cast<GetErrorMessageFn>(resolve(kGetErrorMessageId));
+    if (!api.initialize || !api.create_session || !api.destroy_session || !api.load_settings || !api.save_settings ||
+        !api.get_base_profile || !api.get_setting || !api.set_setting) {
+        FreeLibrary(api.dll);
+        return std::unexpected(error("NVIDIA driver API incomplete (driver too old?)"));
+    }
+    if (const auto status = api.initialize(); status != kOk) {
+        const auto detail = status_text(api, status);
+        FreeLibrary(api.dll);
+        return std::unexpected(error("NVIDIA driver init failed: " + detail));
+    }
+    return api;
+}
+// Runs work with the global (base) driver profile, which enforces the setting
+// for all processes. Session lifetime and errors follow NVIDIA's programming
+// guide sequence: create, load, work, save (writes only), destroy.
+template <typename Work>
+auto with_base_profile(Api& api, Work work, bool save) -> decltype(work(static_cast<void*>(nullptr), static_cast<void*>(nullptr))) {
+    using Result = decltype(work(static_cast<void*>(nullptr), static_cast<void*>(nullptr)));
+    void* session{};
+    if (const auto status = api.create_session(&session); status != kOk || !session) {
+        return Result{std::unexpected(error("NVIDIA session failed: " + status_text(api, status)))};
+    }
+    auto result = [&]() -> Result {
+        if (const auto status = api.load_settings(session); status != kOk) {
+            return Result{std::unexpected(error("NVIDIA settings load failed: " + status_text(api, status)))};
+        }
+        void* profile{};
+        if (const auto status = api.get_base_profile(session, &profile); status != kOk || !profile) {
+            return Result{std::unexpected(error("NVIDIA global profile unavailable: " + status_text(api, status)))};
+        }
+        if (auto applied = work(session, profile); !applied) return applied;
+        if (save) {
+            if (const auto status = api.save_settings(session); status != kOk) {
+                return Result{std::unexpected(error("NVIDIA settings save failed: " + status_text(api, status)))};
+            }
+        }
+        if constexpr (std::is_void_v<typename Result::value_type>) return Result{};
+        else return Result{typename Result::value_type{}};
+    }();
+    api.destroy_session(session);
+    return result;
+}
+winchisel::core::Result<NvU32> read_dword(NvU32 setting_id) {
+    static std::mutex mutex;
+    std::scoped_lock lock(mutex);
+    auto api = open();
+    if (!api) return std::unexpected(api.error());
+    auto result = with_base_profile(*api, [&](void* session, void* profile) -> winchisel::core::Result<NvU32> {
+        Setting setting;
+        setting.version = kSettingVersion;
+        setting.id = setting_id;
+        setting.type = kDwordType;
+        NvU32 extra{};
+        if (const auto status = api->get_setting(session, profile, setting_id, &setting, &extra);
+            status != kOk) {
+            return std::unexpected(error("NVIDIA setting read failed: " + status_text(*api, status)));
+        }
+        if (setting.type != kDwordType) return std::unexpected(error("NVIDIA setting has an unexpected type"));
+        return setting.current.u32;
+    }, false);
+    FreeLibrary(api->dll);
+    return result;
+}
+winchisel::core::Result<void> write_dword(NvU32 setting_id, NvU32 value) {
+    static std::mutex mutex;
+    std::scoped_lock lock(mutex);
+    auto api = open();
+    if (!api) return std::unexpected(api.error());
+    auto result = with_base_profile(*api, [&](void* session, void* profile) -> winchisel::core::Result<void> {
+        Setting setting;
+        setting.version = kSettingVersion;
+        setting.id = setting_id;
+        setting.type = kDwordType;
+        setting.current.u32 = value;
+        if (const auto status = api->set_setting(session, profile, &setting, 0, 0); status != kOk) {
+            return std::unexpected(error("NVIDIA setting write failed: " + status_text(*api, status)));
+        }
+        return {};
+    }, true);
+    FreeLibrary(api->dll);
+    return result;
+}
+constexpr NvU32 kShaderCacheId = 0x00AC8497;
+constexpr NvU32 kShaderCacheOn = 0x2800;
+constexpr NvU32 kShaderCacheOff = 0x4000;
+constexpr NvU32 kPowerId = 0x1057EB71;
+constexpr NvU32 kPowerOn = 1;
+constexpr NvU32 kPowerOff = 5;
+constexpr NvU32 kLatencyId = 0x007BA09E;
+constexpr NvU32 kLatencyOn = 1;
+constexpr NvU32 kLatencyOff = 0;
+}  // namespace nvidia_drs
+bool is_nvidia_drs_toggle(std::string_view id) {
+    return id == "graphics-nvidia-shader-cache" || id == "graphics-nvidia-power-max" || id == "graphics-nvidia-low-latency";
+}
+winchisel::core::Result<bool> read_nvidia_drs_toggle(std::string_view id) {
+    nvidia_drs::NvU32 setting{}, on_value{};
+    if (id == "graphics-nvidia-shader-cache") {
+        setting = nvidia_drs::kShaderCacheId;
+        on_value = nvidia_drs::kShaderCacheOn;
+    } else if (id == "graphics-nvidia-power-max") {
+        setting = nvidia_drs::kPowerId;
+        on_value = nvidia_drs::kPowerOn;
+    } else if (id == "graphics-nvidia-low-latency") {
+        setting = nvidia_drs::kLatencyId;
+        on_value = nvidia_drs::kLatencyOn;
+    } else {
+        return std::unexpected(error("unknown NVIDIA toggle"));
+    }
+    auto current = nvidia_drs::read_dword(setting);
+    if (!current) return std::unexpected(current.error());
+    return *current == on_value;
+}
+winchisel::core::Result<void> write_nvidia_drs_toggle(std::string_view id, bool enabled) {
+    nvidia_drs::NvU32 setting{}, on_value{}, off_value{};
+    if (id == "graphics-nvidia-shader-cache") {
+        setting = nvidia_drs::kShaderCacheId;
+        on_value = nvidia_drs::kShaderCacheOn;
+        off_value = nvidia_drs::kShaderCacheOff;
+    } else if (id == "graphics-nvidia-power-max") {
+        setting = nvidia_drs::kPowerId;
+        on_value = nvidia_drs::kPowerOn;
+        off_value = nvidia_drs::kPowerOff;
+    } else if (id == "graphics-nvidia-low-latency") {
+        setting = nvidia_drs::kLatencyId;
+        on_value = nvidia_drs::kLatencyOn;
+        off_value = nvidia_drs::kLatencyOff;
+    } else {
+        return std::unexpected(error("unknown NVIDIA toggle"));
+    }
+    return nvidia_drs::write_dword(setting, enabled ? on_value : off_value);
 }
 }
 winchisel::core::Result<int> read_dns_profile(){
@@ -683,13 +1072,19 @@ winchisel::core::Result<void> apply_registry_and_tasks(
 }
 bool is_special_performance_toggle(std::string_view id) {
     return gpu_vendor_for(id).has_value() || id == "gaming-usb-selective-suspend" ||
-        id == "gaming-hibernate-fast-startup" || id == "updates-system-protection";
+        id == "gaming-hibernate-fast-startup" || id == "updates-system-protection" ||
+        id == "explorer-classic-context-menu" || id == "network-nic-power-saving" ||
+        id == "power-pcie-link-state" || is_nvidia_drs_toggle(id);
 }
 winchisel::core::Result<bool> read_special_performance_toggle(std::string_view id) {
     if (auto vendor = gpu_vendor_for(id)) return read_gpu_vendor_tweak(*vendor);
     if (id == "gaming-usb-selective-suspend") return read_usb_selective_suspend();
     if (id == "gaming-hibernate-fast-startup") return read_hibernate();
     if (id == "updates-system-protection") return read_system_protection();
+    if (id == "explorer-classic-context-menu") return read_classic_context_menu();
+    if (id == "network-nic-power-saving") return read_nic_power_saving();
+    if (id == "power-pcie-link-state") return read_pcie_link_state();
+    if (is_nvidia_drs_toggle(id)) return read_nvidia_drs_toggle(id);
     return std::unexpected(error("unknown special performance toggle"));
 }
 winchisel::core::Result<void> write_special_performance_toggle(std::string_view id, bool enabled) {
@@ -697,11 +1092,18 @@ winchisel::core::Result<void> write_special_performance_toggle(std::string_view 
     if (id == "gaming-usb-selective-suspend") return write_usb_selective_suspend(enabled);
     if (id == "gaming-hibernate-fast-startup") return write_hibernate(enabled);
     if (id == "updates-system-protection") return write_system_protection(enabled);
+    if (id == "explorer-classic-context-menu") return write_classic_context_menu(enabled);
+    if (id == "network-nic-power-saving") return write_nic_power_saving(enabled);
+    if (id == "power-pcie-link-state") return write_pcie_link_state(enabled);
+    if (is_nvidia_drs_toggle(id)) return write_nvidia_drs_toggle(id, enabled);
     return std::unexpected(error("unknown special performance toggle"));
 }
 winchisel::core::Result<bool> is_special_available(std::string_view id) {
     if (auto vendor = gpu_vendor_for(id)) return !gpu_adapter_subkeys(*vendor).empty();
-    if (id == "gaming-usb-selective-suspend" || id == "gaming-hibernate-fast-startup" || id == "updates-system-protection") return true;
+    if (id == "gaming-usb-selective-suspend" || id == "gaming-hibernate-fast-startup" || id == "updates-system-protection" ||
+        id == "explorer-classic-context-menu" || id == "power-pcie-link-state") return true;
+    if (id == "network-nic-power-saving") return !nic_power_targets().empty();
+    if (is_nvidia_drs_toggle(id)) return !gpu_adapter_subkeys(GpuVendor::nvidia).empty();
     return std::unexpected(error("unknown special performance toggle"));
 }
 }

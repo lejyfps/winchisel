@@ -47,6 +47,31 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Ultimate Performance Power Plan" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Unhide and activate the stock Microsoft Ultimate Performance plan (disables core parking)."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <Button x:Name="UltimatePlanButton"
+                                    Grid.Column="1"
+                                    Content="Apply"
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Click="UltimatePlanClick" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
                             <StackPanel x:Name="HeaderModernStandby">
                                 <TextBlock Text="Disable Modern Standby" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="Disable S0 Modern Standby to prevent battery drain and heat in sleep."
@@ -456,6 +481,34 @@
                                            Style="{StaticResource CaptionTextBlockStyle}" />
                             </StackPanel>
                             <ToggleSwitch x:Name="Hpet"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="ToggleChanged" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Disable Dynamic Tick" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Stop the kernel from suspending the periodic tick on idle. Can reduce DPC latency spikes on some systems; costs battery life on laptops. Requires a reboot."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="DynamicTick"
                                           Grid.Column="1"
                                           OnContent=""
                                           OffContent=""

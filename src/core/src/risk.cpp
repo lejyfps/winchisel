@@ -176,6 +176,11 @@ constexpr std::pair<std::string_view, TweakRisk> kSelections[] = {
     {"gaming-dns-server", TweakRisk::moderate},
     {"visual-effects-mode", TweakRisk::safe},
     {"gaming-background-apps", TweakRisk::moderate},
+    // HKCU-only UI preferences without catalog rules (combos with hardcoded
+    // load/save in PerformancePage); same rating the rule engine would give.
+    {"taskbar-alignment", TweakRisk::safe},
+    {"taskbar-search-mode", TweakRisk::safe},
+    {"start-layout", TweakRisk::safe},
 };
 
 constexpr std::string_view kSpecialIds[] = {
@@ -185,6 +190,12 @@ constexpr std::string_view kSpecialIds[] = {
     "gaming-usb-selective-suspend",
     "gaming-hibernate-fast-startup",
     "updates-system-protection",
+    "explorer-classic-context-menu",
+    "network-nic-power-saving",
+    "power-pcie-link-state",
+    "graphics-nvidia-shader-cache",
+    "graphics-nvidia-power-max",
+    "graphics-nvidia-low-latency",
 };
 
 bool offers_disabled(std::string_view id) {

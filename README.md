@@ -52,7 +52,7 @@ Winget and Microsoft Store releases are in preparation and will be announced her
 
 ### Performance 🚀
 
-- 152 tweaks across 13 groups: Gaming, Processor, Graphics, Network, Security, Xbox, System Services, Scheduled Tasks, Visual Effects, Accessibility, Power, Windows Update, and Notifications
+- 171 tweaks across 16 groups: Gaming, Processor, Graphics, Network, Security, Xbox, System Services, Scheduled Tasks, Visual Effects, Accessibility, Power, Windows Update, Notifications, Taskbar, Start Menu, and Explorer
 - Live state detection, per-tweak Recommended/Default quick actions, and Recommended/Default state badges
 - Windows Update policy (automatic, security-only, paused, disabled), Delivery Optimization, and System Protection controls
 
@@ -80,7 +80,7 @@ Winget and Microsoft Store releases are in preparation and will be announced her
 
 ### Extras 🧰
 
-- Extra maintenance controls, including the Winchisel power plan, Long Paths, Developer Mode, and Verbose Boot
+- Extra maintenance controls, including the Winchisel and Ultimate Performance power plans, Long Paths, Developer Mode, Verbose Boot, HPET, and Dynamic Tick
 - Per-tweak Recommended/Default quick actions
 
 ### Settings ⚙️

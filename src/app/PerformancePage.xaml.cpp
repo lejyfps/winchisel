@@ -620,6 +620,20 @@ void PerformancePage::load_catalog_selections() {
             if(item.rec_badge)update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);
             continue;
         }
+        if(item.id=="taskbar-alignment"||item.id=="taskbar-search-mode"||item.id=="start-layout"){
+            Target destination=item.id=="taskbar-search-mode"
+                ?target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Search","SearchBoxTaskbarMode",Type::dword)
+                :item.id=="start-layout"
+                ?target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","Start_Layout",Type::dword)
+                :target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","TaskbarAl",Type::dword);
+            const int fallback=item.id=="taskbar-search-mode"?2:item.id=="start-layout"?0:1;
+            int selected=fallback;
+            if(auto current=cached_value(destination))if(auto dword=std::get_if<std::uint32_t>(&*current))selected=static_cast<int>(std::min(*dword,2u));
+            if(selected<0||selected>=static_cast<int>(item.options.size()))selected=fallback;
+            item.control.SelectedIndex(selected);
+            if(item.rec_badge)update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);
+            continue;
+        }
         std::uint32_t value{}; bool found{};
         Target destination;
         if (item.id=="gaming-win32-priority") destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);
@@ -650,8 +664,11 @@ void PerformancePage::save_catalog_selection(std::size_t index) {
     if(item.id=="updates-delivery-optimization"){const auto user=target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const auto machine=target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const Value mode=selected==1?Value{std::uint32_t{1}}:selected==2?Value{std::uint32_t{3}}:selected==3?Value{std::uint32_t{99}}:Value{std::monostate{}};submit([user,machine,mode]{return winchisel::platform::write_registry_values_atomic({{user,mode},{machine,mode}});});return;}
     if(item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
     else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))return;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
-    else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
-    else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
+        else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
+        else if(item.id=="taskbar-alignment"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","TaskbarAl",Type::dword);value=static_cast<std::uint32_t>(selected);}
+        else if(item.id=="taskbar-search-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Search","SearchBoxTaskbarMode",Type::dword);value=static_cast<std::uint32_t>(selected);}
+        else if(item.id=="start-layout"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","Start_Layout",Type::dword);value=static_cast<std::uint32_t>(selected);}
+        else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
     else return;
     submit([destination,value]{return winchisel::platform::write_registry_value(destination,Value{value});});
 }
@@ -764,7 +781,10 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         Target destination; std::uint32_t value{};
         if (item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
         else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))continue;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
-        else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
+    else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
+    else if(item.id=="taskbar-alignment"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","TaskbarAl",Type::dword);value=static_cast<std::uint32_t>(selected);}
+    else if(item.id=="taskbar-search-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Search","SearchBoxTaskbarMode",Type::dword);value=static_cast<std::uint32_t>(selected);}
+    else if(item.id=="start-layout"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","Start_Layout",Type::dword);value=static_cast<std::uint32_t>(selected);}
         else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
         else continue;
         registry.emplace_back(destination, Value{value});
@@ -922,7 +942,10 @@ winrt::fire_and_forget PerformancePage::process_changes() {
             target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy","LetAppsRunInBackground",Type::dword),
             target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy","LetAppsRunInBackground",Type::dword),
             target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword),
-            target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword)};
+            target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword),
+            target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","TaskbarAl",Type::dword),
+            target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Search","SearchBoxTaskbarMode",Type::dword),
+            target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","Start_Layout",Type::dword)};
         for(auto const& item:gaming_toggles_)targets.insert(targets.end(),item.targets.begin(),item.targets.end());
         for(auto const& rule:winchisel::core::get_performance_registry_rules())
             targets.push_back(target(rule.root==0?Hive::current_user:Hive::local_machine,rule.path.data(),rule.name.data(),rule.kind==0?Type::dword:rule.kind==1?Type::string:Type::binary));

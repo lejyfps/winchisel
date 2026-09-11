@@ -54,6 +54,9 @@ inline constexpr std::array k_performance_groups{
     TweakGroupDefinition{"power", "Power"},
     TweakGroupDefinition{"updates", "Windows Update"},
     TweakGroupDefinition{"notifications", "Notifications"},
+    TweakGroupDefinition{"taskbar", "Taskbar"},
+    TweakGroupDefinition{"start_menu", "Start Menu"},
+    TweakGroupDefinition{"explorer", "Explorer"},
 };
 
 inline constexpr std::array k_privacy_security_groups{
@@ -118,6 +121,25 @@ inline constexpr std::array k_new_tweak_ids{
     std::string_view{"notifications-clock-change"},
     std::string_view{"notifications-windows-security"},
     std::string_view{"notifications-security-maintenance"},
+    std::string_view{"taskbar-widgets-button"},
+    std::string_view{"taskbar-task-view"},
+    std::string_view{"taskbar-search-highlights"},
+    std::string_view{"taskbar-copilot-button"},
+    std::string_view{"taskbar-end-task"},
+    std::string_view{"taskbar-alignment"},
+    std::string_view{"taskbar-search-mode"},
+    std::string_view{"start-bing-search"},
+    std::string_view{"start-recommended-content"},
+    std::string_view{"start-layout"},
+    std::string_view{"explorer-show-extensions"},
+    std::string_view{"explorer-hidden-files"},
+    std::string_view{"explorer-launch-this-pc"},
+    std::string_view{"explorer-classic-context-menu"},
+    std::string_view{"network-nic-power-saving"},
+    std::string_view{"power-pcie-link-state"},
+    std::string_view{"graphics-nvidia-shader-cache"},
+    std::string_view{"graphics-nvidia-power-max"},
+    std::string_view{"graphics-nvidia-low-latency"},
 };
 
 inline bool is_new_tweak(std::string_view id) {

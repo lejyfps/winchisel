@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include <array>
 namespace winchisel::core {
-inline constexpr std::array<PerformanceCatalogEntry, 152> generated_performance_catalog{{
+inline constexpr std::array<PerformanceCatalogEntry, 171> generated_performance_catalog{{
     {"gaming-game-mode", "Game Mode", "Optimize your PC for gaming by turning things off in the background", 0, 0, ""},
     {"gaming-performance-explorer-mouse-precision", "Enhance Pointer Precision", "Adjust cursor speed based on movement speed (mouse acceleration). Most competitive gamers disable this for consistent aiming in FPS games", 0, 0, ""},
     {"gaming-performance-mouse-hover-time", "Mouse Hover Time", "Controls how long you have to hover over an element before it becomes active (in milliseconds). Lower values cause tooltips, menus and hover effects to appear faster. The default value is 400 ms", 0, 1, "1ms (Instant)|10ms (Very Fast)|50ms (Fast)|100ms (Moderate)|200ms|400ms (Default)"},
@@ -154,8 +154,27 @@ inline constexpr std::array<PerformanceCatalogEntry, 152> generated_performance_
     {"notifications-clock-change", "Clock Change Notifications", "Shows a notification when daylight saving time changes the clock", 12, 0, ""},
     {"notifications-windows-security", "Windows Security Notifications", "Shows protection status notifications from Windows Security", 12, 0, ""},
     {"notifications-security-maintenance", "Security and Maintenance Notifications", "Shows system notifications about security and maintenance issues", 12, 0, ""},
+    {"taskbar-widgets-button", "Widgets Button", "Show the Widgets button on the taskbar. Hiding it removes the WebExperience background activity", 13, 0, ""},
+    {"taskbar-task-view", "Task View Button", "Show the Task View button for virtual desktops on the taskbar", 13, 0, ""},
+    {"taskbar-search-highlights", "Search Highlights", "Show rotating content suggestions in the taskbar search box", 13, 0, ""},
+    {"taskbar-copilot-button", "Copilot Button", "Show the Copilot button on the taskbar", 13, 0, ""},
+    {"taskbar-end-task", "End Task with Right-Click", "Add an End Task option when right-clicking taskbar apps for quick termination", 13, 0, ""},
+    {"taskbar-alignment", "Taskbar Alignment", "Align taskbar icons to the left (classic) or center (Windows 11 default)", 13, 1, "Left (Classic)|Center (Default)"},
+    {"taskbar-search-mode", "Taskbar Search", "Choose how search appears on the taskbar", 13, 1, "Hidden|Icon only|Search box (Default)"},
+    {"start-bing-search", "Bing Search Results", "Show web results from Bing in Start menu search. Disabling keeps local files and apps only", 14, 0, ""},
+    {"start-recommended-content", "Recommended Content in Start", "Show recently added apps and recommended files in the Start menu", 14, 0, ""},
+    {"start-layout", "Start Menu Layout", "Choose whether the Start menu shows more pins, more recommendations, or a balanced layout", 14, 1, "Default|More pins|More recommendations"},
+    {"explorer-show-extensions", "Show File Extensions", "Always show file name extensions in File Explorer instead of hiding known types", 15, 0, ""},
+    {"explorer-hidden-files", "Show Hidden Files", "Show hidden files, folders, and drives in File Explorer", 15, 0, ""},
+    {"explorer-launch-this-pc", "Open Explorer to This PC", "Open File Explorer to This PC instead of Home", 15, 0, ""},
+    {"explorer-classic-context-menu", "Classic Context Menu", "Use the Windows 10-style right-click menu with all options visible. Restarts Explorer to apply", 15, 0, ""},
+    {"network-nic-power-saving", "Disable NIC Power Saving", "Turn off Energy Efficient Ethernet, adapter power saving, interrupt moderation, and Wake-on-LAN on physical network adapters to reduce latency spikes. Takes effect after a reboot or adapter restart", 3, 0, ""},
+    {"power-pcie-link-state", "PCIe Link State Power Management Off", "Disable PCI Express link power saving while plugged in to reduce GPU and SSD latency spikes. Battery behavior is left untouched", 10, 0, ""},
+    {"graphics-nvidia-shader-cache", "NVIDIA Shader Cache Size 10GB", "Set the NVIDIA driver shader cache to 10GB so older shaders are not evicted and recompiled mid-game. Current drivers already default to 16GB, so this only helps on older drivers", 2, 0, ""},
+    {"graphics-nvidia-power-max", "NVIDIA Prefer Maximum Performance", "Keep NVIDIA GPU clocks up instead of dynamically scaling to reduce stutter. Increases idle power draw and heat", 2, 0, ""},
+    {"graphics-nvidia-low-latency", "NVIDIA Low Latency Mode", "Limit the pre-rendered frame queue to 1 to cut input delay, same as Control Panel On (not Ultra)", 2, 0, ""},
 }};
-inline constexpr std::array<PerformanceRegistryRule, 108> generated_performance_registry_rules{{
+inline constexpr std::array<PerformanceRegistryRule, 119> generated_performance_registry_rules{{
     {"gaming-game-mode", "Software\\Microsoft\\GameBar", "AutoGameModeEnabled", "1|__MISSING__", "0", 0, 0, -1, 0},
     {"gaming-performance-explorer-mouse-precision", "Control Panel\\Mouse", "MouseSpeed", "1", "0", 0, 1, -1, 0},
     {"gaming-performance-autostart-delay", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Serialize", "StartupDelayInMSec", "10000", "0", 0, 0, -1, 0},
@@ -264,8 +283,19 @@ inline constexpr std::array<PerformanceRegistryRule, 108> generated_performance_
     {"notifications-windows-security", "Software\\Policies\\Microsoft\\Windows Defender Security Center\\Notifications", "DisableEnhancedNotifications", "0|__MISSING__", "1", 0, 0, -1, 0},
     {"notifications-windows-security", "Software\\Policies\\Microsoft\\Windows Defender Security Center\\Notifications", "DisableEnhancedNotifications", "0|__MISSING__", "1", 1, 0, -1, 0},
     {"notifications-security-maintenance", "Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\Windows.SystemToast.SecurityAndMaintenance", "Enabled", "1|__MISSING__", "0", 0, 0, -1, 0},
+    {"taskbar-widgets-button", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "TaskbarDa", "0", "1|__MISSING__", 0, 0, -1, 0},
+    {"taskbar-task-view", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "ShowTaskViewButton", "0", "1|__MISSING__", 0, 0, -1, 0},
+    {"taskbar-search-highlights", "Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings", "IsDynamicSearchBoxEnabled", "0", "1|__MISSING__", 0, 0, -1, 0},
+    {"taskbar-copilot-button", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "ShowCopilotButton", "0", "1|__MISSING__", 0, 0, -1, 0},
+    {"taskbar-end-task", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings", "TaskbarEndTask", "1", "0|__MISSING__", 0, 0, -1, 0},
+    {"start-bing-search", "Software\\Policies\\Microsoft\\Windows\\Explorer", "DisableSearchBoxSuggestions", "1", "0|__MISSING__", 0, 0, -1, 0},
+    {"start-recommended-content", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "Start_TrackDocs", "0", "1|__MISSING__", 0, 0, -1, 0},
+    {"start-recommended-content", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "Start_TrackProgs", "0", "1|__MISSING__", 0, 0, -1, 0},
+    {"explorer-show-extensions", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "HideFileExt", "0", "1", 0, 0, -1, 0},
+    {"explorer-hidden-files", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "Hidden", "1", "2", 0, 0, -1, 0},
+    {"explorer-launch-this-pc", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "LaunchTo", "1", "2|__MISSING__", 0, 0, -1, 0},
 }};
-inline constexpr std::array<PerformanceProfileRule, 151> generated_performance_profile_rules{{
+inline constexpr std::array<PerformanceProfileRule, 170> generated_performance_profile_rules{{
     {"gaming-game-mode", 1, 1, -1, -1},
     {"gaming-performance-explorer-mouse-precision", 0, 1, -1, -1},
     {"gaming-performance-mouse-hover-time", -1, -1, 0, 5},
@@ -417,5 +447,24 @@ inline constexpr std::array<PerformanceProfileRule, 151> generated_performance_p
     {"notifications-clock-change", 0, 1, -1, -1},
     {"notifications-windows-security", 1, 1, -1, -1},
     {"notifications-security-maintenance", 1, 1, -1, -1},
+    {"taskbar-widgets-button", 1, 0, -1, -1},
+    {"taskbar-task-view", 1, 0, -1, -1},
+    {"taskbar-search-highlights", 1, 0, -1, -1},
+    {"taskbar-copilot-button", 1, 0, -1, -1},
+    {"taskbar-end-task", 1, 0, -1, -1},
+    {"taskbar-alignment", -1, -1, 0, 1},
+    {"taskbar-search-mode", -1, -1, 0, 2},
+    {"start-bing-search", 1, 0, -1, -1},
+    {"start-recommended-content", 1, 0, -1, -1},
+    {"start-layout", -1, -1, 1, 0},
+    {"explorer-show-extensions", 1, 0, -1, -1},
+    {"explorer-hidden-files", 1, 0, -1, -1},
+    {"explorer-launch-this-pc", 1, 0, -1, -1},
+    {"explorer-classic-context-menu", 1, 0, -1, -1},
+    {"network-nic-power-saving", 1, 0, -1, -1},
+    {"power-pcie-link-state", 1, 0, -1, -1},
+    {"graphics-nvidia-shader-cache", 0, 0, -1, -1},
+    {"graphics-nvidia-power-max", 1, 0, -1, -1},
+    {"graphics-nvidia-low-latency", 1, 0, -1, -1},
 }};
 }  // namespace winchisel::core

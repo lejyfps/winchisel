@@ -166,7 +166,7 @@ int main() {
         expect(badge_chars_ok && (badge_dots == 2 || badge_dots == 3) &&
             badge_version.front() != '.' && badge_version.back() != '.',
             "new tweaks version shape");
-        expect(k_new_tweak_ids.size() == 40, "new tweak count");
+        expect(k_new_tweak_ids.size() == 59, "new tweak count");
         expect(assess_performance("gaming-memory-integrity") == TweakRisk::risky, "risk hvci");
         expect(assess_performance("gaming-virtualization-based-security") == TweakRisk::risky, "risk vbs");
         expect(assess_performance("gaming-telemetry-service") == TweakRisk::moderate, "risk service disable");

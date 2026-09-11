@@ -17,9 +17,10 @@ winchisel::core::Result<void> write_update_policy(int index);
 winchisel::core::Result<bool> read_scheduled_task(std::string_view id);
 winchisel::core::Result<void> write_scheduled_task(std::string_view id, bool enabled);
 // Vendor-specific GPU power tweaks, USB selective suspend, hibernate state,
-// and System Protection cannot be expressed as static catalog registry rules
-// (dynamic subkeys, powercfg/WMI commands), so they are handled through
-// these special toggles.
+// System Protection, the classic context menu, NIC power saving, PCIe link
+// power, and NVIDIA Control Panel values cannot be expressed as static catalog
+// registry rules (dynamic subkeys, power APIs, driver APIs, powercfg/WMI
+// commands), so they are handled through these special toggles.
 enum class GpuVendor : std::uint8_t { amd, nvidia, intel };
 bool is_special_performance_toggle(std::string_view id);
 winchisel::core::Result<bool> read_special_performance_toggle(std::string_view id);
