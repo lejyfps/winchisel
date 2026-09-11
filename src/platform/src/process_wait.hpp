@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <shlobj.h>
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,9 @@
 #include <string>
 #include <string_view>
 #include <utility>
+
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "shell32.lib")
 
 namespace winchisel::platform::detail {
 
@@ -115,6 +119,21 @@ inline std::wstring leaf_name(std::wstring const& token) {
     return slash == std::wstring::npos ? token : token.substr(slash + 1);
 }
 
+inline std::wstring known_folder_path(REFKNOWNFOLDERID id) {
+    PWSTR raw{};
+    if (FAILED(SHGetKnownFolderPath(id, KF_FLAG_DONT_VERIFY, nullptr, &raw)) || !raw) return {};
+    std::wstring path(raw);
+    CoTaskMemFree(raw);
+    return path;
+}
+
+inline bool is_desktop_app_installer_dir(std::wstring const& name) {
+    constexpr wchar_t prefix[] = L"Microsoft.DesktopAppInstaller_";
+    constexpr wchar_t publisher[] = L"8wekyb3d8bbwe";
+    return name.size() > 40 && _wcsnicmp(name.c_str(), prefix, 29) == 0 &&
+        name.find(publisher) != std::wstring::npos;
+}
+
 inline std::wstring newest_winget_under(std::wstring const& root) {
     const auto pattern = root + L"\\Microsoft.DesktopAppInstaller_*";
     WIN32_FIND_DATAW data{};
@@ -124,9 +143,12 @@ inline std::wstring newest_winget_under(std::wstring const& root) {
     FILETIME best_write{};
     do {
         if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) continue;
+        if (!is_desktop_app_installer_dir(data.cFileName)) continue;
         auto exe = root + L'\\' + data.cFileName + L"\\winget.exe";
         const auto attr = GetFileAttributesW(exe.c_str());
-        if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY) ||
+            (attr & FILE_ATTRIBUTE_REPARSE_POINT))
+            continue;
         if (best.empty() || CompareFileTime(&data.ftLastWriteTime, &best_write) > 0) {
             best = std::move(exe);
             best_write = data.ftLastWriteTime;
@@ -137,14 +159,11 @@ inline std::wstring newest_winget_under(std::wstring const& root) {
 }
 
 inline std::wstring resolve_winget() {
-    wchar_t program_files[MAX_PATH]{};
-    if (GetEnvironmentVariableW(L"ProgramFiles", program_files, static_cast<DWORD>(std::size(program_files)))) {
-        if (auto found = newest_winget_under(std::wstring(program_files) + L"\\WindowsApps"); !found.empty())
-            return found;
+    if (const auto pf = known_folder_path(FOLDERID_ProgramFiles); !pf.empty()) {
+        if (auto found = newest_winget_under(pf + L"\\WindowsApps"); !found.empty()) return found;
     }
-    wchar_t local[MAX_PATH]{};
-    if (GetEnvironmentVariableW(L"LOCALAPPDATA", local, static_cast<DWORD>(std::size(local)))) {
-        if (auto found = newest_winget_under(std::wstring(local) + L"\\Microsoft\\WindowsApps"); !found.empty())
+    if (const auto local = known_folder_path(FOLDERID_LocalAppData); !local.empty()) {
+        if (auto found = newest_winget_under(local + L"\\Microsoft\\WindowsApps"); !found.empty())
             return found;
     }
     return {};

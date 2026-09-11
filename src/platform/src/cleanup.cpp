@@ -31,19 +31,29 @@ std::filesystem::path windows_dir() {
     return std::filesystem::path(buffer.data());
 }
 
-std::filesystem::path user_temp_dir() {
-    std::array<wchar_t, MAX_PATH> buffer{};
-    const auto length = GetTempPathW(static_cast<DWORD>(buffer.size()), buffer.data());
-    if (!length || length >= buffer.size()) return {};
-    return std::filesystem::path(buffer.data());
-}
-
 std::filesystem::path local_appdata_dir() {
     PWSTR raw{};
     if (SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &raw) != S_OK) return {};
     std::filesystem::path result(raw);
     CoTaskMemFree(raw);
     return result;
+}
+
+std::filesystem::path user_temp_dir() {
+    const auto local = local_appdata_dir();
+    if (local.empty()) return {};
+    std::error_code error;
+    const auto local_canon = std::filesystem::weakly_canonical(local, error);
+    if (error || local_canon.empty() || !local_canon.is_absolute()) return {};
+    auto expected = std::filesystem::weakly_canonical(local / L"Temp", error);
+    if (error || expected.empty()) return {};
+    const auto relative = expected.lexically_relative(local_canon);
+    if (relative.empty() || relative.native().starts_with(L"..")) return {};
+    if (_wcsicmp(relative.begin()->c_str(), L"Temp") != 0) return {};
+    if (expected == expected.root_path()) return {};
+    const auto attr = GetFileAttributesW(expected.c_str());
+    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_REPARSE_POINT)) return {};
+    return expected;
 }
 
 std::filesystem::path system_drive_root() {

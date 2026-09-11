@@ -305,13 +305,40 @@ Settings parse_settings_json(std::string_view json) {
     return s;
 }
 
+std::string json_escape(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const unsigned char c : text) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    constexpr char digits[] = "0123456789abcdef";
+                    out += "\\u00";
+                    out.push_back(digits[c >> 4]);
+                    out.push_back(digits[c & 0xF]);
+                } else {
+                    out.push_back(static_cast<char>(c));
+                }
+                break;
+        }
+    }
+    return out;
+}
+
 std::string serialize_settings_json(const Settings& settings) {
     std::ostringstream out;
     out << "{\n";
     out << "  \"check_updates_on_startup\": " << (settings.check_updates_on_startup ? "true" : "false") << ",\n";
     out << "  \"nightly_updates\": " << (settings.nightly_updates ? "true" : "false") << ",\n";
     out << "  \"poll_for_updates\": " << (settings.poll_for_updates ? "true" : "false") << ",\n";
-    out << "  \"dismissed_update_version\": \"" << settings.dismissed_update_version << "\",\n";
+    out << "  \"dismissed_update_version\": \"" << json_escape(settings.dismissed_update_version) << "\",\n";
     out << "  \"show_console\": " << (settings.show_console ? "true" : "false") << ",\n";
     out << "  \"language\": \"" << language_to_string(settings.language) << "\",\n";
     out << "  \"theme\": \"" << theme_to_string(settings.theme) << "\",\n";

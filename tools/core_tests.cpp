@@ -81,6 +81,15 @@ int main() {
     expect(settings_defaults().dismissed_update_version.empty(), "dismissed version default empty");
     expect(parse_settings_json(R"({"dismissed_update_version":"1.0.8.1"})").dismissed_update_version == "1.0.8.1", "dismissed version parsed");
     expect(serialize_settings_json(parse_settings_json(R"({"dismissed_update_version":"1.0.8.1"})")).find("\"dismissed_update_version\": \"1.0.8.1\"") != std::string::npos, "serialize dismissed version");
+    {
+        auto dismissed = parse_settings_json(R"({"dismissed_update_version":"a\"b\\c\n"})");
+        expect(dismissed.dismissed_update_version == "a\"b\\c\n", "dismissed version unescapes");
+        const auto json = serialize_settings_json(dismissed);
+        expect(json.find("\\\"") != std::string::npos && json.find("\\\\") != std::string::npos &&
+            json.find("\\n") != std::string::npos, "serialize dismissed version escaped");
+        expect(parse_settings_json(json).dismissed_update_version == dismissed.dismissed_update_version,
+            "dismissed version escape roundtrip");
+    }
 
     set_ui_language(Language::german);
     expect(loc(L"Settings") == L"Einstellungen", "german settings label");
