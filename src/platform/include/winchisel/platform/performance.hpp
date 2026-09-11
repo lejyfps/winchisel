@@ -30,6 +30,9 @@ winchisel::core::Result<void> write_special_performance_toggle(std::string_view 
 // wrong hardware. USB, hibernate, and System Protection tweaks are always
 // available.
 winchisel::core::Result<bool> is_special_available(std::string_view id);
+// Restarts Explorer so applied taskbar/Start menu settings become visible.
+// Best effort: Explorer relaunches on its own; open Explorer windows close.
+void restart_shell();
 winchisel::core::Result<void> apply_registry_and_tasks(
     std::vector<std::pair<winchisel::core::RegistryTarget, winchisel::core::RegistryValue>> const& registry,
     std::vector<std::pair<std::string, bool>> const& tasks,

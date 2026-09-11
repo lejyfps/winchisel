@@ -15,7 +15,7 @@
 
 ## Requirements 💻
 
-- Windows 11, version 24H2 or later (build 26100+)
+- Windows 11, version 22H2 or later (build 22621+)
 - x64 CPU
 - Administrator permissions for actions that modify system-wide settings
 
@@ -122,7 +122,7 @@ No usage telemetry, no accounts, no phone-home. The only network access is the r
 Flip the toggle back, use the per-tweak Default button, apply a Defaults profile, or restore the system restore point you created first.
 
 **Does it work on Windows 10?**
-No — Winchisel targets Windows 11 24H2+ (build 26100+) on x64 only.
+No — Winchisel targets Windows 11 22H2+ (build 22621+) on x64 only.
 
 **When are winget/Store versions coming?**
 They are in preparation; watch the releases page for the announcement.

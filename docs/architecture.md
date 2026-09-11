@@ -9,7 +9,7 @@ Winchisel is an unpackaged, native Windows 11 application. Its UI uses WinUI 3 w
 | Language | Modern C++ |
 | UI | WinUI 3 and C++/WinRT |
 | Build | MSBuild, Visual Studio, and NuGet |
-| Target | Windows 11 build 26100+ on x64 |
+| Target | Windows 11 build 22621+ on x64 |
 | Packaging | Inno Setup installer and a portable executable |
 | Update validation | ECDSA P-256 signed manifest plus SHA-256 artifact checks |
 

@@ -303,7 +303,7 @@ winchisel::core::Result<void> save_settings(const winchisel::core::Settings& set
 void show_unsupported_os_message() {
     MessageBoxW(
         nullptr,
-        L"Winchisel requires Windows 11 24H2 or newer (build 26100+).",
+        L"Winchisel requires Windows 11 22H2 or newer (build 22621+).",
         L"Winchisel",
         MB_OK | MB_ICONERROR);
 }

@@ -1106,4 +1106,7 @@ winchisel::core::Result<bool> is_special_available(std::string_view id) {
     if (is_nvidia_drs_toggle(id)) return !gpu_adapter_subkeys(GpuVendor::nvidia).empty();
     return std::unexpected(error("unknown special performance toggle"));
 }
+void restart_shell() {
+    restart_explorer();
+}
 }

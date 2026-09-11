@@ -234,6 +234,17 @@ Controls::StackPanel with_quick_set(FrameworkElement const& control, hstring con
     return row;
 }
 
+// Taskbar/Start menu chrome reads its settings at shell startup, so applied
+// values only become visible after an Explorer restart (announced in the
+// tweak descriptions). Per-window Explorer view settings apply live.
+bool needs_shell_restart(std::string_view id) {
+    return id == "taskbar-widgets-button" || id == "taskbar-task-view" ||
+        id == "taskbar-search-highlights" || id == "taskbar-copilot-button" ||
+        id == "taskbar-end-task" || id == "taskbar-alignment" ||
+        id == "taskbar-search-mode" || id == "start-bing-search" ||
+        id == "start-recommended-content" || id == "start-layout";
+}
+
 hstring toggle_tip(bool recommended_default, bool state) {
     // Localized "Recommended"/"Defaults" prefix plus the target On/Off state,
     // so the tooltip documents what the button will do.
@@ -601,7 +612,8 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
     }
     const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}) || winchisel::platform::is_special_performance_toggle(item.id);
     if(!has_registry) tasks.emplace_back(std::string(item.id), enabled);
-    submit([registry=std::move(registry),tasks=std::move(tasks)]{return winchisel::platform::apply_registry_and_tasks(registry,tasks);});
+    const bool shell = needs_shell_restart(item.id);
+    submit([registry=std::move(registry),tasks=std::move(tasks),shell]{ auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks); if (applied && shell) winchisel::platform::restart_shell(); return applied; });
 }
 
 void PerformancePage::load_catalog_selections() {
@@ -670,7 +682,8 @@ void PerformancePage::save_catalog_selection(std::size_t index) {
         else if(item.id=="start-layout"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced","Start_Layout",Type::dword);value=static_cast<std::uint32_t>(selected);}
         else if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty()){destination=target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword);auto option=lower(item.options[static_cast<std::size_t>(selected)]);value=option.find("disabled")!=std::string::npos?4:option.find("manual")!=std::string::npos?3:2;}
     else return;
-    submit([destination,value]{return winchisel::platform::write_registry_value(destination,Value{value});});
+    const bool shell = needs_shell_restart(item.id);
+    submit([destination,value,shell]{ auto applied = winchisel::platform::write_registry_value(destination,Value{value}); if (applied && shell) winchisel::platform::restart_shell(); return applied; });
 }
 
 void PerformancePage::load_gaming_toggles() {
@@ -729,6 +742,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     std::vector<std::pair<Target,Value>> registry;
     std::vector<std::pair<std::string,bool>> tasks;
     std::vector<std::pair<std::string,bool>> specials;
+    bool shell_restart = false;
     for (auto const& tweak : gaming_toggles_) {
         auto const& values = tweak.control.IsOn() ? tweak.enabled_values : tweak.disabled_values;
         for (std::size_t i{}; i < tweak.targets.size(); ++i) registry.emplace_back(tweak.targets[i], values[i]);
@@ -748,6 +762,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
             specials.emplace_back(item.id, enabled);
             continue;
         }
+        shell_restart = shell_restart || needs_shell_restart(item.id);
         bool has_registry = false;
         for (auto const& rule : winchisel::core::get_performance_registry_rules()) {
             if (rule.id != item.id) continue;
@@ -772,6 +787,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         if (selected < 0 || !profile_for(item.id, true)) continue;
         if (item.id == "gaming-dns-server") { if (selected != 7) dns = selected; continue; }
         if (item.id == "updates-policy-mode") { if (selected != 4) update_policy = selected; continue; }
+        shell_restart = shell_restart || needs_shell_restart(item.id);
         if (item.id == "updates-delivery-optimization") {
             const Value mode = selected == 1 ? Value{std::uint32_t{1}} : selected == 2 ? Value{std::uint32_t{3}} : selected == 3 ? Value{std::uint32_t{99}} : Value{std::monostate{}};
             registry.emplace_back(target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization", "DODownloadMode", Type::dword), mode);
@@ -789,7 +805,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         else continue;
         registry.emplace_back(destination, Value{value});
     }
-    submit([registry=std::move(registry),tasks=std::move(tasks),dns,update_policy,specials=std::move(specials)]{
+    submit([registry=std::move(registry),tasks=std::move(tasks),dns,update_policy,specials=std::move(specials),shell_restart]{
         if (auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,dns,update_policy); !applied) return applied;
         for (auto const& [id, enabled] : specials) {
             if (auto written = winchisel::platform::write_special_performance_toggle(id, enabled); !written) {
@@ -798,6 +814,11 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
                 return winchisel::core::Result<void>{std::unexpected(std::move(faulty))};
             }
         }
+        // The classic context menu special already restarts Explorer itself;
+        // restart once for any other applied shell-chrome tweaks.
+        const bool context_restarted = std::ranges::any_of(specials,
+            [](auto const& entry) { return entry.first == "explorer-classic-context-menu"; });
+        if (shell_restart && !context_restarted) winchisel::platform::restart_shell();
         return winchisel::core::Result<void>{};
     });
 }

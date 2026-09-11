@@ -11,7 +11,7 @@
 
 namespace winchisel::platform {
 
-inline constexpr std::uint32_t k_min_windows_build = 26100;
+inline constexpr std::uint32_t k_min_windows_build = 22621;
 
 std::uint32_t current_windows_build();
 bool is_supported_windows();
