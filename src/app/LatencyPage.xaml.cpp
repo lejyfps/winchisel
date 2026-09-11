@@ -94,7 +94,10 @@ void LatencyPage::poll_analysis() {
     }
 
     if (progress_ < target_progress_) {
-        progress_ = std::min(progress_ + 2, target_progress_);
+        // Once the worker is done, fill quickly so the status doesn't park on
+        // "Building final report..." for seconds while the bar catches up.
+        const int fill = pending_result_ ? 10 : 2;
+        progress_ = std::min(progress_ + fill, target_progress_);
         Progress().Value(progress_);
         ProgressPercent().Text(to_hstring(std::to_string(progress_) + "%"));
     }

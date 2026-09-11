@@ -50,6 +50,13 @@ private:
     // UI keeps showing the real system state.
     void refresh_history_list(winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list,
         std::vector<winchisel::core::RevertEntry> entries);
+
+    // Last real page tag (the sidebar "Change history" entry below opens a
+    // dialog instead of navigating, so the selection is put back here).
+    winrt::hstring current_nav_tag_{L"home"};
+    // Reselects the nav item with the given tag (menu + footer). Used to undo
+    // the selection of the action-only history entry.
+    void select_nav_item(winrt::hstring const& tag);
     winrt::fire_and_forget undo_history_entry(std::string key,
         winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list);
     winrt::fire_and_forget undo_all_history(winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list);

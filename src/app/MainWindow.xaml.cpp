@@ -814,10 +814,34 @@ void MainWindow::Nav_SelectionChanged(
         return;
     }
     const auto tag = winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home");
+    if (tag == L"history") {
+        // Action-only footer entry: open the dialog and put the selection
+        // back on the current page, so content, LRU cache and session screen
+        // stay exactly where they were.
+        show_history();
+        select_nav_item(current_nav_tag_);
+        return;
+    }
+    current_nav_tag_ = tag;
     winchisel::application::Session::instance().set_screen(screen_from_tag(tag));
     const std::wstring key(tag.c_str());
     if (const auto existing = pages_.find(key); existing != pages_.end()) { touch_page(key); ContentFrame().Content(existing->second); return; }
     if (auto page = make_page(tag)) { pages_.emplace(key, page); touch_page(key); ContentFrame().Content(page); }
+}
+
+void MainWindow::select_nav_item(winrt::hstring const& tag) {
+    auto find_item = [&](auto const& items) -> Controls::NavigationViewItem {
+        for (std::uint32_t index = 0; index < items.Size(); ++index) {
+            if (auto item = items.GetAt(index).try_as<Controls::NavigationViewItem>()) {
+                if (winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"") == tag) return item;
+            }
+        }
+        return nullptr;
+    };
+    // Reselecting fires SelectionChanged again, which takes the normal page
+    // path (the current page is already cached, so this is just a highlight).
+    if (auto item = find_item(Nav().MenuItems())) { Nav().SelectedItem(item); return; }
+    if (auto item = find_item(Nav().FooterMenuItems())) { Nav().SelectedItem(item); }
 }
 
 void MainWindow::touch_page(std::wstring const& key) {
@@ -893,6 +917,7 @@ void MainWindow::localize_nav() {
         if (tag == L"scheduled_tasks") return winchisel::core::loc(L"Scheduled Tasks");
         if (tag == L"cleanup") return winchisel::core::loc(L"Cleanup");
         if (tag == L"extras") return winchisel::core::loc(L"Extras");
+        if (tag == L"history") return winchisel::core::loc(L"Change history");
         if (tag == L"settings") return winchisel::core::loc(L"Settings");
         return winchisel::core::loc(L"Home");
     };
@@ -945,7 +970,10 @@ void MainWindow::reload_language() {
     pages_.clear();
     page_lru_.clear();
     auto item = Nav().SelectedItem().try_as<Controls::NavigationViewItem>();
-    const auto tag = item ? winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home") : L"home";
+    auto tag = item ? winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"home") : L"home";
+    // The history entry is action-only (never a selected page), but fall back
+    // defensively so a rebuild can never leave the frame without content.
+    if (tag == L"history") tag = current_nav_tag_;
     if (auto page = make_page(tag)) {
         pages_.emplace(std::wstring(tag.c_str()), page);
         if (saved_offset > 0.5) {
