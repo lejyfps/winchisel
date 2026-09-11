@@ -1068,25 +1068,39 @@ winchisel::core::Result<void> apply_registry_and_tasks(
         original.detail += restore() ? "; rolled back" : "; rollback incomplete";
         return std::unexpected(std::move(original));
     }
-    if (dns_profile && *dns_profile != 7) {
-        auto result = write_dns_profile(*dns_profile);
-        if (!result) {
-            auto original = result.error();
-            original.detail += restore() ? "; rolled back" : "; rollback incomplete";
-            return std::unexpected(std::move(original));
+    // DNS/policy replay through the same writers the single toggles use, but
+    // journaled below as part of this one entry: a bulk apply is a single
+    // user action and must undo with a single Undo (not three). The inner
+    // writers' own journaling stays suppressed while this scope is held
+    // (nesting-safe via the guard's depth counter; restore() below holds
+    // the guard again).
+    std::optional<int> journal_dns;
+    std::optional<int> journal_policy;
+    {
+        RevertSuppressGuard suppress_inner;
+        if (dns_profile && *dns_profile != 7) {
+            auto result = write_dns_profile(*dns_profile);
+            if (!result) {
+                auto original = result.error();
+                original.detail += restore() ? "; rolled back" : "; rollback incomplete";
+                return std::unexpected(std::move(original));
+            }
+            if (previous_dns && *previous_dns != 7 && *previous_dns != *dns_profile) journal_dns = *previous_dns;
+        }
+        if (update_policy) {
+            auto result = write_update_policy(*update_policy);
+            if (!result) {
+                auto original = result.error();
+                original.detail += restore() ? "; rolled back" : "; rollback incomplete";
+                return std::unexpected(std::move(original));
+            }
+            if (previous_update && *previous_update >= 0 && *previous_update != *update_policy)
+                journal_policy = *previous_update;
         }
     }
-    if (update_policy) {
-        auto result = write_update_policy(*update_policy);
-        if (!result) {
-            auto original = result.error();
-            original.detail += restore() ? "; rolled back" : "; rollback incomplete";
-            return std::unexpected(std::move(original));
-        }
-    }
-    // DNS/policy replay through their own writers (journaled there); this
-    // entry covers the registry batch plus the task states, changed pairs
-    // only so matching re-applies stay silent.
+    // One entry per user action: the registry batch plus the task states
+    // plus the folded DNS/policy before-values, changed pairs only so
+    // matching re-applies stay silent.
     if (!label.empty() && !revert_recording_suppressed()) {
         auto entry = make_revert_entry(std::string(page), std::string(label));
         for (std::size_t index{}; index < registry.size(); ++index) {
@@ -1105,6 +1119,8 @@ winchisel::core::Result<void> apply_registry_and_tasks(
                 tasks, [&](auto const& item) { return item.first == id; });
             if (desired != tasks.end() && desired->second != was) entry.tasks.push_back({id, was});
         }
+        if (journal_dns) entry.ints.push_back({"dns", "dns", *journal_dns});
+        if (journal_policy) entry.ints.push_back({"update-policy", "update-policy", *journal_policy});
         if (auto recorded = record_revert(std::move(entry)); !recorded) {
             boot_log(("revert journal record failed: " + recorded.error().detail).c_str());
         }

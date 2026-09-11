@@ -21,7 +21,11 @@ namespace {
 constexpr std::size_t k_max_journal_entries = 50;
 constexpr std::size_t k_max_journal_bytes = 1024 * 1024;
 
-thread_local bool g_suppressed = false;
+// Suppression depth (not a bool): journal writers nest — e.g. a bulk apply
+// suppresses the per-writer journaling while its own rollback path holds the
+// guard too. A plain bool would be cleared by the inner guard's destructor
+// while the outer scope is still active.
+thread_local unsigned g_suppress_depth = 0;
 std::mutex g_journal_mutex;
 std::atomic<unsigned> g_entry_counter{};
 
@@ -108,17 +112,34 @@ void note_step_error(RevertApplySummary& summary, std::string detail) {
     if (summary.first_error.empty()) summary.first_error = std::move(detail);
 }
 
+// Taskbar/Start shell chrome reads its settings at shell startup (mirrors
+// needs_shell_restart in PerformancePage): restoring those keys without an
+// Explorer restart would leave the visible shell behind the reverted state,
+// exactly as on apply. The classic context menu special restarts Explorer
+// itself; everything else registry-based is covered by the key heuristic.
+bool entry_touches_shell_chrome(winchisel::core::RevertEntry const& entry) {
+    for (auto const& toggle : entry.toggles) {
+        if (toggle.domain == "special" && toggle.id == "explorer-classic-context-menu") return false;
+    }
+    for (auto const& step : entry.registry) {
+        if (step.target.key_path.find("Explorer\\Advanced") != std::string::npos ||
+            step.target.key_path.find("CurrentVersion\\Search") != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 RevertSuppressGuard::RevertSuppressGuard() {
-    g_suppressed = true;
+    ++g_suppress_depth;
 }
 RevertSuppressGuard::~RevertSuppressGuard() {
-    g_suppressed = false;
+    if (g_suppress_depth) --g_suppress_depth;
 }
 
 bool revert_recording_suppressed() {
-    return g_suppressed;
+    return g_suppress_depth != 0;
 }
 
 winchisel::core::RevertEntry make_revert_entry(std::string const& page, std::string const& label) {
@@ -127,8 +148,10 @@ winchisel::core::RevertEntry make_revert_entry(std::string const& page, std::str
     SYSTEMTIME time{};
     GetLocalTime(&time);
     char key[64]{};
-    snprintf(key, sizeof(key), "%04u%02u%02u-%02u%02u%02u-%04u", time.wYear, time.wMonth, time.wDay, time.wHour,
-        time.wMinute, time.wSecond, g_entry_counter.fetch_add(1) % 10000);
+    // No modulo on the counter: keys must stay unique even past 10000 entries
+    // in one second, otherwise drop_revert_entry could remove the wrong row.
+    snprintf(key, sizeof(key), "%04u%02u%02u-%02u%02u%02u-%u", time.wYear, time.wMonth, time.wDay, time.wHour,
+        time.wMinute, time.wSecond, g_entry_counter.fetch_add(1));
     entry.key = key;
     entry.page = page;
     entry.label = label;
@@ -136,7 +159,7 @@ winchisel::core::RevertEntry make_revert_entry(std::string const& page, std::str
 }
 
 winchisel::core::Result<void> record_revert(winchisel::core::RevertEntry entry) {
-    if (g_suppressed || winchisel::core::revert_entry_empty(entry)) return {};
+    if (revert_recording_suppressed() || winchisel::core::revert_entry_empty(entry)) return {};
     if (entry.key.empty() || entry.label.empty()) return {};
     std::scoped_lock lock(g_journal_mutex);
     auto entries = load_locked();
@@ -234,6 +257,9 @@ winchisel::core::Result<RevertApplySummary> apply_revert_entry(winchisel::core::
             ++summary.applied;
         }
     }
+    // Show the reverted state, not a stale shell: restart Explorer once when
+    // shell-chrome keys were actually restored (best effort, like on apply).
+    if (summary.applied > 0 && entry_touches_shell_chrome(entry)) restart_shell();
     return summary;
 }
 
