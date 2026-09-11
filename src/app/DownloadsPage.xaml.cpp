@@ -4,6 +4,7 @@
 #include "AsyncLifetime.hpp"
 #include "Localization.hpp"
 #include "winchisel/platform/shell.hpp"
+#include "winchisel/platform/update.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -138,6 +139,17 @@ fire_and_forget DownloadsPage::confirm_install(){
     try { error_queue=DispatcherQueue(); } catch (...) {}
     try {
         auto error_lifetime=get_strong();
+        if (winchisel::platform::is_packaged_install()) {
+            // Store policy 10.1.5: packaged builds must not acquire
+            // third-party software. The page is hidden there; this covers
+            // residual paths (restored sessions, automation). Worded
+            // neutrally on purpose: no outside-store pointers.
+            Notice().Title(L"Not available");
+            Notice().Message(L"Installing apps isn't available in the Microsoft Store version of Winchisel.");
+            Notice().Severity(Controls::InfoBarSeverity::Informational);
+            Notice().IsOpen(true);
+            co_return;
+        }
     winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot))co_return;
 
 auto lifetime=get_strong();std::uint32_t count{};for(auto const& list:category_lists_)for(auto const& value:list.SelectedItems())if(auto row=value.try_as<Controls::ListViewItem>()){if(row.Visibility()!=Visibility::Visible)continue;auto index=unbox_value<std::uint64_t>(row.Tag());if(index<catalog_.size()&&!catalog_[index].winget_ids.empty()&&(index>=installed_.size()||!installed_[index]))++count;}if(!count)co_return;Controls::ContentDialog dialog;dialog.XamlRoot(XamlRoot());dialog.Title(box_value(L"Install selected apps?"));dialog.Content(box_value(to_hstring(std::to_string(count)+" selected apps will be installed with winget.")));dialog.PrimaryButtonText(L"Install");dialog.CloseButtonText(L"Cancel");dialog.DefaultButton(Controls::ContentDialogButton::Close);if(co_await dialog.ShowAsync()==Controls::ContentDialogResult::Primary)start_install();
@@ -189,5 +201,5 @@ std::vector<winchisel::core::DownloadCatalogEntry const*> selected;for(auto cons
     }
 }
 void DownloadsPage::Refresh_Click(IInspectable const&,RoutedEventArgs const&){if(ui_ready_)start_scan(true);} void DownloadsPage::Install_Click(IInspectable const&,RoutedEventArgs const&){if(ui_ready_)confirm_install();} void DownloadsPage::Uninstall_Click(IInspectable const&,RoutedEventArgs const&){if(ui_ready_)confirm_uninstall();} void DownloadsPage::Search_TextChanged(IInspectable const&,Controls::AutoSuggestBoxTextChangedEventArgs const&){if(ui_ready_&&operation_==Operation::none){search_timer_.Stop();search_timer_.Start();}} void DownloadsPage::Filter_SelectionChanged(IInspectable const&,Controls::SelectionChangedEventArgs const&){if(ui_ready_&&operation_==Operation::none)apply_filter();} void DownloadsPage::Items_SelectionChanged(IInspectable const&,Controls::SelectionChangedEventArgs const&){if(ui_ready_)update_actions();}
-void DownloadsPage::Website_Click(IInspectable const& sender,RoutedEventArgs const&){if(auto button=sender.try_as<Controls::Button>()){auto url=unbox_value<hstring>(button.Tag());if(auto result=winchisel::platform::open_https_url(std::wstring(url));!result){Notice().Title(L"Could not open website");Notice().Message(to_hstring(result.error().detail));Notice().Severity(Controls::InfoBarSeverity::Error);Notice().IsOpen(true);}}}
+void DownloadsPage::Website_Click(IInspectable const& sender,RoutedEventArgs const&){if(winchisel::platform::is_packaged_install())return;if(auto button=sender.try_as<Controls::Button>()){auto url=unbox_value<hstring>(button.Tag());if(auto result=winchisel::platform::open_https_url(std::wstring(url));!result){Notice().Title(L"Could not open website");Notice().Message(to_hstring(result.error().detail));Notice().Severity(Controls::InfoBarSeverity::Error);Notice().IsOpen(true);}}}
 }  // namespace winrt::Winchisel::implementation

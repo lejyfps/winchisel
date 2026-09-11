@@ -164,6 +164,23 @@ MainWindow::MainWindow() {
         presenter.PreferredMinimumHeight(650);
     }
     localize_nav();
+    if (winchisel::platform::is_packaged_install()) {
+        // Store policy 10.1.5: packaged builds must not offer acquiring
+        // third-party software, so the Downloads entry stays hidden there.
+        // Collapsing keeps MenuItems indices stable (Ctrl+1..9 accelerators
+        // below stay aligned). Setup/portable builds are unaffected.
+        auto hide_downloads = [&](auto const& items) {
+            for (std::uint32_t index = 0; index < items.Size(); ++index) {
+                if (auto item = items.GetAt(index).try_as<Controls::NavigationViewItem>()) {
+                    if (winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"") == L"downloads") {
+                        item.Visibility(Visibility::Collapsed);
+                    }
+                }
+            }
+        };
+        hide_downloads(Nav().MenuItems());
+        hide_downloads(Nav().FooterMenuItems());
+    }
     Closed([this](auto&&, auto&&) {
         if (auto settings = pages_.find(L"settings"); settings != pages_.end()) {
             if (auto page = settings->second.try_as<implementation::SettingsPage>()) page->flush_pending_save();
@@ -576,7 +593,11 @@ FrameworkElement MainWindow::make_page(winrt::hstring const& tag) {
     else if (tag == L"debloater") page = make<DebloaterPage>();
     else if (tag == L"performance") page = make<PerformancePage>();
     else if (tag == L"privacy_security") page = make<PrivacyPage>();
-    else if (tag == L"downloads") page = make<DownloadsPage>();
+    else if (tag == L"downloads") {
+        // Hidden for packaged installs (Store policy 10.1.5); the nav item
+        // is collapsed, this covers restored sessions and direct navigation.
+        if (!winchisel::platform::is_packaged_install()) page = make<DownloadsPage>();
+    }
     else if (tag == L"processes") page = make<ProcessesPage>();
     else if (tag == L"latency") page = make<LatencyPage>();
     else if (tag == L"startup") page = make<StartupPage>();
