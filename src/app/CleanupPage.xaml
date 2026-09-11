@@ -7,7 +7,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -19,31 +18,25 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="Summary" VerticalAlignment="Center" Style="{StaticResource BodyStrongTextBlockStyle}" />
-            <TextBlock x:Name="Activity" Grid.Column="1" VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis" Style="{StaticResource CaptionTextBlockStyle}" />
-            <ProgressRing x:Name="BusyRing" Grid.Column="2" Width="20" Height="20" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center" AutomationProperties.Name="Cleanup progress" />
-            <Button x:Name="RefreshButton" Grid.Column="3" Content="Refresh" Click="Refresh_Click" />
-            <Button x:Name="CleanButton" Grid.Column="4" Content="Clean selected" Style="{StaticResource AccentButtonStyle}" Click="Clean_Click" />
-            <Button x:Name="CancelButton" Grid.Column="5" Content="Cancel" Click="Cancel_Click" IsEnabled="False" />
-        </Grid>
-        <Grid Grid.Row="1" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="Status" VerticalAlignment="Center" Text="Scanning..." Style="{StaticResource CaptionTextBlockStyle}" AutomationProperties.LiveSetting="Polite" />
-            <Button x:Name="SelectAllButton" Grid.Column="1" Content="Select all" Click="SelectAll_Click" />
+            <TextBlock x:Name="Summary" VerticalAlignment="Center" Style="{StaticResource BodyStrongTextBlockStyle}" />
+            <Button x:Name="SelectAllButton" Grid.Column="1" Content="Select all" Click="SelectAll_Click" VerticalAlignment="Center" />
+            <TextBlock x:Name="Activity" Grid.Column="2" VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis" Style="{StaticResource CaptionTextBlockStyle}" />
+            <ProgressRing x:Name="BusyRing" Grid.Column="3" Width="20" Height="20" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center" AutomationProperties.Name="Cleanup progress" />
+            <Button x:Name="RefreshButton" Grid.Column="4" Content="Refresh" Click="Refresh_Click" />
+            <Button x:Name="CleanButton" Grid.Column="5" Content="Clean selected" Style="{StaticResource AccentButtonStyle}" Click="Clean_Click" />
+            <Button x:Name="CancelButton" Grid.Column="6" Content="Cancel" Click="Cancel_Click" IsEnabled="False" />
         </Grid>
-        <StackPanel x:Name="AdminBox" Grid.Row="2" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+        <StackPanel x:Name="AdminBox" Grid.Row="1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
             <TextBlock x:Name="AdminNote" VerticalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}" />
             <Button x:Name="ElevateButton" Content="Restart as administrator" Click="Elevate_Click" />
         </StackPanel>
-        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
             <Grid>
                 <StackPanel x:Name="Items" Spacing="8" />
             </Grid>
         </ScrollViewer>
-        <InfoBar x:Name="ResultBar" Grid.Row="4" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />
+        <InfoBar x:Name="ResultBar" Grid.Row="3" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive" />
     </Grid>
 </UserControl>

@@ -198,7 +198,6 @@ void CleanupPage::start_scan() {
     auto op = std::make_shared<Operation>();
     op->job = Job::scanning;
     op_ = op;
-    Status().Text(hstring{});
     Activity().Text(winchisel::ui::tr(L"Scanning cleanup categories..."));
     update_chrome();
     std::thread([op] {
@@ -237,10 +236,12 @@ void CleanupPage::poll() {
         Activity().Text(hstring{});
         if (!op->scan_result) {
             if (op->cancel.load()) {
-                Status().Text(winchisel::ui::tr(L"Cleanup was cancelled."));
+                ResultBar().Title(hstring{winchisel::core::loc(L"Cleanup was cancelled.")});
+                ResultBar().Message(hstring{});
+                ResultBar().Severity(Controls::InfoBarSeverity::Informational);
+                ResultBar().IsOpen(true);
             } else {
                 show_write_error(op->scan_result.error().detail);
-                Status().Text(winchisel::ui::tr(L"Scan failed"));
             }
         } else {
             scan_ = std::move(*op->scan_result);
@@ -250,7 +251,6 @@ void CleanupPage::poll() {
             Summary().Text(
                 hstring{std::wstring(format_bytes(total).c_str()) + L" " +
                         std::wstring(winchisel::ui::tr(L"Reclaimable:").c_str())});
-            Status().Text(winchisel::ui::tr(L"Ready"));
         }
     } else {
         Activity().Text(hstring{});
@@ -402,7 +402,6 @@ winrt::fire_and_forget CleanupPage::confirm_and_clean() {
         op->job = Job::cleaning;
         for (auto const& pick : selected) op->selection.push_back(pick.category);
         op_ = op;
-        Status().Text(hstring{});
         Activity().Text(winchisel::ui::tr(L"Cleaning..."));
         update_chrome();
         std::thread([op] {
