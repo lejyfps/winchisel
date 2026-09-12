@@ -375,7 +375,31 @@ PerformancePage::PerformancePage() {
         expander.HorizontalAlignment(HorizontalAlignment::Stretch);
         expander.HorizontalContentAlignment(HorizontalAlignment::Stretch);
         expander.IsExpanded(group.id == "gaming");
-        if (group.id == "gaming") {
+        expander.Tag(box_value(group_index));
+        {
+            auto weak = get_weak();
+            expander.Expanding([weak, expander](auto const&, auto const&) {
+                if (auto self = weak.get()) self->ensure_group(expander);
+            });
+            expander.Collapsed([weak, expander](auto const&, auto const&) {
+                if (auto self = weak.get()) self->detach_group(expander);
+            });
+        }
+        Groups().Children().Append(expander);
+        ++group_index;
+    }
+    for (auto const& child : Groups().Children()) {
+        auto expander = child.try_as<Controls::Expander>();
+        if (expander && expander.IsExpanded()) ensure_group(expander);
+    }
+    process_changes();
+}
+
+void PerformancePage::fill_group(Controls::Expander const& expander) {
+    const auto group_index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+    if (group_index < 0 || expander.Content()) return;
+    const bool show_new = show_new_badges();
+    if (group_index == 0) {
             auto content = Controls::StackPanel();
             content.Spacing(8);
             content.HorizontalAlignment(HorizontalAlignment::Stretch);
@@ -538,27 +562,52 @@ PerformancePage::PerformancePage() {
             }
             expander.Content(content);
         }
-        // #1 Virtualization-light: tag the group, attach on expand, detach on
-        // collapse. Collapsed content stays alive in detached_content_ so
-        // state/profile logic keeps working; layout only pays expanded groups.
-        expander.Tag(box_value(group_index));
-        {
-            auto weak = get_weak();
-            expander.Expanding([weak, expander](auto const&, auto const&) {
-                if (auto self = weak.get()) self->attach_group(expander);
-            });
-            expander.Collapsed([weak, expander](auto const&, auto const&) {
-                if (auto self = weak.get()) self->detach_group(expander);
-            });
-        }
-        if (!expander.IsExpanded() && expander.Content()) {
-            detached_content_[group_index] = expander.Content();
-            expander.Content(nullptr);
-        }
-        Groups().Children().Append(expander);
-        ++group_index;
+}
+
+void PerformancePage::ensure_group(Controls::Expander const& expander) {
+    if (!expander) return;
+    if (expander.Content()) return;
+    attach_group(expander);
+    if (expander.Content()) return;
+    fill_group(expander);
+    if (registry_state_.empty()) return;
+    const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+    if (index == 0) {
+        load_gaming_toggles();
+        load_gaming_selections();
+    } else {
+        load_catalog_toggles();
+        load_catalog_selections();
     }
-    process_changes();
+}
+
+void PerformancePage::ensure_all_groups() {
+    for (auto const& child : Groups().Children()) {
+        if (auto expander = child.try_as<Controls::Expander>()) ensure_group(expander);
+    }
+}
+
+bool PerformancePage::group_matches_query(int index, std::string const& query) const {
+    if (query.empty() || index < 0 || static_cast<std::size_t>(index) >= winchisel::core::k_performance_groups.size()) return true;
+    auto hay = std::string(winchisel::core::k_performance_groups[static_cast<std::size_t>(index)].title);
+    std::ranges::transform(hay, hay.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (hay.find(query) != std::string::npos) return true;
+    if (index == 0) {
+        for (auto const& tweak : gaming_toggles_) {
+            auto text = to_string(tweak.title) + " " + to_string(tweak.description);
+            std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (text.find(query) != std::string::npos) return true;
+        }
+        if (std::string("mouse hover time").find(query) != std::string::npos) return true;
+        if (std::string("let apps run in background").find(query) != std::string::npos) return true;
+    }
+    for (auto const& item : winchisel::core::get_performance_catalog()) {
+        if (item.group != index) continue;
+        auto text = std::string(item.name) + " " + std::string(item.description) + " " + std::string(item.id);
+        std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (text.find(query) != std::string::npos) return true;
+    }
+    return false;
 }
 
 void PerformancePage::attach_group(Controls::Expander const& expander) {
@@ -582,6 +631,7 @@ void PerformancePage::detach_group(Controls::Expander const& expander) {
 void PerformancePage::load_catalog_toggles() {
     loading_gaming_toggles_ = true;
     for (auto& item : catalog_toggles_) {
+        if (!item.control) continue;
         if (winchisel::platform::is_special_performance_toggle(item.id)) {
             if (auto state = cached_special(item.id)) item.control.IsOn(*state);
             if (auto available = cached_available(item.id)) item.control.IsEnabled(*available);
@@ -676,6 +726,7 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
 void PerformancePage::load_catalog_selections() {
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
+        if (!item.control) continue;
         if(item.id=="gaming-dns-server"){auto profile=dns_state_;item.control.SelectedIndex(profile&&*profile<static_cast<int>(item.options.size())?*profile:-1);if(item.rec_badge){const auto selected=item.control.SelectedIndex();update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);}continue;}
         if(item.id=="updates-policy-mode"){auto policy=update_policy_state_;int selected=4;if(policy&&*policy>=0&&*policy<static_cast<int>(item.options.size()))selected=*policy;item.control.SelectedIndex(selected);if(item.rec_badge)update_state_badges(item.rec_badge,item.def_badge,selected==item.profile_rec,selected==item.profile_def);continue;}
         if(item.id=="updates-delivery-optimization"){
@@ -747,6 +798,7 @@ void PerformancePage::save_catalog_selection(std::size_t index) {
 void PerformancePage::load_gaming_toggles() {
     loading_gaming_toggles_ = true;
     for (auto& tweak : gaming_toggles_) {
+        if (!tweak.control) continue;
         bool has_match = false;
         bool all_match = true;
         for (std::size_t index = 0; index < tweak.targets.size(); ++index) {
@@ -779,8 +831,10 @@ void PerformancePage::save_gaming_toggle(std::size_t index) {
 }
 
 void PerformancePage::apply_gaming_profile(bool recommended) {
+    ensure_all_groups();
     loading_gaming_toggles_ = true;
     for (auto& tweak : gaming_toggles_) {
+        if (!tweak.control) continue;
         tweak.control.IsOn(recommended ? tweak.recommended : tweak.windows_default);
     }
     loading_gaming_toggles_ = false;
@@ -796,7 +850,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
         return performance_profile_for(id, selection, recommended);
     };
     loading_gaming_toggles_ = true;
-    for (auto& item : catalog_toggles_) if (auto value = profile_for(item.id, false)) item.control.IsOn(*value != 0);
+    for (auto& item : catalog_toggles_) if (item.control) if (auto value = profile_for(item.id, false)) item.control.IsOn(*value != 0);
     loading_gaming_toggles_ = false;
     std::vector<std::pair<Target,Value>> registry;
     std::vector<std::pair<std::string,bool>> tasks;
@@ -814,7 +868,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     registry.emplace_back(target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword), bg_value);
     registry.emplace_back(target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword), bg_value);
     for (auto& item : catalog_toggles_) {
-        if (!profile_for(item.id, false)) continue;
+        if (!item.control || !profile_for(item.id, false)) continue;
         const bool enabled = item.control.IsOn();
         if (winchisel::platform::is_special_performance_toggle(item.id)) {
             if (auto available = cached_available(item.id); available && !*available) continue;
@@ -836,12 +890,14 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
     }
     loading_gaming_selections_ = true;
     for (auto& item : catalog_selections_) {
+        if (!item.control) continue;
         if (auto value = profile_for(item.id, true); value && *value >= 0 && *value < static_cast<std::int32_t>(item.options.size())) item.control.SelectedIndex(*value);
     }
     loading_gaming_selections_ = false;
     std::optional<int> dns;
     std::optional<int> update_policy;
     for (auto const& item : catalog_selections_) {
+        if (!item.control) continue;
         auto selected = item.control.SelectedIndex();
         if (selected < 0 || !profile_for(item.id, true)) continue;
         if (item.id == "gaming-dns-server") { if (selected != 7) dns = selected; continue; }
@@ -884,6 +940,7 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
 }
 
 void PerformancePage::load_gaming_selections() {
+    if (!mouse_hover_time_ || !background_apps_) { loading_gaming_selections_ = false; return; }
     loading_gaming_selections_ = true;
     const auto hover = cached_value(
         target(Hive::current_user, "Control Panel\\Mouse", "MouseHoverTime", Type::string));
@@ -949,16 +1006,21 @@ void PerformancePage::Search_TextChanged(Windows::Foundation::IInspectable const
     for (auto const& child : Groups().Children()) {
         auto expander = child.try_as<Controls::Expander>();
         if (!expander) continue;
-        // #1: search must see detached groups — attach on demand while filtering.
-        if (!query.empty() && !expander.Content()) attach_group(expander);
-        auto header = to_string(unbox_value<hstring>(expander.Header()));
+        const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+        const bool any_group = query.empty() || group_matches_query(index, query);
+        if (!any_group) {
+            expander.Visibility(Visibility::Collapsed);
+            continue;
+        }
+        if (!query.empty()) ensure_group(expander);
+        auto header = to_string(unbox_value_or<hstring>(expander.Header(), L""));
         std::ranges::transform(header, header.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         const bool category_match = !query.empty() && header.find(query) != std::string::npos;
         bool any = query.empty() || category_match;
-        if (auto content = expander.Content().try_as<Controls::StackPanel>()) {
+        if (auto content = expander.Content().try_as<Controls::Panel>()) {
             for (auto const& row : content.Children()) {
                 auto element = row.try_as<FrameworkElement>();
-                auto text = element && element.Tag() ? to_string(unbox_value<hstring>(element.Tag())) : std::string{};
+                auto text = element && element.Tag() ? to_string(unbox_value_or<hstring>(element.Tag(), L"")) : std::string{};
                 std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                 const bool match = query.empty() || category_match || text.find(query) != std::string::npos;
                 if (element) element.Visibility(match ? Visibility::Visible : Visibility::Collapsed);
@@ -967,6 +1029,7 @@ void PerformancePage::Search_TextChanged(Windows::Foundation::IInspectable const
         }
         expander.Visibility(any ? Visibility::Visible : Visibility::Collapsed);
         if (!query.empty() && any) expander.IsExpanded(true);
+        else if (query.empty() && index != 0) { expander.IsExpanded(false); detach_group(expander); }
     }
 }
 
@@ -1034,12 +1097,18 @@ winrt::fire_and_forget PerformancePage::process_changes() {
         for(auto const& item:gaming_toggles_)targets.insert(targets.end(),item.targets.begin(),item.targets.end());
         for(auto const& rule:winchisel::core::get_performance_registry_rules())
             targets.push_back(target(rule.root==0?Hive::current_user:Hive::local_machine,rule.path.data(),rule.name.data(),rule.kind==0?Type::dword:rule.kind==1?Type::string:Type::binary));
-        for(auto const& item:catalog_selections_)if(auto service=winchisel::core::service_name_for_id(item.id);!service.empty())
-            targets.push_back(target(Hive::local_machine,("SYSTEM\\CurrentControlSet\\Services\\"+std::string(service)).c_str(),"Start",Type::dword));
+        for (auto const& item : winchisel::core::get_performance_catalog()) {
+            if (auto service = winchisel::core::service_name_for_id(item.id); !service.empty())
+                targets.push_back(target(Hive::local_machine, ("SYSTEM\\CurrentControlSet\\Services\\" + std::string(service)).c_str(), "Start", Type::dword));
+        }
         std::vector<std::string> task_ids;
-        for(auto const& item:catalog_toggles_)if(!winchisel::platform::is_special_performance_toggle(item.id)&&!std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}))task_ids.push_back(item.id);
         std::vector<std::string> special_ids;
-        for(auto const& item:catalog_toggles_)if(winchisel::platform::is_special_performance_toggle(item.id))special_ids.push_back(item.id);
+        for (auto const& item : winchisel::core::get_performance_catalog()) {
+            if (item.input != 0) continue;
+            if (winchisel::platform::is_special_performance_toggle(item.id)) special_ids.emplace_back(item.id);
+            else if (!std::ranges::any_of(winchisel::core::get_performance_registry_rules(), [&](auto const& rule) { return rule.id == item.id; }))
+                task_ids.emplace_back(item.id);
+        }
         co_await winrt::resume_background();
         std::map<RegistryKey,winchisel::core::Result<Value>> registry;
         for(auto const& destination:targets) {

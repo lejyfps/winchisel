@@ -383,24 +383,97 @@ void PrivacyPage::Search_TextChanged(Windows::Foundation::IInspectable const&, C
 void PrivacyPage::render_groups() {
     Groups().Children().Clear();
     privacy_toggles_.clear();
+    detached_content_.clear();
     std::int32_t group_index{};
     for (const auto& group : winchisel::core::k_privacy_security_groups) {
-        const auto description = description_for(group.id);
         auto expander = Controls::Expander();
         expander.Header(box_value(winchisel::ui::tr(to_hstring(group.title))));
-        expander.Tag(box_value(to_hstring(std::string(group.title) + " " + description)));
+        expander.Tag(box_value(group_index));
         expander.HorizontalAlignment(HorizontalAlignment::Stretch);
         expander.HorizontalContentAlignment(HorizontalAlignment::Stretch);
         expander.IsExpanded(group.id == "security");
-        if (group.id == "security") {
-            expander.Content(security_content());
-        } else {
-            expander.Content(privacy_content(group_index));
+        {
+            auto weak = get_weak();
+            expander.Expanding([weak, expander](auto const&, auto const&) {
+                if (auto self = weak.get()) self->ensure_group(expander);
+            });
+            expander.Collapsed([weak, expander](auto const&, auto const&) {
+                if (auto self = weak.get()) self->detach_group(expander);
+            });
         }
         Groups().Children().Append(expander);
         ++group_index;
     }
+    for (auto const& child : Groups().Children()) {
+        auto expander = child.try_as<Controls::Expander>();
+        if (expander && expander.IsExpanded()) ensure_group(expander);
+    }
     apply_filter();
+}
+
+void PrivacyPage::fill_group(Controls::Expander const& expander) {
+    const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+    if (index < 0 || expander.Content()) return;
+    expander.Content(index == 0 ? security_content() : privacy_content(index));
+}
+
+void PrivacyPage::ensure_group(Controls::Expander const& expander) {
+    if (!expander) return;
+    if (expander.Content()) return;
+    attach_group(expander);
+    if (expander.Content()) return;
+    fill_group(expander);
+    if (snapshot_ready_) apply_snapshot(read_snapshot());
+}
+
+void PrivacyPage::ensure_all_groups() {
+    bool filled{};
+    for (auto const& child : Groups().Children()) {
+        auto expander = child.try_as<Controls::Expander>();
+        if (!expander || expander.Content()) continue;
+        attach_group(expander);
+        if (expander.Content()) continue;
+        fill_group(expander);
+        filled = true;
+    }
+    if (filled && snapshot_ready_) apply_snapshot(read_snapshot());
+}
+
+void PrivacyPage::attach_group(Controls::Expander const& expander) {
+    if (!expander || expander.Content()) return;
+    const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+    if (index < 0) return;
+    if (auto found = detached_content_.find(index); found != detached_content_.end()) {
+        expander.Content(found->second);
+        detached_content_.erase(found);
+    }
+}
+
+void PrivacyPage::detach_group(Controls::Expander const& expander) {
+    if (!expander || !expander.Content()) return;
+    const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+    if (index < 0) return;
+    detached_content_[index] = expander.Content();
+    expander.Content(nullptr);
+}
+
+bool PrivacyPage::group_matches_query(int index, std::string const& query) const {
+    if (query.empty() || index < 0 || static_cast<std::size_t>(index) >= winchisel::core::k_privacy_security_groups.size()) return true;
+    auto const& group = winchisel::core::k_privacy_security_groups[static_cast<std::size_t>(index)];
+    auto hay = lower(std::string(group.title) + " " + description_for(group.id));
+    if (hay.find(query) != std::string::npos) return true;
+    if (index == 0) {
+        for (auto const& tweak : security_toggles_) {
+            auto text = lower(to_string(tweak.title) + " " + to_string(tweak.description));
+            if (text.find(query) != std::string::npos) return true;
+        }
+    }
+    for (auto const& item : winchisel::core::get_privacy_catalog()) {
+        if (item.group != index) continue;
+        auto text = lower(std::string(item.name) + " " + std::string(item.description) + " " + std::string(item.id));
+        if (text.find(query) != std::string::npos) return true;
+    }
+    return false;
 }
 
 void PrivacyPage::apply_filter() {
@@ -417,10 +490,20 @@ void PrivacyPage::apply_filter() {
     for (auto const& child : Groups().Children()) {
         auto expander = child.try_as<Controls::Expander>();
         if (!expander) continue;
-        const auto header_text = lower(to_string(unbox_value_or<hstring>(expander.Tag(), L"")));
+        const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+        if (!query.empty() && !group_matches_query(index, query)) {
+            expander.Visibility(Visibility::Collapsed);
+            continue;
+        }
+        if (!query.empty()) ensure_group(expander);
+        std::string header_text;
+        if (index >= 0 && static_cast<std::size_t>(index) < winchisel::core::k_privacy_security_groups.size()) {
+            auto const& group = winchisel::core::k_privacy_security_groups[static_cast<std::size_t>(index)];
+            header_text = lower(std::string(group.title) + " " + description_for(group.id));
+        }
         const bool header_match = query.empty() || header_text.find(query) != std::string::npos;
         std::size_t visible{};
-        if (auto panel = expander.Content().try_as<Controls::StackPanel>()) {
+        if (auto panel = expander.Content().try_as<Controls::Panel>()) {
             for (auto const& card : panel.Children()) {
                 auto element = card.try_as<FrameworkElement>();
                 const bool show = query.empty() || header_match ||
@@ -431,7 +514,8 @@ void PrivacyPage::apply_filter() {
         }
         const bool show_group = query.empty() || header_match || visible > 0;
         expander.Visibility(show_group ? Visibility::Visible : Visibility::Collapsed);
-        if (show_group) visible_total += visible;
+        if (query.empty() && index != 0) { expander.IsExpanded(false); detach_group(expander); }
+        if (show_group) visible_total += std::max<std::size_t>(visible, 1);
     }
     if (visible_total == 0) {
         auto empty = Controls::InfoBar();
@@ -637,18 +721,20 @@ PrivacyPage::PrivacySnapshot PrivacyPage::read_snapshot() const {
 void PrivacyPage::apply_snapshot(PrivacySnapshot const& snapshot) {
     loading_security_ = true;
     for (std::size_t index{}; index < privacy_toggles_.size() && index < snapshot.privacy.size(); ++index) {
+        if (!privacy_toggles_[index].control) continue;
         privacy_toggles_[index].control.IsOn(snapshot.privacy[index]);
         const bool on = snapshot.privacy[index];
         update_state_badges(privacy_toggles_[index].rec_badge, privacy_toggles_[index].def_badge, !on, on);
     }
     for (std::size_t index{}; index < security_toggles_.size() && index < snapshot.security.size(); ++index) {
+        if (!security_toggles_[index].control) continue;
         security_toggles_[index].control.IsOn(snapshot.security[index]);
         const bool on = snapshot.security[index];
         update_state_badges(security_toggles_[index].rec_badge, security_toggles_[index].def_badge, !on, on);
     }
     loading_security_ = false;
     loading_uac_ = true;
-    uac_level_.SelectedIndex(snapshot.uac);
+    if (uac_level_) uac_level_.SelectedIndex(snapshot.uac);
     update_state_badges(uac_rec_, uac_def_, snapshot.uac == 4, snapshot.uac == 2);
     if (smart_app_control_) smart_app_control_.SelectedIndex(snapshot.smart_app_control);
     update_state_badges(sac_rec_, sac_def_, snapshot.smart_app_control == 0, snapshot.smart_app_control == 2);
@@ -688,6 +774,7 @@ winrt::fire_and_forget PrivacyPage::process_changes() {
             auto snapshot = read_snapshot();
             co_await ui;
             apply_snapshot(snapshot);
+            snapshot_ready_ = true;
             work_running_ = false;
             if (pending_.empty() || !failure.empty()) break;
             work_running_ = true;
@@ -865,6 +952,7 @@ winrt::fire_and_forget PrivacyPage::preview_profile(bool recommended) {
     try { error_queue = DispatcherQueue(); } catch (...) {}
     try {
         auto error_lifetime = get_strong();
+        ensure_all_groups();
         auto plan = build_profile_plan(recommended);
         if (!plan.valid) {
             show_write_error("A privacy catalog entry is invalid and was not applied.");

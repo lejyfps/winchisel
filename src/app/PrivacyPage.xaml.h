@@ -7,6 +7,7 @@
 
 #include <deque>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,13 @@ private:
 
     void render_groups();
     void apply_filter();
+    void fill_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    void ensure_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    void ensure_all_groups();
+    void attach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    void detach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    bool group_matches_query(int index, std::string const& query) const;
+    std::map<int, winrt::Windows::Foundation::IInspectable> detached_content_;
     winrt::Microsoft::UI::Xaml::Controls::StackPanel security_content();
     void save_security_toggle(std::size_t index);
     void save_uac_level();
@@ -85,6 +93,7 @@ private:
     void apply_snapshot(PrivacySnapshot const&);
     std::deque<std::function<winchisel::core::Result<void>()>> pending_;
     bool work_running_{};
+    bool snapshot_ready_{};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox uac_level_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox smart_app_control_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox powershell_policy_{nullptr};

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <string>
 #include <tuple>
 
 namespace winrt::Winchisel::implementation {
@@ -105,6 +106,10 @@ private:
     // groups. Controls stay in catalog_toggles_/catalog_selections_, so
     // load_/profile/search keep working regardless of attach state.
     std::map<int, winrt::Windows::Foundation::IInspectable> detached_content_;
+    void fill_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    void ensure_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    void ensure_all_groups();
+    bool group_matches_query(int index, std::string const& query) const;
     void attach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
     void detach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
     void show_bulk_profile_tip(winrt::Windows::Foundation::IInspectable const& sender);

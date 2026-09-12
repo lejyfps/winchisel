@@ -120,28 +120,53 @@ void DownloadsPage::render_items() {
  Groups().Children().Clear(); category_lists_.clear(); detached_content_.clear(); category_base_.assign(16, hstring{});
  search_index_.clear(); search_index_.reserve(catalog_.size());
  for(auto const& item:catalog_){auto category_name=winchisel::core::download_category_name(item.category);search_index_.push_back(lower(std::string(item.name)+" "+std::string(category_name)+" "+std::string(item.winget_ids)));}
- auto resources=Application::Current().Resources(); auto success=resources.Lookup(box_value(L"SystemFillColorSuccessBrush")).try_as<Media::Brush>(); auto secondary=resources.Lookup(box_value(L"TextFillColorSecondaryBrush")).try_as<Media::Brush>(); auto critical=resources.Lookup(box_value(L"SystemFillColorCriticalBrush")).try_as<Media::Brush>(); auto card_background=resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>(); auto card_stroke=resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>(); auto body_strong=resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>(); auto caption=resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>();
- for(int category_index=0;category_index<16;++category_index){auto category=static_cast<winchisel::core::DownloadCategory>(category_index);auto list=Controls::ListView();list.SelectionMode(Controls::ListViewSelectionMode::Multiple);list.HorizontalContentAlignment(HorizontalAlignment::Stretch);list.SelectionChanged({this,&DownloadsPage::Items_SelectionChanged});
-  for(std::size_t index{};index<catalog_.size();++index){auto const& item=catalog_[index];if(item.category!=category)continue;
-   auto row=Controls::ListViewItem();row.Tag(box_value(static_cast<std::uint64_t>(index)));Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,winrt::hstring{std::wstring(to_hstring(std::string(item.name)))+std::wstring(installed_[index]?winchisel::ui::tr(L", installed"):winchisel::ui::tr(L", not installed"))});row.HorizontalContentAlignment(HorizontalAlignment::Stretch);row.Background(card_background);row.BorderBrush(card_stroke);row.BorderThickness({1,1,1,1});row.CornerRadius({4,4,4,4});row.Padding({12,10,12,10});row.Margin({0,0,0,8});
-   auto grid=Controls::Grid();grid.ColumnDefinitions().Append(Controls::ColumnDefinition());auto trailing=Controls::ColumnDefinition();trailing.Width({0,GridUnitType::Auto});grid.ColumnDefinitions().Append(trailing);auto text=Controls::StackPanel();auto title=Controls::TextBlock();title.Text(to_hstring(item.name));title.Style(body_strong);text.Children().Append(title);auto detail=Controls::TextBlock();detail.Text(item.winget_ids.empty()?winchisel::ui::tr(L"Website install"):to_hstring(item.winget_ids));detail.Foreground(secondary);detail.TextWrapping(TextWrapping::Wrap);detail.Style(caption);text.Children().Append(detail);grid.Children().Append(text);
-   auto actions=Controls::StackPanel();actions.Orientation(Controls::Orientation::Horizontal);actions.Spacing(12);auto badge=make_status_badge(tint_brush(installed_[index]?success:critical,0x2E),installed_[index]?success:critical,installed_[index]?L"\uE73E":L"\uE896",installed_[index]?winchisel::ui::tr(L"Installed"):winchisel::ui::tr(L"Not installed"));actions.Children().Append(badge);auto website=Controls::Button();website.VerticalAlignment(VerticalAlignment::Center);website.Padding({8,4,8,4});auto website_icon=Controls::FontIcon();website_icon.Glyph(hstring{L"\uE774"});website_icon.FontSize(14);website_icon.VerticalAlignment(VerticalAlignment::Center);website.Content(website_icon);auto website_tip=winchisel::ui::tr(L"Website");Controls::ToolTipService::SetToolTip(website,box_value(website_tip));Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(website,website_tip);website.Tag(box_value(to_hstring(item.website_url)));website.Click({this,&DownloadsPage::Website_Click});actions.Children().Append(website);actions.VerticalAlignment(VerticalAlignment::Center);Controls::Grid::SetColumn(actions,1);grid.Children().Append(actions);row.Content(grid);list.Items().Append(row);
-  }
-   if(list.Items().Size()){auto base=winrt::hstring{winchisel::ui::tr(winrt::to_hstring(winchisel::core::download_category_name(category)))};category_base_[static_cast<std::size_t>(category_index)]=base;auto expander=Controls::Expander();expander.Tag(box_value(category_index));expander.HorizontalAlignment(HorizontalAlignment::Stretch);expander.HorizontalContentAlignment(HorizontalAlignment::Stretch);expander.IsExpanded(category_index==0);expander.Content(list);category_lists_.push_back(list);
-    // #1 Virtualization-light: nur expandierte Kategorie im Visual-Tree.
-    auto weak=get_weak();
-    expander.Expanding([weak, expander](auto const&, auto const&) { if(auto self=weak.get()) self->attach_group(expander); });
-    expander.Collapsed([weak, expander](auto const&, auto const&) { if(auto self=weak.get()) self->detach_group(expander); });
-    if(!expander.IsExpanded()){ detached_content_[category_index]=list; expander.Content(nullptr); }
-    Groups().Children().Append(expander);}
+ for(int category_index=0;category_index<16;++category_index){
+  auto category=static_cast<winchisel::core::DownloadCategory>(category_index);
+  bool any=false; for(auto const& item:catalog_) if(item.category==category){any=true;break;}
+  if(!any)continue;
+  auto base=winrt::hstring{winchisel::ui::tr(winrt::to_hstring(winchisel::core::download_category_name(category)))};
+  category_base_[static_cast<std::size_t>(category_index)]=base;
+  auto expander=Controls::Expander();expander.Tag(box_value(category_index));expander.HorizontalAlignment(HorizontalAlignment::Stretch);expander.HorizontalContentAlignment(HorizontalAlignment::Stretch);expander.IsExpanded(category_index==0);
+  auto weak=get_weak();
+  expander.Expanding([weak, expander](auto const&, auto const&) { if(auto self=weak.get()) self->attach_group(expander); });
+  expander.Collapsed([weak, expander](auto const&, auto const&) { if(auto self=weak.get()) self->detach_group(expander); });
+  Groups().Children().Append(expander);
  }
  apply_filter();
+}
+void DownloadsPage::fill_category(Controls::Expander const& expander) {
+ const auto category_index=unbox_value_or<int>(expander.Tag(),-1);
+ if(category_index<0||expander.Content())return;
+ auto category=static_cast<winchisel::core::DownloadCategory>(category_index);
+ auto resources=Application::Current().Resources(); auto success=resources.Lookup(box_value(L"SystemFillColorSuccessBrush")).try_as<Media::Brush>(); auto secondary=resources.Lookup(box_value(L"TextFillColorSecondaryBrush")).try_as<Media::Brush>(); auto critical=resources.Lookup(box_value(L"SystemFillColorCriticalBrush")).try_as<Media::Brush>(); auto card_background=resources.Lookup(box_value(L"CardBackgroundFillColorDefaultBrush")).try_as<Media::Brush>(); auto card_stroke=resources.Lookup(box_value(L"CardStrokeColorDefaultBrush")).try_as<Media::Brush>(); auto body_strong=resources.Lookup(box_value(L"BodyStrongTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>(); auto caption=resources.Lookup(box_value(L"CaptionTextBlockStyle")).try_as<Microsoft::UI::Xaml::Style>();
+ auto list=Controls::ListView();list.SelectionMode(Controls::ListViewSelectionMode::Multiple);list.HorizontalContentAlignment(HorizontalAlignment::Stretch);list.SelectionChanged({this,&DownloadsPage::Items_SelectionChanged});
+ for(std::size_t index{};index<catalog_.size();++index){auto const& item=catalog_[index];if(item.category!=category)continue;
+  auto row=Controls::ListViewItem();row.Tag(box_value(static_cast<std::uint64_t>(index)));Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row,winrt::hstring{std::wstring(to_hstring(std::string(item.name)))+std::wstring(index<installed_.size()&&installed_[index]?winchisel::ui::tr(L", installed"):winchisel::ui::tr(L", not installed"))});row.HorizontalContentAlignment(HorizontalAlignment::Stretch);row.Background(card_background);row.BorderBrush(card_stroke);row.BorderThickness({1,1,1,1});row.CornerRadius({4,4,4,4});row.Padding({12,10,12,10});row.Margin({0,0,0,8});
+  auto grid=Controls::Grid();grid.ColumnDefinitions().Append(Controls::ColumnDefinition());auto trailing=Controls::ColumnDefinition();trailing.Width({0,GridUnitType::Auto});grid.ColumnDefinitions().Append(trailing);auto text=Controls::StackPanel();auto title=Controls::TextBlock();title.Text(to_hstring(item.name));title.Style(body_strong);text.Children().Append(title);auto detail=Controls::TextBlock();detail.Text(item.winget_ids.empty()?winchisel::ui::tr(L"Website install"):to_hstring(item.winget_ids));detail.Foreground(secondary);detail.TextWrapping(TextWrapping::Wrap);detail.Style(caption);text.Children().Append(detail);grid.Children().Append(text);
+  auto actions=Controls::StackPanel();actions.Orientation(Controls::Orientation::Horizontal);actions.Spacing(12);auto installed=index<installed_.size()&&installed_[index];auto badge=make_status_badge(tint_brush(installed?success:critical,0x2E),installed?success:critical,installed?L"\uE73E":L"\uE896",installed?winchisel::ui::tr(L"Installed"):winchisel::ui::tr(L"Not installed"));actions.Children().Append(badge);auto website=Controls::Button();website.VerticalAlignment(VerticalAlignment::Center);website.Padding({8,4,8,4});auto website_icon=Controls::FontIcon();website_icon.Glyph(hstring{L"\uE774"});website_icon.FontSize(14);website_icon.VerticalAlignment(VerticalAlignment::Center);website.Content(website_icon);auto website_tip=winchisel::ui::tr(L"Website");Controls::ToolTipService::SetToolTip(website,box_value(website_tip));Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(website,website_tip);website.Tag(box_value(to_hstring(item.website_url)));website.Click({this,&DownloadsPage::Website_Click});actions.Children().Append(website);actions.VerticalAlignment(VerticalAlignment::Center);Controls::Grid::SetColumn(actions,1);grid.Children().Append(actions);row.Content(grid);list.Items().Append(row);
+ }
+ category_lists_.push_back(list);
+ expander.Content(list);
 }
 void DownloadsPage::attach_group(Controls::Expander const& expander) {
  if(!expander || expander.Content())return;
  const auto index=unbox_value_or<int>(expander.Tag(),-1);
  if(index<0)return;
- if(auto found=detached_content_.find(index);found!=detached_content_.end()){expander.Content(found->second);detached_content_.erase(found);}
+ if(auto found=detached_content_.find(index);found!=detached_content_.end()){expander.Content(found->second);detached_content_.erase(found);return;}
+ fill_category(expander);
+}
+std::size_t DownloadsPage::count_category(int category_index, std::string const& query, int filter) const {
+ std::size_t count{};
+ auto category=static_cast<winchisel::core::DownloadCategory>(category_index);
+ for(std::size_t index{};index<catalog_.size();++index){
+  if(catalog_[index].category!=category)continue;
+  if(index>=search_index_.size())continue;
+  if(!query.empty()&&search_index_[index].find(query)==std::string::npos)continue;
+  if(filter==1&&(index>=installed_.size()||!installed_[index]))continue;
+  if(filter==2&&index<installed_.size()&&installed_[index])continue;
+  ++count;
+ }
+ return count;
 }
 void DownloadsPage::detach_group(Controls::Expander const& expander) {
  if(!expander || !expander.Content())return;
@@ -161,18 +186,20 @@ Controls::ListView DownloadsPage::list_for(Controls::Expander const& expander) {
 void DownloadsPage::apply_filter(bool scroll_top) {
  auto query=lower(to_string(Search().Text())); auto filter=Filter().SelectedIndex(); std::size_t visible{}; bool first_visible=true;
  Controls::ListView first_list{nullptr}; Windows::Foundation::IInspectable first_row{nullptr};
- for(auto const& child:Groups().Children()){auto expander=child.try_as<Controls::Expander>();if(!expander)continue;auto list=list_for(expander);if(!list)continue;std::size_t count{};
-  std::vector<Windows::Foundation::IInspectable> deselect;
-  for(auto const& value:list.Items()){auto row=value.try_as<Controls::ListViewItem>();if(!row)continue;const auto index=unbox_value<std::uint64_t>(row.Tag());bool show=index<catalog_.size()&&index<search_index_.size();if(show){if(!query.empty()&&search_index_[static_cast<std::size_t>(index)].find(query)==std::string::npos)show=false;if(show&&filter==1&&!installed_[static_cast<std::size_t>(index)])show=false;if(show&&filter==2&&installed_[static_cast<std::size_t>(index)])show=false;}
-   row.Visibility(show?Visibility::Visible:Visibility::Collapsed);if(show){++count;if(!first_row){first_list=list;first_row=value;}}else if(row.IsSelected())deselect.push_back(value);}
-  for(auto const& value:deselect){std::uint32_t position{};if(list.SelectedItems().IndexOf(value,position))list.SelectedItems().RemoveAt(position);}
-   auto index=unbox_value_or<int>(expander.Tag(),-1);
-   auto base=(index>=0 && static_cast<std::size_t>(index)<category_base_.size())?category_base_[static_cast<std::size_t>(index)]:hstring{};
-   auto header_panel=Controls::StackPanel();header_panel.Orientation(Controls::Orientation::Horizontal);header_panel.Spacing(8);header_panel.VerticalAlignment(VerticalAlignment::Center);auto header_text=Controls::TextBlock();header_text.Text(base);header_text.VerticalAlignment(VerticalAlignment::Center);header_panel.Children().Append(header_text);auto count_badge=Controls::InfoBadge();count_badge.Value(static_cast<int>(count));count_badge.VerticalAlignment(VerticalAlignment::Center);Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(count_badge,winrt::hstring{std::to_wstring(count)+L" items"});header_panel.Children().Append(count_badge);expander.Header(header_panel);Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(expander,winrt::hstring{std::wstring(base)+L", "+std::to_wstring(count)+L" items"});
+ for(auto const& child:Groups().Children()){auto expander=child.try_as<Controls::Expander>();if(!expander)continue;
+  auto index=unbox_value_or<int>(expander.Tag(),-1);
+  std::size_t count=count_category(index,query,filter);
+  auto base=(index>=0 && static_cast<std::size_t>(index)<category_base_.size())?category_base_[static_cast<std::size_t>(index)]:hstring{};
+  auto header_panel=Controls::StackPanel();header_panel.Orientation(Controls::Orientation::Horizontal);header_panel.Spacing(8);header_panel.VerticalAlignment(VerticalAlignment::Center);auto header_text=Controls::TextBlock();header_text.Text(base);header_text.VerticalAlignment(VerticalAlignment::Center);header_panel.Children().Append(header_text);auto count_badge=Controls::InfoBadge();count_badge.Value(static_cast<int>(count));count_badge.VerticalAlignment(VerticalAlignment::Center);Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(count_badge,winrt::hstring{std::to_wstring(count)+L" items"});header_panel.Children().Append(count_badge);expander.Header(header_panel);Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(expander,winrt::hstring{std::wstring(base)+L", "+std::to_wstring(count)+L" items"});
   expander.Visibility(count?Visibility::Visible:Visibility::Collapsed);
-  // #1: nur expandierte Kategorie anhängen, Rest detached (zählt trotzdem).
   if(count && (!query.empty()||first_visible)){attach_group(expander);expander.IsExpanded(true);}
   else{expander.IsExpanded(false);detach_group(expander);}
+  if(auto list=list_for(expander)){
+   std::vector<Windows::Foundation::IInspectable> deselect;
+   for(auto const& value:list.Items()){auto row=value.try_as<Controls::ListViewItem>();if(!row)continue;const auto row_index=unbox_value<std::uint64_t>(row.Tag());bool show=row_index<catalog_.size()&&row_index<search_index_.size();if(show){if(!query.empty()&&search_index_[static_cast<std::size_t>(row_index)].find(query)==std::string::npos)show=false;if(show&&filter==1&&!installed_[static_cast<std::size_t>(row_index)])show=false;if(show&&filter==2&&installed_[static_cast<std::size_t>(row_index)])show=false;}
+    row.Visibility(show?Visibility::Visible:Visibility::Collapsed);if(show&&!first_row){first_list=list;first_row=value;}else if(!show&&row.IsSelected())deselect.push_back(value);}
+   for(auto const& value:deselect){std::uint32_t position{};if(list.SelectedItems().IndexOf(value,position))list.SelectedItems().RemoveAt(position);}
+  }
   first_visible=first_visible&&!count;
   visible+=count;
  }

@@ -34,7 +34,7 @@ private:
     // LRU order of cached pages (most recent at the back). Bounds the number
     // of fully materialized page trees kept alive while navigating.
     std::list<std::wstring> page_lru_;
-    static constexpr std::size_t k_max_cached_pages = 4;
+    static constexpr std::size_t k_max_cached_pages = 2;
     void touch_page(std::wstring const& key);
     void localize_nav();
     void update_title(std::optional<std::string> available = std::nullopt);

@@ -5,6 +5,7 @@
 #include "winchisel/platform/download.hpp"
 #include <future>
 #include <map>
+#include <string>
 #include <vector>
 namespace winrt::Winchisel::implementation {
 struct DownloadsPage : DownloadsPageT<DownloadsPage> {
@@ -26,9 +27,11 @@ private:
   // (visual tree zahlt nur expandierte). Filter zählen auch detached.
   std::map<int, Windows::Foundation::IInspectable> detached_content_;
   std::vector<winrt::hstring> category_base_;
+  void fill_category(Microsoft::UI::Xaml::Controls::Expander const& expander);
   void attach_group(Microsoft::UI::Xaml::Controls::Expander const& expander);
   void detach_group(Microsoft::UI::Xaml::Controls::Expander const& expander);
   Microsoft::UI::Xaml::Controls::ListView list_for(Microsoft::UI::Xaml::Controls::Expander const& expander);
+  std::size_t count_category(int category_index, std::string const& query, int filter) const;
   std::future<winchisel::core::Result<std::vector<bool>>> scan_worker_;
   std::future<winchisel::core::Result<winchisel::platform::DownloadInstallResult>> install_worker_;
   std::future<winchisel::core::Result<winchisel::platform::DownloadInstallResult>> uninstall_worker_;
