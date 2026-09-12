@@ -69,6 +69,19 @@ Controls::Border make_status_badge(Media::Brush const& tint, Media::Brush const&
     return badge;
 }
 
+// Swipe-Aktion für eine Row: Text, Symbol, Hintergrund + Invoke-Callback.
+Controls::SwipeItem swipe_item(hstring const& text, Controls::Symbol symbol,
+                               Media::Brush const& background, std::function<void()> on_invoke) {
+    Controls::SwipeItem item;
+    item.Text(text);
+    Controls::SymbolIconSource icon;
+    icon.Symbol(symbol);
+    item.IconSource(icon);
+    item.Background(background);
+    item.Invoked([on_invoke = std::move(on_invoke)](auto const&, auto const&) { on_invoke(); });
+    return item;
+}
+
 }  // namespace
 
 DebloaterPage::DebloaterPage() {
@@ -186,6 +199,8 @@ void DebloaterPage::poll_worker() {
 
 void DebloaterPage::render_items() {
     Items().Items().Clear();
+    all_rows_.clear();
+    all_rows_.reserve(catalog_.size());
     search_index_.clear();
     search_index_.reserve(catalog_.size());
     for (auto const& item : catalog_) {
@@ -227,8 +242,40 @@ void DebloaterPage::render_items() {
             installed_[index] ? L"\uE73E" : L"\uE896",
             installed_[index] ? winchisel::ui::tr(L"Installed") : winchisel::ui::tr(L"Not installed"));
         Controls::Grid::SetColumn(badge, 1); grid.Children().Append(badge);
-        row.Content(grid);
-        Items().Items().Append(row);
+        // #2 SwipeControl: links Install/Update, rechts Remove — nutzt den
+        // bestehenden Confirm-Flow (Row wird zur Einzel-Selektion).
+        auto swipe = Controls::SwipeControl();
+        swipe.HorizontalAlignment(HorizontalAlignment::Stretch);
+        swipe.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+        swipe.Content(grid);
+        auto swipe_weak = get_weak();
+        auto isolate_and_confirm = [swipe_weak, row](bool install) {
+            if (auto self = swipe_weak.get()) {
+                std::uint32_t position{};
+                if (!self->Items().Items().IndexOf(row, position)) return;
+                self->Items().SelectedItems().Clear();
+                self->Items().SelectedItems().Append(row);
+                self->confirm_action(install);
+            }
+        };
+        if (item.can_reinstall) {
+            auto left = Controls::SwipeItems();
+            left.Mode(Controls::SwipeMode::Reveal);
+            const bool is_installed = installed_[index];
+            left.Append(swipe_item(is_installed ? winchisel::ui::tr(L"Update") : winchisel::ui::tr(L"Install"),
+                Controls::Symbol::Download, tint_brush(success, 0xFF),
+                [isolate_and_confirm] { isolate_and_confirm(true); }));
+            swipe.LeftItems(left);
+        }
+        if (installed_[index]) {
+            auto right = Controls::SwipeItems();
+            right.Mode(Controls::SwipeMode::Reveal);
+            right.Append(swipe_item(winchisel::ui::tr(L"Remove"), Controls::Symbol::Delete,
+                tint_brush(critical, 0xFF), [isolate_and_confirm] { isolate_and_confirm(false); }));
+            swipe.RightItems(right);
+        }
+        row.Content(swipe);
+        all_rows_.push_back(row);
     }
     apply_filter();
 }
@@ -243,35 +290,40 @@ bool DebloaterPage::matches_filter(std::size_t index, std::string const& query, 
     return true;
 }
 
-void DebloaterPage::apply_filter() {
+void DebloaterPage::apply_filter(bool scroll_top) {
     const auto query = lower(to_string(Search().Text()));
     std::uint32_t tab{};
     if (Tabs().SelectedItem()) {
         Tabs().Items().IndexOf(Tabs().SelectedItem(), tab);
     }
     const auto filter = Filter().SelectedIndex();
-    visible_indices_.clear();
-    std::vector<Windows::Foundation::IInspectable> deselect;
-    for (auto const& value : Items().Items()) {
-        auto row = value.try_as<Controls::ListViewItem>();
-        if (!row) continue;
-        const auto raw = unbox_value<std::uint64_t>(row.Tag());
-        const bool show = raw < catalog_.size() && raw < search_index_.size() && matches_filter(static_cast<std::size_t>(raw), query, tab, filter);
-        row.Visibility(show ? Visibility::Visible : Visibility::Collapsed);
-        if (show) {
-            visible_indices_.push_back(static_cast<std::size_t>(raw));
-        } else if (row.IsSelected()) {
-            deselect.push_back(value);
-        }
+    // #1: Selektion über den Rebuild retten (nur noch sichtbare Items).
+    std::vector<std::uint64_t> selected;
+    for (auto const& value : Items().SelectedItems()) {
+        if (auto row = value.try_as<Controls::ListViewItem>()) selected.push_back(unbox_value<std::uint64_t>(row.Tag()));
     }
-    for (auto const& value : deselect) {
-        std::uint32_t position{};
-        if (Items().SelectedItems().IndexOf(value, position)) Items().SelectedItems().RemoveAt(position);
+    Items().Items().Clear();
+    visible_indices_.clear();
+    for (auto const& row : all_rows_) {
+        const auto raw = unbox_value<std::uint64_t>(row.Tag());
+        if (raw >= catalog_.size() || raw >= search_index_.size()) continue;
+        if (!matches_filter(static_cast<std::size_t>(raw), query, tab, filter)) continue;
+        Items().Items().Append(row);
+        visible_indices_.push_back(static_cast<std::size_t>(raw));
+    }
+    for (auto const& value : Items().Items()) {
+        if (auto row = value.try_as<Controls::ListViewItem>()) {
+            const auto raw = unbox_value<std::uint64_t>(row.Tag());
+            if (std::ranges::find(selected, raw) != selected.end()) Items().SelectedItems().Append(value);
+        }
     }
     if (visible_indices_.empty()) {
         Notice().Title(winchisel::ui::tr(L"No matching items")); Notice().Message(winchisel::ui::tr(L"Change the search, category, or installed-state filter.")); Notice().Severity(Controls::InfoBarSeverity::Informational); Notice().IsOpen(true);
     }
     update_actions();
+    // #1: gezielter Sprung statt Full-Rerender-Flackern — nur bei explizitem
+    // Tab-/Filterwechsel, nicht beim Tippen in der Suche.
+    if (scroll_top && Items().Items().Size() > 0) Items().ScrollIntoView(Items().Items().GetAt(0));
 }
 
 DebloaterPage::ApplySelection DebloaterPage::selected_split() {
@@ -400,12 +452,12 @@ void DebloaterPage::start_action(bool install) {
     }
 }
 
-void DebloaterPage::Tabs_SelectionChanged(IInspectable const&, Controls::SelectorBarSelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) apply_filter(); }
+    void DebloaterPage::Tabs_SelectionChanged(IInspectable const&, Controls::SelectorBarSelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) apply_filter(true); }
 void DebloaterPage::Refresh_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) start_scan(); }
 void DebloaterPage::Install_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(true); }
 void DebloaterPage::Remove_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(false); }
 void DebloaterPage::Search_TextChanged(IInspectable const&, Controls::AutoSuggestBoxTextChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) { search_timer_.Stop(); search_timer_.Start(); } }
-void DebloaterPage::Filter_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) apply_filter(); }
+void DebloaterPage::Filter_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) apply_filter(true); }
 void DebloaterPage::Items_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) { if (ui_ready_) update_actions(); }
 
 }  // namespace winrt::Winchisel::implementation

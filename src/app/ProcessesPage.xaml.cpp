@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "AsyncSupport.hpp"
 #include "ProcessesPage.xaml.h"
+#include "winchisel/application/session.hpp"
 #include "winchisel/platform/process.hpp"
 #include "winchisel/core/affinity.hpp"
 #include <TlHelp32.h>
@@ -115,7 +116,7 @@ void ProcessesPage::render_processes(){
     }
     if(selected_grid)ProcessList().SelectedItem(selected_grid);else selected_pid_=0;restoring_selection_=false;
     wchar_t total[32]{};swprintf_s(total,L"%.1f%%",total_cpu);StatusText().Text(L"Visible: "+std::to_wstring(visible.size())+L"   Processes: "+std::to_wstring(rows_.size())+L"   Total CPU: "+total+L"   •   Right-click a process for actions");
-    if(scroll&&vertical_offset>0){DispatcherQueue().TryEnqueue([scroll,vertical_offset]{scroll.ChangeView(nullptr,vertical_offset,nullptr,true);});}
+    if(scroll&&vertical_offset>0){DispatcherQueue().TryEnqueue([scroll,vertical_offset]{const bool smooth=winchisel::application::Session::instance().settings().smooth_scrolling;scroll.ChangeView(nullptr,vertical_offset,nullptr,!smooth);});}
 }
 
 bool ProcessesPage::set_priority(std::uint32_t pid,DWORD value){HANDLE process=OpenProcess(PROCESS_SET_INFORMATION|PROCESS_QUERY_LIMITED_INFORMATION,false,pid);if(!process)return false;bool ok=SetPriorityClass(process,value)!=FALSE;CloseHandle(process);if(ok){if(open_overlays_)refresh_pending_=true;else load_processes();}else StatusText().Text(L"Could not change process priority.");return ok;}

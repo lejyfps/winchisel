@@ -2,7 +2,10 @@
 #include "AsyncSupport.hpp"
 #include "LatencyPage.xaml.h"
 #include "AsyncLifetime.hpp"
+#include "winchisel/application/session.hpp"
+#include "winchisel/platform/cleanup.hpp"
 #include "winchisel/platform/latency.hpp"
+#include "TeachingTips.hpp"
 #include "winchisel/platform/usb_cadence_capture.hpp"
 #include "winchisel/platform/usb_identity.hpp"
 
@@ -547,6 +550,19 @@ void LatencyPage::Cadence_Click(Windows::Foundation::IInspectable const&, Routed
             render_message(to_hstring("USB ETW providers unavailable (" + detail + "). No measurement possible."), true);
             return;
         }
+        // #3 TeachingTip (einmalig, nur ohne Elevation): Live-Traffic braucht
+        // Admin — sonst ggf. unvollständig/ungültig.
+        if (!winchisel::platform::cleanup_process_elevated() && !winchisel::ui::teaching_tip_seen("cadence_admin")) {
+            winchisel::ui::dismiss_teaching_tip("cadence_admin");
+            Controls::TeachingTip tip;
+            tip.Title(L"Administrator rights recommended");
+            tip.Subtitle(L"Live USB traffic needs elevation — without it the measurement may be incomplete or invalid. Capturing changes nothing on your system.");
+            tip.Target(CadenceButton());
+            tip.PreferredPlacement(Controls::TeachingTipPlacementMode::Bottom);
+            tip.IsLightDismissEnabled(true);
+            tip.XamlRoot(XamlRoot());
+            tip.IsOpen(true);
+        }
         progress_ = 0;
         Progress().Value(progress_);
         ProgressPercent().Text(L"0%");
@@ -556,8 +572,7 @@ void LatencyPage::Cadence_Click(Windows::Foundation::IInspectable const&, Routed
         CadenceButton().IsEnabled(false);
         CadenceButton().Content(box_value(winchisel::ui::tr(L"Measuring...")));
         CadenceCancelButton().Visibility(Visibility::Visible);
-        ExportButton().Visibility(Visibility::Collapsed);
-        ExportCsvButton().Visibility(Visibility::Collapsed);
+        ExportMenu().Visibility(Visibility::Collapsed);
         CadenceDevices().Visibility(Visibility::Collapsed);
         export_ready_ = false;
         cancel_flag_.store(false);
@@ -705,8 +720,7 @@ void LatencyPage::render_selected() {
     last_export_json_ = std::move(exported.json);
     last_export_csv_ = std::move(exported.csv);
     export_ready_ = true;
-    ExportButton().Visibility(Visibility::Visible);
-    ExportCsvButton().Visibility(Visibility::Visible);
+    ExportMenu().Visibility(Visibility::Visible);
     render_report(exported.report);
 }
 

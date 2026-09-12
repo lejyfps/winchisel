@@ -99,6 +99,14 @@ private:
     winrt::Microsoft::UI::Xaml::Controls::Border mouse_hover_def_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::Border background_rec_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::Border background_def_{nullptr};
+
+    // #1 Virtualization-light: content of collapsed groups is detached from
+    // the visual tree (kept alive here) so layout only pays for expanded
+    // groups. Controls stay in catalog_toggles_/catalog_selections_, so
+    // load_/profile/search keep working regardless of attach state.
+    std::map<int, winrt::Windows::Foundation::IInspectable> detached_content_;
+    void attach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    void detach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
 };
 
 }  // namespace winrt::Winchisel::implementation

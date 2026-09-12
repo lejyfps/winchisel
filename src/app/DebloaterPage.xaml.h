@@ -38,7 +38,7 @@ private:
     ApplySelection selected_split();
     void start_scan(bool clear_notice = true);
     void render_items();
-    void apply_filter();
+    void apply_filter(bool scroll_top = false);
     bool matches_filter(std::size_t index, std::string const& query, std::uint32_t tab, int filter) const;
     void poll_worker();
     void update_actions();
@@ -49,6 +49,9 @@ private:
     std::vector<bool> installed_;
     std::vector<std::size_t> visible_indices_;
     std::vector<std::string> search_index_;
+    // #1: alle Rows leben hier; Items() enthält nur gefilterte (kein
+    // Visibility=Collapsed — virtualisierte ListView zahlt nur Sichtbare).
+    std::vector<winrt::Microsoft::UI::Xaml::Controls::ListViewItem> all_rows_;
     std::future<winchisel::core::Result<std::vector<bool>>> scan_worker_;
     std::future<winchisel::core::Result<winchisel::platform::DebloatActionResult>> action_worker_;
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};

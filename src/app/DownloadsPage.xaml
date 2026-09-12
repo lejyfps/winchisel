@@ -7,6 +7,6 @@
     <Button x:Name="RefreshButton" Grid.Column="2" Content="Refresh" Click="Refresh_Click"/><Button x:Name="InstallButton" Grid.Column="3" Content="Install" Style="{StaticResource AccentButtonStyle}" Click="Install_Click" IsEnabled="False"/><Button x:Name="UninstallButton" Grid.Column="4" Content="Uninstall" Style="{StaticResource DangerButtonStyle}" Click="Uninstall_Click" IsEnabled="False"/>
   </Grid>
   <StackPanel Grid.Row="1" Spacing="8"><ProgressBar x:Name="Loading" IsIndeterminate="True" Visibility="Collapsed" AutomationProperties.Name="Download operation progress"/><InfoBar x:Name="Notice" IsOpen="False" IsClosable="True" AutomationProperties.LiveSetting="Assertive"/></StackPanel>
-  <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="Groups" Spacing="8"/></ScrollViewer>
+  <RefreshContainer Grid.Row="2" x:Name="PullRefresh" AutomationProperties.Name="Pull to refresh apps list"><ScrollViewer HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="Groups" Spacing="8"/></ScrollViewer></RefreshContainer>
  </Grid>
 </UserControl>

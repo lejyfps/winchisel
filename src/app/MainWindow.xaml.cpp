@@ -29,10 +29,13 @@
 #include "winchisel/platform/update.hpp"
 
 #include <microsoft.ui.xaml.window.h>
+#include <winrt/Microsoft.UI.Composition.SystemBackdrops.h>
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Interop.h>
+#include <winrt/Microsoft.UI.Xaml.Hosting.h>
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 
@@ -141,7 +144,7 @@ Controls::ScrollViewer find_first_scroll_viewer(DependencyObject const& root) {
 
 MainWindow::MainWindow() {
     InitializeComponent();
-    SystemBackdrop(Media::MicaBackdrop());
+    apply_backdrop();
     ExtendsContentIntoTitleBar(true);
     SetTitleBar(AppTitleBar());
     apply_theme();
@@ -190,12 +193,14 @@ MainWindow::MainWindow() {
         }
         winchisel::ui::language_reload() = {};
         winchisel::ui::theme_reload() = {};
+        winchisel::ui::backdrop_reload() = {};
         winchisel::ui::update_check() = {};
         winchisel::ui::open_history() = {};
         winchisel::ui::toast_handler() = {};
     });
     winchisel::ui::language_reload() = [this] { reload_language(); };
     winchisel::ui::theme_reload() = [this] { apply_theme(); };
+    winchisel::ui::backdrop_reload() = [this] { apply_backdrop(); };
     winchisel::ui::update_check() = [this] { CheckForUpdates(true); };
     winchisel::ui::open_history() = [weak = get_weak()] { if (auto self = weak.get()) self->show_history(); };
     winchisel::ui::toast_handler() = [this](auto severity, auto title, auto message) {
@@ -210,6 +215,14 @@ MainWindow::MainWindow() {
     toast_timer_.Interval(std::chrono::seconds(3));
     toast_timer_.IsRepeating(false);
     toast_timer_.Tick([weak = get_weak()](auto&&, auto&&) { if (auto self = weak.get()) self->ToastBar().IsOpen(false); });
+    // #5 Visual: Toast per ThemeShadow leicht anheben (sonst flach im Mica).
+    // Rein additiv — kein Layout-/Verhaltensrisiko.
+    {
+        Media::ThemeShadow shadow;
+        shadow.Receivers().Append(RootLayout());
+        ToastBar().Shadow(shadow);
+        ToastBar().Translation({0.f, 0.f, 32.f});
+    }
     // Background update poller (Zed-style): silent check every 5 minutes,
     // title bar only, never a dialog. Toggleable in Settings.
     update_poll_timer_ = DispatcherQueue().CreateTimer();
@@ -234,7 +247,7 @@ MainWindow::MainWindow() {
         }
     }
     if (ContentFrame().Content() == nullptr) {
-        auto home = make_page(L"home"); pages_.emplace(L"home", home); touch_page(L"home"); ContentFrame().Content(home);
+        auto home = make_page(L"home"); pages_.emplace(L"home", home); touch_page(L"home"); ContentFrame().Content(home); fade_page_in();
     }
     notify_if_updated();
 }
@@ -941,6 +954,21 @@ void MainWindow::apply_theme() {
     apply_titlebar_theme();
 }
 
+void MainWindow::apply_backdrop() {
+    const auto backdrop = winchisel::application::Session::instance().settings().backdrop;
+    if (backdrop == winchisel::core::Backdrop::acrylic) {
+        SystemBackdrop(Media::DesktopAcrylicBackdrop());
+    } else if (backdrop == winchisel::core::Backdrop::mica_alt) {
+        Media::MicaBackdrop mica;
+        mica.Kind(Microsoft::UI::Composition::SystemBackdrops::MicaKind::BaseAlt);
+        SystemBackdrop(mica);
+    } else if (backdrop == winchisel::core::Backdrop::solid) {
+        SystemBackdrop(nullptr);
+    } else {
+        SystemBackdrop(Media::MicaBackdrop());
+    }
+}
+
 void MainWindow::apply_titlebar_theme() {
     const bool dark = RootLayout().ActualTheme() == ElementTheme::Dark;
     auto titlebar = app_window_from(*this).TitleBar();
@@ -953,6 +981,20 @@ void MainWindow::apply_titlebar_theme() {
     titlebar.ButtonForegroundColor(dark ? Windows::UI::Colors::White() : Windows::UI::Colors::Black());
     titlebar.InactiveForegroundColor(Windows::UI::Colors::Gray());
     titlebar.ButtonInactiveForegroundColor(Windows::UI::Colors::Gray());
+}
+
+void MainWindow::fade_page_in() {
+    if (!winchisel::application::Session::instance().settings().smooth_scrolling) return;
+    auto content = ContentFrame().Content().try_as<UIElement>();
+    if (!content) return;
+    auto visual = Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::GetElementVisual(content);
+    if (!visual) return;
+    auto fade = visual.Compositor().CreateScalarKeyFrameAnimation();
+    fade.InsertKeyFrame(0.f, 0.f);
+    fade.InsertKeyFrame(1.f, 1.f);
+    fade.Duration(std::chrono::milliseconds(150));
+    visual.Opacity(0.f);
+    visual.StartAnimation(L"Opacity", fade);
 }
 
 void MainWindow::Nav_SelectionChanged(
@@ -974,8 +1016,8 @@ void MainWindow::Nav_SelectionChanged(
     current_nav_tag_ = tag;
     winchisel::application::Session::instance().set_screen(screen_from_tag(tag));
     const std::wstring key(tag.c_str());
-    if (const auto existing = pages_.find(key); existing != pages_.end()) { touch_page(key); ContentFrame().Content(existing->second); return; }
-    if (auto page = make_page(tag)) { pages_.emplace(key, page); touch_page(key); ContentFrame().Content(page); }
+    if (const auto existing = pages_.find(key); existing != pages_.end()) { touch_page(key); ContentFrame().Content(existing->second); fade_page_in(); return; }
+    if (auto page = make_page(tag)) { pages_.emplace(key, page); touch_page(key); ContentFrame().Content(page); fade_page_in(); }
 }
 
 void MainWindow::select_nav_item(winrt::hstring const& tag) {
@@ -1128,7 +1170,10 @@ void MainWindow::reload_language() {
         if (saved_offset > 0.5) {
             page.Loaded([offset = saved_offset](auto const& sender, auto&&) {
                 if (auto viewer = find_first_scroll_viewer(sender.try_as<DependencyObject>())) {
-                    viewer.ChangeView(nullptr, offset, nullptr);
+                    // Programmatic restore after rebuild — animated only when
+                    // Smooth Scrolling is on (Opt-out für ältere Hardware).
+                    const bool smooth = winchisel::application::Session::instance().settings().smooth_scrolling;
+                    viewer.ChangeView(nullptr, offset, nullptr, !smooth);
                 }
             });
         }

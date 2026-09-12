@@ -89,6 +89,119 @@
                         </Grid>
                     </Border>
 
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Window backdrop" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Mica, acrylic, or a solid background behind the app."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ComboBox x:Name="Backdrop"
+                                      Grid.Column="1"
+                                      MinWidth="160"
+                                      VerticalAlignment="Center"
+                                      SelectionChanged="Backdrop_SelectionChanged">
+                                <ComboBoxItem Content="Mica" />
+                                <ComboBoxItem Content="Mica Alt" />
+                                <ComboBoxItem Content="Acrylic" />
+                                <ComboBoxItem Content="Solid" />
+                            </ComboBox>
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Risk Badges" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Show Safe, Moderate, and Risky badges next to tweaks."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="RiskBadges"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="Settings_Toggled" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="State Badges" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Show Recommended and Default state badges next to Performance tweaks."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="StateBadges"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="Settings_Toggled" />
+                        </Grid>
+                    </Border>
+
+                    <Border Padding="16,12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Smooth Scrolling" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="Animate programmatic scrolling. Turn off on older hardware if the app feels laggy."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="SmoothScrolling"
+                                          Grid.Column="1"
+                                          OnContent=""
+                                          OffContent=""
+                                          MinWidth="0"
+                                          Width="40"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Toggled="Settings_Toggled" />
+                        </Grid>
+                    </Border>
+
                     <TextBlock Text="General" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,16,0,0" />
                     <TextBlock Text="These settings are saved automatically."
                                Style="{StaticResource CaptionTextBlockStyle}" />
@@ -222,62 +335,6 @@
                                            Style="{StaticResource CaptionTextBlockStyle}" />
                             </StackPanel>
                             <ToggleSwitch x:Name="Autostart"
-                                          Grid.Column="1"
-                                          OnContent=""
-                                          OffContent=""
-                                          MinWidth="0"
-                                          Width="40"
-                                          HorizontalAlignment="Right"
-                                          VerticalAlignment="Center"
-                                          Toggled="Settings_Toggled" />
-                        </Grid>
-                    </Border>
-
-                    <Border Padding="16,12"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            CornerRadius="4">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Risk Badges" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <TextBlock Text="Show Safe, Moderate, and Risky badges next to tweaks."
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource CaptionTextBlockStyle}" />
-                            </StackPanel>
-                            <ToggleSwitch x:Name="RiskBadges"
-                                          Grid.Column="1"
-                                          OnContent=""
-                                          OffContent=""
-                                          MinWidth="0"
-                                          Width="40"
-                                          HorizontalAlignment="Right"
-                                          VerticalAlignment="Center"
-                                          Toggled="Settings_Toggled" />
-                        </Grid>
-                    </Border>
-
-                    <Border Padding="16,12"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            CornerRadius="4">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="State Badges" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <TextBlock Text="Show Recommended and Default state badges next to Performance tweaks."
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource CaptionTextBlockStyle}" />
-                            </StackPanel>
-                            <ToggleSwitch x:Name="StateBadges"
                                           Grid.Column="1"
                                           OnContent=""
                                           OffContent=""

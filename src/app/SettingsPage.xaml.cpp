@@ -28,6 +28,7 @@ SettingsPage::SettingsPage() {
     const auto& settings = winchisel::application::Session::instance().settings();
     Language().SelectedIndex(static_cast<int>(settings.language));
     Theme().SelectedIndex(static_cast<int>(settings.theme));
+    Backdrop().SelectedIndex(static_cast<int>(settings.backdrop));
     CheckUpdates().IsOn(settings.check_updates_on_startup);
     NightlyUpdates().IsOn(settings.nightly_updates);
     PollForUpdates().IsOn(settings.poll_for_updates);
@@ -35,6 +36,7 @@ SettingsPage::SettingsPage() {
     Autostart().IsOn(settings.autostart_enabled);
     RiskBadges().IsOn(settings.show_risk_badges);
     StateBadges().IsOn(settings.show_state_badges);
+    SmoothScrolling().IsOn(settings.smooth_scrolling);
     loading_ = false;
 
     save_timer_ = DispatcherTimer();
@@ -64,6 +66,10 @@ void SettingsPage::Theme_SelectionChanged(IInspectable const&, Controls::Selecti
     queue_save();
 }
 
+void SettingsPage::Backdrop_SelectionChanged(IInspectable const&, Controls::SelectionChangedEventArgs const&) {
+    queue_save();
+}
+
 void SettingsPage::Settings_Toggled(IInspectable const&, RoutedEventArgs const&) {
     queue_save();
 }
@@ -85,6 +91,7 @@ void SettingsPage::save_settings() {
     auto settings = winchisel::application::Session::instance().settings();
     settings.language = static_cast<winchisel::core::Language>(std::max(Language().SelectedIndex(), 0));
     settings.theme = static_cast<winchisel::core::Theme>(std::max(Theme().SelectedIndex(), 0));
+    settings.backdrop = static_cast<winchisel::core::Backdrop>(std::max(Backdrop().SelectedIndex(), 0));
     settings.check_updates_on_startup = CheckUpdates().IsOn();
     settings.nightly_updates = NightlyUpdates().IsOn();
     settings.poll_for_updates = PollForUpdates().IsOn();
@@ -92,8 +99,10 @@ void SettingsPage::save_settings() {
     settings.autostart_enabled = Autostart().IsOn();
     settings.show_risk_badges = RiskBadges().IsOn();
     settings.show_state_badges = StateBadges().IsOn();
+    settings.smooth_scrolling = SmoothScrolling().IsOn();
     const auto previous_language = winchisel::core::ui_language();
     const auto previous_theme = winchisel::application::Session::instance().settings().theme;
+    const auto previous_backdrop = winchisel::application::Session::instance().settings().backdrop;
     const auto previous_nightly = winchisel::application::Session::instance().settings().nightly_updates;
     const auto previous_risk_badges = winchisel::application::Session::instance().settings().show_risk_badges;
     const auto previous_state_badges = winchisel::application::Session::instance().settings().show_state_badges;
@@ -102,6 +111,7 @@ void SettingsPage::save_settings() {
         const auto& current = winchisel::application::Session::instance().settings();
         Language().SelectedIndex(static_cast<int>(current.language));
         Theme().SelectedIndex(static_cast<int>(current.theme));
+        Backdrop().SelectedIndex(static_cast<int>(current.backdrop));
         CheckUpdates().IsOn(current.check_updates_on_startup);
         NightlyUpdates().IsOn(current.nightly_updates);
         PollForUpdates().IsOn(current.poll_for_updates);
@@ -109,12 +119,17 @@ void SettingsPage::save_settings() {
         Autostart().IsOn(current.autostart_enabled);
         RiskBadges().IsOn(current.show_risk_badges);
         StateBadges().IsOn(current.show_state_badges);
+        SmoothScrolling().IsOn(current.smooth_scrolling);
         loading_ = false;
         show_result(false, hstring{winchisel::core::loc(L"Settings could not be saved")} + L": " + to_hstring(result.error().detail));
         return;
     }
     if (previous_theme != settings.theme && winchisel::ui::theme_reload()) {
         winchisel::ui::theme_reload()();
+    }
+    // Backdrop applies live on the window — no page rebuild needed.
+    if (previous_backdrop != settings.backdrop && winchisel::ui::backdrop_reload()) {
+        winchisel::ui::backdrop_reload()();
     }
     // Language plus risk/state badges live on cached pages: rebuild them like
     // a language switch. One rebuild covers all three so two toggles within
@@ -210,7 +225,11 @@ void SettingsPage::flush_log() {
         joined += log_lines_[index];
     }
     dialog_log_.Text(to_hstring(joined));
-    if (dialog_scroll_) dialog_scroll_.ChangeView(nullptr, dialog_scroll_.ScrollableHeight(), nullptr);
+    // Log tailing — hart springen wenn Smooth Scrolling aus ist.
+    if (dialog_scroll_) {
+        const bool smooth = winchisel::application::Session::instance().settings().smooth_scrolling;
+        dialog_scroll_.ChangeView(nullptr, dialog_scroll_.ScrollableHeight(), nullptr, !smooth);
+    }
 }
 
 void SettingsPage::finish_dialog(winchisel::core::Result<void> const& result) {

@@ -20,6 +20,13 @@ inline std::function<void()>& theme_reload() {
     return handler;
 }
 
+// Fired by SettingsPage when the window backdrop changes so MainWindow
+// re-applies it live (no rebuild needed).
+inline std::function<void()>& backdrop_reload() {
+    static std::function<void()> handler;
+    return handler;
+}
+
 // Fired by SettingsPage when the user opts into nightly updates so the
 // newest nightly is offered immediately instead of after a restart.
 inline std::function<void()>& update_check() {

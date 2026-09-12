@@ -22,6 +22,9 @@ struct SettingsPage : SettingsPageT<SettingsPage> {
     void Theme_SelectionChanged(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+    void Backdrop_SelectionChanged(
+        winrt::Windows::Foundation::IInspectable const&,
+        winrt::Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
     void Settings_Toggled(
         winrt::Windows::Foundation::IInspectable const&,
         winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);

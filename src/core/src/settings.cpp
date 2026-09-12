@@ -154,7 +154,7 @@ bool parse_root_object(std::string_view json, Settings& settings) {
         text.remove_prefix(1);
         text = trim(text);
         if (text.empty()) return false;
-        if (*key == "show_console" || *key == "check_updates_on_startup" || *key == "nightly_updates" || *key == "poll_for_updates" || *key == "autostart_enabled" || *key == "show_risk_badges" || *key == "show_state_badges") {
+        if (*key == "show_console" || *key == "check_updates_on_startup" || *key == "nightly_updates" || *key == "poll_for_updates" || *key == "autostart_enabled" || *key == "show_risk_badges" || *key == "show_state_badges" || *key == "smooth_scrolling") {
             bool value{};
             if (text.starts_with("true")) { value = true; text.remove_prefix(4); }
             else if (text.starts_with("false")) { value = false; text.remove_prefix(5); }
@@ -165,8 +165,9 @@ bool parse_root_object(std::string_view json, Settings& settings) {
             else if (*key == "poll_for_updates") settings.poll_for_updates = value;
             else if (*key == "show_risk_badges") settings.show_risk_badges = value;
             else if (*key == "show_state_badges") settings.show_state_badges = value;
+            else if (*key == "smooth_scrolling") settings.smooth_scrolling = value;
             else settings.autostart_enabled = value;
-        } else if (*key == "language" || *key == "theme" || *key == "dismissed_update_version") {
+        } else if (*key == "language" || *key == "theme" || *key == "dismissed_update_version" || *key == "tips_seen" || *key == "backdrop") {
             if (text.front() != '"') return false;
             text.remove_prefix(1);
             std::size_t end{}; bool esc{};
@@ -180,6 +181,8 @@ bool parse_root_object(std::string_view json, Settings& settings) {
             if (!value) return false;
             if (*key == "language") settings.language = language_from_string(*value);
             else if (*key == "theme") settings.theme = theme_from_string(*value);
+            else if (*key == "backdrop") settings.backdrop = backdrop_from_string(*value);
+            else if (*key == "tips_seen") settings.tips_seen = std::string(*value);
             else settings.dismissed_update_version = std::string(*value);
             text.remove_prefix(end + 1);
         } else {
@@ -296,6 +299,20 @@ std::string_view theme_to_string(Theme theme) {
     return "System";
 }
 
+Backdrop backdrop_from_string(std::string_view value) {
+    if (value == "Mica Alt" || value == "mica_alt") return Backdrop::mica_alt;
+    if (value == "Acrylic" || value == "acrylic") return Backdrop::acrylic;
+    if (value == "Solid" || value == "solid") return Backdrop::solid;
+    return Backdrop::mica;
+}
+
+std::string_view backdrop_to_string(Backdrop backdrop) {
+    if (backdrop == Backdrop::mica_alt) return "Mica Alt";
+    if (backdrop == Backdrop::acrylic) return "Acrylic";
+    if (backdrop == Backdrop::solid) return "Solid";
+    return "Mica";
+}
+
 Settings parse_settings_json(std::string_view json) {
     Settings s = settings_defaults();
     if (json.size() > k_max_settings_bytes || trim(json).empty() || !JsonValidator(json).valid()) {
@@ -342,9 +359,12 @@ std::string serialize_settings_json(const Settings& settings) {
     out << "  \"show_console\": " << (settings.show_console ? "true" : "false") << ",\n";
     out << "  \"language\": \"" << language_to_string(settings.language) << "\",\n";
     out << "  \"theme\": \"" << theme_to_string(settings.theme) << "\",\n";
+    out << "  \"backdrop\": \"" << backdrop_to_string(settings.backdrop) << "\",\n";
     out << "  \"autostart_enabled\": " << (settings.autostart_enabled ? "true" : "false") << ",\n";
     out << "  \"show_risk_badges\": " << (settings.show_risk_badges ? "true" : "false") << ",\n";
-    out << "  \"show_state_badges\": " << (settings.show_state_badges ? "true" : "false") << "\n";
+    out << "  \"show_state_badges\": " << (settings.show_state_badges ? "true" : "false") << ",\n";
+    out << "  \"smooth_scrolling\": " << (settings.smooth_scrolling ? "true" : "false") << ",\n";
+    out << "  \"tips_seen\": \"" << json_escape(settings.tips_seen) << "\"\n";
     out << "}\n";
     return out.str();
 }

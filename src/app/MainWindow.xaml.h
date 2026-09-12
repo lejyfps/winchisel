@@ -39,6 +39,7 @@ private:
     void localize_nav();
     void update_title(std::optional<std::string> available = std::nullopt);
     void apply_theme();
+    void apply_backdrop();
     void apply_titlebar_theme();
     void update_titlebar_inset();
     winrt::fire_and_forget check_for_updates(UpdateCheckMode mode);
@@ -73,6 +74,8 @@ private:
     winrt::fire_and_forget undo_all_history(winrt::Microsoft::UI::Xaml::Controls::StackPanel const& list);
     void notify_if_updated();
     void poll_for_updates();
+    // De-zentes Page-Einblenden (150 ms Fade), nur wenn Smooth Scrolling an.
+    void fade_page_in();
     // Title-bar update states (Zed-style): the check button, a labeled
     // progress button (disabled while busy, like the final restart button)
     // and the restart button swap dynamically so no separate status card

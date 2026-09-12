@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "AsyncSupport.hpp"
 #include "Localization.hpp"
+#include "TeachingTips.hpp"
 #include "PerformancePage.xaml.h"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/update.hpp"
@@ -262,6 +263,22 @@ hstring toggle_tip(bool recommended_default, bool state) {
     // so the tooltip documents what the button will do.
     const auto prefix = recommended_default ? winchisel::ui::tr(L"Recommended") : winchisel::ui::tr(L"Defaults");
     return hstring{std::wstring(prefix) + L": " + (state ? L"On" : L"Off")};
+}
+
+// #3 TeachingTip (einmalig): Bulk-Profile ändern viele Tweaks auf einmal.
+void show_bulk_profile_tip(Windows::Foundation::IInspectable const& sender) {
+    if (winchisel::ui::teaching_tip_seen("bulk_profile")) return;
+    auto anchor = sender.try_as<FrameworkElement>();
+    if (!anchor) return;
+    winchisel::ui::dismiss_teaching_tip("bulk_profile");
+    Controls::TeachingTip tip;
+    tip.Title(L"Applies the full profile at once");
+    tip.Subtitle(L"Recommended/Defaults change many settings across all groups. Every change is logged in Change history and can be undone — a restore point first is still recommended.");
+    tip.Target(anchor);
+    tip.PreferredPlacement(Controls::TeachingTipPlacementMode::Bottom);
+    tip.IsLightDismissEnabled(true);
+    if (auto root = anchor.XamlRoot()) tip.XamlRoot(root);
+    tip.IsOpen(true);
 }
 
 // State pill showing whether the current value matches Recommended or the
@@ -529,10 +546,45 @@ PerformancePage::PerformancePage() {
             }
             expander.Content(content);
         }
+        // #1 Virtualization-light: tag the group, attach on expand, detach on
+        // collapse. Collapsed content stays alive in detached_content_ so
+        // state/profile logic keeps working; layout only pays expanded groups.
+        expander.Tag(box_value(group_index));
+        {
+            auto weak = get_weak();
+            expander.Expanding([weak, expander](auto const&, auto const&) {
+                if (auto self = weak.get()) self->attach_group(expander);
+            });
+            expander.Collapsed([weak, expander](auto const&, auto const&) {
+                if (auto self = weak.get()) self->detach_group(expander);
+            });
+        }
+        if (!expander.IsExpanded() && expander.Content()) {
+            detached_content_[group_index] = expander.Content();
+            expander.Content(nullptr);
+        }
         Groups().Children().Append(expander);
         ++group_index;
     }
     process_changes();
+}
+
+void PerformancePage::attach_group(Controls::Expander const& expander) {
+    if (!expander || expander.Content()) return;
+    const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+    if (index < 0) return;
+    if (auto found = detached_content_.find(index); found != detached_content_.end()) {
+        expander.Content(found->second);
+        detached_content_.erase(found);
+    }
+}
+
+void PerformancePage::detach_group(Controls::Expander const& expander) {
+    if (!expander || !expander.Content()) return;
+    const auto index = unbox_value_or<std::int32_t>(expander.Tag(), -1);
+    if (index < 0) return;
+    detached_content_[index] = expander.Content();
+    expander.Content(nullptr);
 }
 
 void PerformancePage::load_catalog_toggles() {
@@ -888,11 +940,13 @@ void PerformancePage::save_background_apps() {
     submit([user,machine,value]{return winchisel::platform::write_registry_values_atomic({{user,value},{machine,value}},"performance","Performance: Let Apps Run in Background");});
 }
 
-void PerformancePage::Recommended_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+void PerformancePage::Recommended_Click(Windows::Foundation::IInspectable const& sender, RoutedEventArgs const&) {
+    show_bulk_profile_tip(sender);
     apply_gaming_profile(true);
 }
 
-void PerformancePage::Defaults_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+void PerformancePage::Defaults_Click(Windows::Foundation::IInspectable const& sender, RoutedEventArgs const&) {
+    show_bulk_profile_tip(sender);
     apply_gaming_profile(false);
 }
 
@@ -903,6 +957,8 @@ void PerformancePage::Search_TextChanged(Windows::Foundation::IInspectable const
     for (auto const& child : Groups().Children()) {
         auto expander = child.try_as<Controls::Expander>();
         if (!expander) continue;
+        // #1: search must see detached groups — attach on demand while filtering.
+        if (!query.empty() && !expander.Content()) attach_group(expander);
         auto header = to_string(unbox_value<hstring>(expander.Header()));
         std::ranges::transform(header, header.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         const bool category_match = !query.empty() && header.find(query) != std::string::npos;
