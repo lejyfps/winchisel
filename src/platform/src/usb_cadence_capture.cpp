@@ -203,8 +203,9 @@ struct Collector {
     std::mutex mutex;
     // (device, pipe) -> letzte Completion-QPC
     std::unordered_map<std::pair<unsigned long long, unsigned long long>, long long, PairHash> last;
-    // (device, pipe) -> laufende URB-Starts (urb -> qpc), gegen Leaks begrenzt
-    std::unordered_map<unsigned long long, long long> pending;
+    // (device, urb) -> Start-QPC. URB-Pointer allein reicht nicht: zwei Geräte
+    // können denselben Pointer-Wert recyceln.
+    std::unordered_map<std::pair<unsigned long long, unsigned long long>, long long, PairHash> pending;
     unsigned long long starts_since_sweep = 0;
     std::unordered_map<std::pair<unsigned long long, unsigned long long>, std::vector<double>, PairHash> intervals;
     std::unordered_map<std::pair<unsigned long long, unsigned long long>, unsigned long long, PairHash> completions;
@@ -233,7 +234,8 @@ struct Collector {
             identity.etw_device = device;
             const auto key = std::make_pair(device, pipe);
             if (opcode == 1) {
-                if (pending.size() < 65536) pending[urb] = qpc;
+                const auto urb_key = std::make_pair(device, urb);
+                if (pending.size() < 65536) pending[urb_key] = qpc;
                 // Zeitbasierte Entsorgung (amortisiert): ab 8k ausstehenden URBs
                 // alle Starts älter als 5 s verwerfen (verwaiste Dispatches ohne
                 // Complete, z.B. abgebrochene Transfers). Gedrosselt auf max.
@@ -248,7 +250,7 @@ struct Collector {
                 return;
             }
             // Stop: Completion-Intervall je (Device, Pipe) bilden.
-            pending.erase(urb);
+            pending.erase(std::make_pair(device, urb));
             auto& slot = last[key];
             if (slot != 0 && qpc > slot) {
                 const double us = qpc_delta_us(slot, qpc, frequency);
@@ -482,11 +484,20 @@ winchisel::core::Result<CaptureOutcome> capture_usb_cadence(CaptureConfig const&
     }
 
     std::thread worker([&] { ProcessTrace(&trace, 1, nullptr, nullptr); });
-    const auto start = GetTickCount64();
-    const auto budget = static_cast<ULONGLONG>(seconds) * 1000ULL;
+    LARGE_INTEGER qpc_freq{};
+    LARGE_INTEGER qpc_start{};
+    QueryPerformanceFrequency(&qpc_freq);
+    QueryPerformanceCounter(&qpc_start);
+    if (qpc_freq.QuadPart <= 0) qpc_freq.QuadPart = 10000000;
+    const double budget_us = static_cast<double>(seconds) * 1e6;
+    auto elapsed_us = [&]() -> double {
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        return qpc_delta_us(qpc_start.QuadPart, now.QuadPart, qpc_freq.QuadPart);
+    };
 
     // Grobe CPU-Zeitreihe (fail-open): erste Probe verwerfen (PDH braucht zwei
-    // Samples für % Processor Time), danach ~500-ms-Raster.
+    // Samples für % Processor Time), danach ~500-ms-Raster auf der QPC-Achse.
     PDH_HQUERY pdh_query = nullptr;
     PDH_HCOUNTER pdh_counter = nullptr;
     const bool pdh_ok = PdhOpenQueryW(nullptr, 0, &pdh_query) == ERROR_SUCCESS &&
@@ -494,18 +505,18 @@ winchisel::core::Result<CaptureOutcome> capture_usb_cadence(CaptureConfig const&
                                               &pdh_counter) == ERROR_SUCCESS &&
                         PdhCollectQueryData(pdh_query) == ERROR_SUCCESS;
     std::vector<CpuSample> cpu;
-    ULONGLONG next_cpu = 500;
+    double next_cpu_us = 500000.0;
 
     bool cancelled = false;
     for (;;) {
-        const auto elapsed = GetTickCount64() - start;
-        if (elapsed >= budget) break;
+        const double elapsed = elapsed_us();
+        if (elapsed >= budget_us) break;
         if (config.cancel != nullptr && config.cancel->load()) {
             cancelled = true;
             break;
         }
-        if (pdh_ok && elapsed >= next_cpu) {
-            next_cpu = elapsed + 500;
+        if (pdh_ok && elapsed >= next_cpu_us) {
+            next_cpu_us = elapsed + 500000.0;
             if (PdhCollectQueryData(pdh_query) == ERROR_SUCCESS) {
                 PDH_FMT_COUNTERVALUE value{};
                 if (PdhGetFormattedCounterValue(pdh_counter, PDH_FMT_DOUBLE, nullptr, &value) ==
@@ -514,14 +525,15 @@ winchisel::core::Result<CaptureOutcome> capture_usb_cadence(CaptureConfig const&
                     double busy = value.doubleValue;
                     if (busy < 0.0) busy = 0.0;
                     if (busy > 100.0) busy = 100.0;
-                    cpu.push_back({static_cast<double>(elapsed), busy});
+                    cpu.push_back({elapsed, busy});
                 }
             }
         }
         if (config.progress) {
             char text[96]{};
-            const int pct = static_cast<int>(elapsed * 100 / budget);
-            std::snprintf(text, sizeof(text), "Erfasse USB-Kadenz... %ds", seconds - static_cast<int>(elapsed / 1000));
+            const int pct = budget_us > 0.0 ? static_cast<int>(elapsed * 100.0 / budget_us) : 100;
+            std::snprintf(text, sizeof(text), "Erfasse USB-Kadenz... %ds",
+                          seconds - static_cast<int>(elapsed / 1e6));
             config.progress(pct, text);
         }
         Sleep(200);

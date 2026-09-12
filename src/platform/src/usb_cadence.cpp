@@ -80,7 +80,8 @@ std::optional<double> expected_hz(UsbSpeed speed, int b_interval) {
     return std::nullopt;
 }
 
-CadenceResult analyze_capture(std::vector<double> intervals_us, CadenceConfig const& config, bool events_lost) {    CadenceResult result;
+CadenceResult analyze_capture(std::vector<double> intervals_us, CadenceConfig const& config, bool events_lost) {
+    CadenceResult result;
     // Warm-up verwerfen, dann auf plausible Poll-Intervalle filtern.
     std::vector<double> kept;
     kept.reserve(intervals_us.size());
@@ -102,8 +103,17 @@ CadenceResult analyze_capture(std::vector<double> intervals_us, CadenceConfig co
     result.p999_us = percentile_interpolated(sorted, 99.9);
     result.histogram = histogram_bins(sorted);
 
-    // Adaptive Stall-Schwelle aus der stabilen Verteilung, transparent ausweisen.
-    result.threshold_us = (std::max)(4.0 * result.median_us, 1000.0);
+    // Adaptive Stall-Schwelle aus der stabilen Verteilung (Tukey):
+    // Q3 + 3*IQR, bei IQR=0 Fallback-Spread 0.25*Median, mindestens 2*Median.
+    // Kein fester 1000-µs-Boden (der bei 8 kHz 8 Intervalle verschluckt).
+    {
+        const double q1 = percentile_interpolated(sorted, 25.0);
+        const double q3 = percentile_interpolated(sorted, 75.0);
+        const double iqr = q3 - q1;
+        const double spread = iqr > 0.0 ? iqr : result.median_us * 0.25;
+        const double fence = q3 + 3.0 * spread;
+        result.threshold_us = (std::max)(fence, 2.0 * result.median_us);
+    }
 
     double steady_sum = 0.0;
     for (std::size_t i = 0; i < kept.size(); ++i) {

@@ -51,7 +51,7 @@ struct CadenceResult {
     double p95_us = 0.0;
     double p99_us = 0.0;
     double p999_us = 0.0;
-    double threshold_us = 0.0; // Stall-Schwelle (adaptiv, ausgewiesen)
+    double threshold_us = 0.0; // Tukey-Zaun aus der Verteilung (s. analyze_capture)
     std::size_t kept_samples = 0;
     std::size_t steady_samples = 0;
     std::vector<Stall> stalls;
@@ -105,6 +105,7 @@ inline double qpc_delta_us(long long first, long long last, long long frequency)
 // `events_lost=true` markiert die Messung als UNGÜLTIG (Status events_lost),
 // Statistik wird trotzdem zur Einordnung ausgefüllt. Stalls bleiben getrennt
 // von der Steady-Rate ausgewiesen (ungültig vs. Stalls nie vermischen).
+// Stall-Schwelle: Tukey Q3+3*IQR (bei IQR=0: 0.25*Median), mindestens 2*Median.
 CadenceResult analyze_capture(std::vector<double> intervals_us, CadenceConfig const& config, bool events_lost);
 
 } // namespace winchisel::platform::cadence

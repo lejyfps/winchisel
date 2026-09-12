@@ -264,13 +264,20 @@ CadenceExport build_cadence_report(CadenceSession const& session, int selected,
         const double avg = sum / static_cast<double>(outcome.cpu.size());
         char buffer[192]{};
         std::snprintf(buffer, sizeof(buffer),
-                      "  System load during capture: avg %.0f%%, peak %.0f%% (%zu samples, ~500 ms raster).",
+                      "  System load during capture: avg %.0f%%, peak %.0f%% (%zu samples, ~500 ms QPC raster).",
                       avg, peak, outcome.cpu.size());
         push_line(report, buffer, LatencyColor::muted);
         push_line(report, "  Rough time correlation only - never proof that load caused a stall.",
                   LatencyColor::muted);
         push_line(report, "");
-        json << ",\"cpu_avg\":" << avg << ",\"cpu_peak\":" << peak;
+        json << ",\"cpu_avg\":" << avg << ",\"cpu_peak\":" << peak << ",\"cpu\":[";
+        bool cpu_first = true;
+        for (auto const& sample : outcome.cpu) {
+            if (!cpu_first) json << ",";
+            cpu_first = false;
+            json << "{\"t_us\":" << sample.t_us << ",\"pct\":" << sample.busy_pct << "}";
+        }
+        json << "]";
     }
     json << ",\"devices\":[";
 

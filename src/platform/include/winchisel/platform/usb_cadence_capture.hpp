@@ -65,11 +65,11 @@ struct DeviceCapture {
     bool truncated = false; // Intervall-Cap erreicht (s. kMaxIntervalsPerPipe)
 };
 
-// Grobe Systemlast-Zeitreihe (PDH, ~500 ms Raster). Nur zur zeitlichen
-// Einordnung von Stalls — erklärt einzelne µs/ms-Ausreißer NICHT zuverlässig
-// und ist niemals ein Ursachenbeweis. Fail-open: leer bei PDH-Fehler.
+// Grobe Systemlast-Zeitreihe (PDH, ~500 ms Raster auf der QPC-Achse).
+// Nur zur zeitlichen Einordnung von Stalls — erklärt einzelne µs/ms-Ausreißer
+// NICHT zuverlässig und ist niemals ein Ursachenbeweis. Fail-open: leer bei PDH-Fehler.
 struct CpuSample {
-    double t_ms = 0.0;    // relativ zum Capture-Start
+    double t_us = 0.0;     // QPC, relativ zum Capture-Start
     double busy_pct = 0.0; // 0..100, Prozessor(_Total)
 };
 

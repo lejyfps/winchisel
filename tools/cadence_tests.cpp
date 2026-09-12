@@ -65,6 +65,28 @@ int main() {
         check(r.rate_hz > 7900.0 && r.rate_hz < 8100.0, "8kHz rate ~8000");
         check(r.stalls.size() == 2, "2 stalls erkannt");
         check(r.steady_samples == 5000, "steady=5000");
+        check(r.threshold_us > 200.0 && r.threshold_us < 400.0, "8kHz-schwelle aus verteilung (~2*median)");
+    }
+    // Adaptive Schwelle: 400 us ist bei 8 kHz ein Stall (alter 1000-us-Boden waere blind).
+    {
+        std::vector<double> iv(2000, 125.0);
+        iv.push_back(400.0);
+        CadenceConfig cfg;
+        cfg.warmup_skip = 0;
+        cfg.min_samples = 1000;
+        auto r = analyze_capture(iv, cfg, false);
+        check(r.stalls.size() == 1, "400us bei 8kHz ist stall");
+        check(near(r.stalls[0].interval_us, 400.0, 0.1), "stall-wert 400us");
+    }
+    // Jitter um den Median ist kein Stall.
+    {
+        std::vector<double> iv;
+        for (int i = 0; i < 2000; ++i) iv.push_back(i % 2 == 0 ? 120.0 : 130.0);
+        CadenceConfig cfg;
+        cfg.warmup_skip = 0;
+        auto r = analyze_capture(iv, cfg, false);
+        check(r.stalls.empty(), "enger jitter kein stall");
+        check(r.threshold_us >= 250.0, "schwelle mindestens 2*median");
     }
     // Warm-up-Skip
     {
