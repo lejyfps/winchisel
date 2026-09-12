@@ -265,14 +265,6 @@ hstring toggle_tip(bool recommended_default, bool state) {
     return hstring{std::wstring(prefix) + L": " + (state ? L"On" : L"Off")};
 }
 
-void PerformancePage::show_bulk_profile_tip(Windows::Foundation::IInspectable const& sender) {
-    auto anchor = sender.try_as<FrameworkElement>();
-    if (!anchor) return;
-    winchisel::ui::open_teaching_tip(bulk_tip_, bulk_tip_closed_, anchor, "bulk_profile",
-        L"Applies the full profile at once",
-        L"Recommended/Defaults change many settings across all groups. Every change is logged in Change history and can be undone — a restore point first is still recommended.");
-}
-
 // State pill showing whether the current value matches Recommended or the
 // Windows default (Winhance-style). Starts hidden; load_*() refreshes it.
 Controls::Border state_badge(bool recommended) {
@@ -328,6 +320,14 @@ void update_state_badges(Controls::Border const& rec, Controls::Border const& de
 }
 
 }  // namespace
+
+void PerformancePage::show_bulk_profile_tip(Windows::Foundation::IInspectable const& sender) {
+    auto anchor = sender.try_as<FrameworkElement>();
+    if (!anchor) return;
+    winchisel::ui::open_teaching_tip(bulk_tip_, bulk_tip_closed_, anchor, "bulk_profile",
+        L"Applies the full profile at once",
+        L"Recommended/Defaults change many settings across all groups. Every change is logged in Change history and can be undone — a restore point first is still recommended.");
+}
 
 PerformancePage::PerformancePage() {
     InitializeComponent();
