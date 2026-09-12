@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -24,6 +26,11 @@
 namespace winchisel::platform {
 namespace {
 using StringSet=std::unordered_set<std::string>;
+using Clock=std::chrono::steady_clock;
+struct DebloatScan { StringSet apps, capabilities, features; Clock::time_point at{}; };
+std::mutex scan_mutex;
+DebloatScan scan_cache;
+bool scan_cache_valid{};
 struct CommandResult{DWORD code{};bool timed_out{};std::string output;};
 winchisel::core::Error error(std::string detail){return{.detail=std::move(detail)};}
 std::string lower(std::string value){std::ranges::transform(value,value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return value;}
@@ -62,7 +69,43 @@ winchisel::core::Result<bool> update_appx(
     winchisel::core::DebloatCatalogEntry const& item){if(!item.store_id.empty()){auto uri=L"ms-windows-store://pdp/?ProductId="+wide(item.store_id);if(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",uri.c_str(),nullptr,nullptr,SW_SHOWNORMAL))<=32)return std::unexpected(error(std::string(item.package_name)+": Store listing could not be opened"));return false;}return change_appx(manager,packages,item,true);}
 }
 
-winchisel::core::Result<std::vector<bool>> scan_debloater_installed(std::span<winchisel::core::DebloatCatalogEntry const> catalog){auto apps=appx_packages();if(!apps)return std::unexpected(apps.error());auto capabilities=dism_packages(true);if(!capabilities)return std::unexpected(capabilities.error());auto features=dism_packages(false);if(!features)return std::unexpected(features.error());std::vector<bool> result;result.reserve(catalog.size());for(auto const& item:catalog){auto const& installed=item.category==winchisel::core::DebloatCategory::windows_apps?*apps:item.category==winchisel::core::DebloatCategory::capabilities?*capabilities:*features;result.push_back(is_installed(installed,item));}return result;}
+winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
+    std::span<winchisel::core::DebloatCatalogEntry const> catalog, bool force_refresh) {
+    DebloatScan data;
+    bool hit{};
+    {
+        std::scoped_lock lock(scan_mutex);
+        if (!force_refresh && scan_cache_valid && Clock::now() - scan_cache.at < std::chrono::minutes(10)) {
+            data = scan_cache;
+            hit = true;
+        }
+    }
+    if (!hit) {
+        auto apps = appx_packages();
+        if (!apps) return std::unexpected(apps.error());
+        auto capabilities = dism_packages(true);
+        if (!capabilities) return std::unexpected(capabilities.error());
+        auto features = dism_packages(false);
+        if (!features) return std::unexpected(features.error());
+        data = {std::move(*apps), std::move(*capabilities), std::move(*features), Clock::now()};
+        std::scoped_lock lock(scan_mutex);
+        scan_cache = data;
+        scan_cache_valid = true;
+    }
+    std::vector<bool> result;
+    result.reserve(catalog.size());
+    for (auto const& item : catalog) {
+        auto const& installed = item.category == winchisel::core::DebloatCategory::windows_apps ? data.apps
+            : item.category == winchisel::core::DebloatCategory::capabilities ? data.capabilities : data.features;
+        result.push_back(is_installed(installed, item));
+    }
+    return result;
+}
+
+void invalidate_debloat_scan() {
+    std::scoped_lock lock(scan_mutex);
+    scan_cache_valid = false;
+}
 // One COM apartment, one PackageManager and one enumeration shared by every
 // AppX item of the batch instead of re-initializing per item. Members are
 // declared so that the manager is destroyed before the apartment uninitializes.
@@ -80,7 +123,7 @@ void ensure_appx_batch(AppxBatch& batch){
     catch(winrt::hresult_error const& value){batch.error=error("PackageManager scan: "+winrt::to_string(value.message()));return;}
     batch.ready=true;
 }
-winchisel::core::Result<DebloatActionResult> apply_debloater_action(std::span<winchisel::core::DebloatCatalogEntry const* const> items,bool install){DebloatActionResult result;std::optional<AppxBatch> appx;const bool needs_appx=std::ranges::any_of(items,[](auto const* item){return item->category==winchisel::core::DebloatCategory::windows_apps;});if(needs_appx){appx.emplace();ensure_appx_batch(*appx);}for(auto const* item:items){winchisel::core::Result<bool> changed{std::unexpect,error("internal error")};if(item->category==winchisel::core::DebloatCategory::windows_apps){changed=(appx&&appx->ready)?change_appx(appx->manager,appx->packages,*item,install):std::unexpected(appx?appx->error:error("PackageManager unavailable"));}else changed=change_dism(*item,install);if(changed){++result.succeeded;if(item->requires_reboot||*changed)result.reboot_required=true;}else{++result.failed;result.failure_details.push_back(item->package_name.empty()?std::string(item->id):std::string(item->package_name)+": "+changed.error().detail);}}return result;}
+winchisel::core::Result<DebloatActionResult> apply_debloater_action(std::span<winchisel::core::DebloatCatalogEntry const* const> items,bool install){invalidate_debloat_scan();DebloatActionResult result;std::optional<AppxBatch> appx;const bool needs_appx=std::ranges::any_of(items,[](auto const* item){return item->category==winchisel::core::DebloatCategory::windows_apps;});if(needs_appx){appx.emplace();ensure_appx_batch(*appx);}for(auto const* item:items){winchisel::core::Result<bool> changed{std::unexpect,error("internal error")};if(item->category==winchisel::core::DebloatCategory::windows_apps){changed=(appx&&appx->ready)?change_appx(appx->manager,appx->packages,*item,install):std::unexpected(appx?appx->error:error("PackageManager unavailable"));}else changed=change_dism(*item,install);if(changed){++result.succeeded;if(item->requires_reboot||*changed)result.reboot_required=true;}else{++result.failed;result.failure_details.push_back(item->package_name.empty()?std::string(item->id):std::string(item->package_name)+": "+changed.error().detail);}}return result;}
 
-winchisel::core::Result<DebloatActionResult> apply_debloater_update(std::span<winchisel::core::DebloatCatalogEntry const* const> items){DebloatActionResult result;std::optional<AppxBatch> appx;const bool needs_appx=std::ranges::any_of(items,[](auto const* item){return item->category==winchisel::core::DebloatCategory::windows_apps;});if(needs_appx){appx.emplace();ensure_appx_batch(*appx);}for(auto const* item:items){winchisel::core::Result<bool> changed{std::unexpect,error("internal error")};if(item->category==winchisel::core::DebloatCategory::windows_apps){changed=(appx&&appx->ready)?update_appx(appx->manager,appx->packages,*item):std::unexpected(appx?appx->error:error("PackageManager unavailable"));}else changed=update_dism(*item);if(changed){++result.succeeded;if(item->requires_reboot||*changed)result.reboot_required=true;}else{++result.failed;result.failure_details.push_back(item->package_name.empty()?std::string(item->id):std::string(item->package_name)+": "+changed.error().detail);}}return result;}
+winchisel::core::Result<DebloatActionResult> apply_debloater_update(std::span<winchisel::core::DebloatCatalogEntry const* const> items){invalidate_debloat_scan();DebloatActionResult result;std::optional<AppxBatch> appx;const bool needs_appx=std::ranges::any_of(items,[](auto const* item){return item->category==winchisel::core::DebloatCategory::windows_apps;});if(needs_appx){appx.emplace();ensure_appx_batch(*appx);}for(auto const* item:items){winchisel::core::Result<bool> changed{std::unexpect,error("internal error")};if(item->category==winchisel::core::DebloatCategory::windows_apps){changed=(appx&&appx->ready)?update_appx(appx->manager,appx->packages,*item):std::unexpected(appx?appx->error:error("PackageManager unavailable"));}else changed=update_dism(*item);if(changed){++result.succeeded;if(item->requires_reboot||*changed)result.reboot_required=true;}else{++result.failed;result.failure_details.push_back(item->package_name.empty()?std::string(item->id):std::string(item->package_name)+": "+changed.error().detail);}}return result;}
 }

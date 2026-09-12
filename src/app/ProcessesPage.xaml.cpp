@@ -2,6 +2,7 @@
 #include "AsyncSupport.hpp"
 #include "ProcessesPage.xaml.h"
 #include "winchisel/application/session.hpp"
+#include "Localization.hpp"
 #include "winchisel/platform/process.hpp"
 #include "winchisel/core/affinity.hpp"
 #include <TlHelp32.h>
@@ -31,8 +32,8 @@ muxc::ScrollViewer find_scroll_viewer(mux::DependencyObject const& root){if(!roo
 
 ProcessesPage::ProcessesPage(){
     InitializeComponent();initialized_=true;load_processes();
-    refresh_timer_=DispatcherQueue().CreateTimer();refresh_timer_.Interval(std::chrono::seconds(2));refresh_timer_.IsRepeating(true);
-    auto weak=get_weak();refresh_timer_.Tick([weak](auto&&,auto&&){if(auto self=weak.get()){if(self->open_overlays_)self->refresh_pending_=true;else self->load_processes();}});
+    refresh_timer_=DispatcherQueue().CreateTimer();refresh_timer_.Interval(std::chrono::seconds(4));refresh_timer_.IsRepeating(true);
+    auto weak=get_weak();refresh_timer_.Tick([weak](auto&&,auto&&){if(auto self=weak.get()){if(!winchisel::ui::app_foreground())return;if(self->open_overlays_)self->refresh_pending_=true;else self->load_processes();}});
     Loaded([weak](auto&&,auto&&){if(auto self=weak.get())self->refresh_timer_.Start();});Unloaded([weak](auto&&,auto&&){if(auto self=weak.get())self->refresh_timer_.Stop();});
 }
 

@@ -36,7 +36,7 @@ private:
         std::vector<winchisel::core::DebloatCatalogEntry const*> remove;
     };
     ApplySelection selected_split();
-    void start_scan(bool clear_notice = true);
+    void start_scan(bool clear_notice = true, bool force_refresh = false);
     void render_items();
     void apply_filter(bool scroll_top = false);
     bool matches_filter(std::size_t index, std::string const& query, std::uint32_t tab, int filter) const;

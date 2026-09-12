@@ -10,7 +10,7 @@
 namespace winchisel::platform {
 
 winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
-    std::span<winchisel::core::DebloatCatalogEntry const> catalog);
+    std::span<winchisel::core::DebloatCatalogEntry const> catalog, bool force_refresh = false);
 
 struct DebloatActionResult {
     std::size_t succeeded{};

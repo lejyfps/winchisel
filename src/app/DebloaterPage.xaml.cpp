@@ -110,7 +110,7 @@ DebloaterPage::~DebloaterPage() {
     winchisel::ui::finish_in_background(action_worker_);
 }
 
-void DebloaterPage::start_scan(bool clear_notice) {
+void DebloaterPage::start_scan(bool clear_notice, bool force_refresh) {
     auto error_weak=get_weak();
     winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
     try { error_queue=DispatcherQueue(); } catch (...) {}
@@ -124,8 +124,8 @@ void DebloaterPage::start_scan(bool clear_notice) {
     InstallButton().IsEnabled(false);
     RemoveButton().IsEnabled(false);
     if (clear_notice) Notice().IsOpen(false);
-    scan_worker_ = std::async(std::launch::async, [catalog = catalog_] {
-        return winchisel::platform::scan_debloater_installed(catalog);
+    scan_worker_ = std::async(std::launch::async, [catalog = catalog_, force_refresh] {
+        return winchisel::platform::scan_debloater_installed(catalog, force_refresh);
     });
     timer_.Start();
 
@@ -185,7 +185,7 @@ void DebloaterPage::poll_worker() {
         Notice().IsOpen(true);
         Items().SelectedItems().Clear();
         update_actions();
-        start_scan(false);
+        start_scan(false, true);
     } else {
         timer_.Stop();
     }
@@ -453,7 +453,7 @@ void DebloaterPage::start_action(bool install) {
 }
 
     void DebloaterPage::Tabs_SelectionChanged(IInspectable const&, Controls::SelectorBarSelectionChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) apply_filter(true); }
-void DebloaterPage::Refresh_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) start_scan(); }
+void DebloaterPage::Refresh_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) start_scan(true, true); }
 void DebloaterPage::Install_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(true); }
 void DebloaterPage::Remove_Click(IInspectable const&, RoutedEventArgs const&) { if (ui_ready_) confirm_action(false); }
 void DebloaterPage::Search_TextChanged(IInspectable const&, Controls::AutoSuggestBoxTextChangedEventArgs const&) { if (ui_ready_ && operation_ == Operation::none) { search_timer_.Stop(); search_timer_.Start(); } }

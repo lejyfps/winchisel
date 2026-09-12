@@ -10,6 +10,11 @@
 
 namespace winchisel::ui {
 
+inline bool& app_foreground() {
+    static bool foreground = true;
+    return foreground;
+}
+
 inline std::function<void()>& language_reload() {
     static std::function<void()> handler;
     return handler;

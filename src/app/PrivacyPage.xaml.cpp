@@ -394,11 +394,13 @@ void PrivacyPage::render_groups() {
         expander.IsExpanded(group.id == "security");
         {
             auto weak = get_weak();
-            expander.Expanding([weak, expander](auto const&, auto const&) {
-                if (auto self = weak.get()) self->ensure_group(expander);
+            expander.Expanding([weak](auto const& sender, auto const&) {
+                if (auto self = weak.get())
+                    if (auto item = sender.try_as<Controls::Expander>()) self->ensure_group(item);
             });
-            expander.Collapsed([weak, expander](auto const&, auto const&) {
-                if (auto self = weak.get()) self->detach_group(expander);
+            expander.Collapsed([weak](auto const& sender, auto const&) {
+                if (auto self = weak.get())
+                    if (auto item = sender.try_as<Controls::Expander>()) self->detach_group(item);
             });
         }
         Groups().Children().Append(expander);

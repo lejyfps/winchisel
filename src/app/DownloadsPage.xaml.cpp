@@ -128,8 +128,8 @@ void DownloadsPage::render_items() {
   category_base_[static_cast<std::size_t>(category_index)]=base;
   auto expander=Controls::Expander();expander.Tag(box_value(category_index));expander.HorizontalAlignment(HorizontalAlignment::Stretch);expander.HorizontalContentAlignment(HorizontalAlignment::Stretch);expander.IsExpanded(category_index==0);
   auto weak=get_weak();
-  expander.Expanding([weak, expander](auto const&, auto const&) { if(auto self=weak.get()) self->attach_group(expander); });
-  expander.Collapsed([weak, expander](auto const&, auto const&) { if(auto self=weak.get()) self->detach_group(expander); });
+  expander.Expanding([weak](auto const& sender, auto const&) { if(auto self=weak.get()) if(auto item=sender.try_as<Controls::Expander>()) self->attach_group(item); });
+  expander.Collapsed([weak](auto const& sender, auto const&) { if(auto self=weak.get()) if(auto item=sender.try_as<Controls::Expander>()) self->detach_group(item); });
   Groups().Children().Append(expander);
  }
  apply_filter();

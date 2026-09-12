@@ -19,6 +19,7 @@
 #include "ExtrasPage.xaml.h"
 #include "SettingsPage.xaml.h"
 #include "Localization.hpp"
+#include "AsyncLifetime.hpp"
 #include "winchisel/application/session.hpp"
 #include "winchisel/core/i18n.hpp"
 #include "winchisel/core/navigation.hpp"
@@ -187,10 +188,15 @@ MainWindow::MainWindow() {
         hide_downloads(Nav().MenuItems());
         hide_downloads(Nav().FooterMenuItems());
     }
+    Activated([](auto&&, Microsoft::UI::Xaml::WindowActivatedEventArgs const& args) {
+        winchisel::ui::app_foreground() =
+            args.WindowActivationState() != Microsoft::UI::Xaml::WindowActivationState::Deactivated;
+    });
     Closed([this](auto&&, auto&&) {
         if (auto settings = pages_.find(L"settings"); settings != pages_.end()) {
             if (auto page = settings->second.try_as<implementation::SettingsPage>()) page->flush_pending_save();
         }
+        winchisel::ui::drain_background_work();
         winchisel::ui::language_reload() = {};
         winchisel::ui::theme_reload() = {};
         winchisel::ui::backdrop_reload() = {};

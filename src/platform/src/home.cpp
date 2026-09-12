@@ -152,12 +152,18 @@ std::string uptime() {
 }
 
 std::uint32_t process_count() {
+    static std::uint32_t cached{};
+    static ULONGLONG last_tick{};
+    const auto now = GetTickCount64();
+    if (cached && now - last_tick < 15000) return cached;
     const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) return 0;
+    if (snapshot == INVALID_HANDLE_VALUE) return cached;
     PROCESSENTRY32W entry{.dwSize = sizeof(PROCESSENTRY32W)};
     std::uint32_t count{};
     if (Process32FirstW(snapshot, &entry)) do { ++count; } while (Process32NextW(snapshot, &entry));
     CloseHandle(snapshot);
+    cached = count;
+    last_tick = now;
     return count;
 }
 
