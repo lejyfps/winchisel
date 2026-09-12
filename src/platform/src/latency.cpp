@@ -296,6 +296,31 @@ std::string chip_label(int level) { return level == 0 ? "CHIP 0 - INSIDE CPU" : 
 
 } // namespace
 
+TopologyContext topology_context_for(std::string const& vid, std::string const& pid) {
+    TopologyContext result;
+    if (vid.empty() || pid.empty()) return result;
+    auto controllers = scan_controllers();
+    auto devices = pnp_devices(controllers, LatencyProgress{});
+    const std::string want_vid = lower(vid), want_pid = lower(pid);
+    for (auto const& device : devices) {
+        if (lower(device.vid) != want_vid || lower(device.pid) != want_pid) continue;
+        result.found = true;
+        result.device_name = device.name;
+        result.chip_count = device.chip_count;
+        result.hub_count = device.hub_count;
+        result.hub_names = device.hub_names;
+        if (device.controller < controllers.size()) {
+            auto const& controller = controllers[device.controller];
+            result.controller_name = controller.name;
+            result.platform = controller.platform;
+            result.msi_status = controller.msi_status;
+            result.selective_suspend = controller.selective_suspend == true;
+        }
+        return result;
+    }
+    return result;
+}
+
 winchisel::core::Result<LatencyAnalysis> analyze_usb_topology(LatencyProgress progress) {
     auto notify = [&](int value, std::string_view status) { if (progress) progress(value, status); };
     notify(5, "Checking power settings..."); const auto suspend = system_suspend();

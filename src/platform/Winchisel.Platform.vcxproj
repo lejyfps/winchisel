@@ -53,6 +53,9 @@
     <ClInclude Include="include\winchisel\platform\home.hpp" />
     <ClInclude Include="include\winchisel\platform\registry.hpp" />
     <ClInclude Include="include\winchisel\platform\latency.hpp" />
+    <ClInclude Include="include\winchisel\platform\usb_cadence.hpp" />
+    <ClInclude Include="include\winchisel\platform\usb_cadence_capture.hpp" />
+    <ClInclude Include="include\winchisel\platform\usb_identity.hpp" />
     <ClInclude Include="include\winchisel\platform\debloater.hpp" />
     <ClInclude Include="include\winchisel\platform\update.hpp" />
     <ClInclude Include="include\winchisel\platform\shell.hpp" />
@@ -66,6 +69,9 @@
     <ClCompile Include="src\home.cpp" />
     <ClCompile Include="src\registry.cpp" />
     <ClCompile Include="src\latency.cpp" />
+    <ClCompile Include="src\usb_cadence.cpp" />
+    <ClCompile Include="src\usb_cadence_capture.cpp" />
+    <ClCompile Include="src\usb_identity.cpp" />
     <ClCompile Include="src\debloater.cpp" />
     <ClCompile Include="src\update.cpp" />
     <ClCompile Include="src\shell.cpp" />

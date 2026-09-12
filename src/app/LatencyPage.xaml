@@ -11,10 +11,20 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Grid>
+        <StackPanel Orientation="Horizontal" Spacing="12">
             <Button x:Name="AnalyzeButton" Content="Analyze USB Latency" Style="{StaticResource AccentButtonStyle}"
-                    Click="Analyze_Click" HorizontalAlignment="Left" VerticalAlignment="Center" />
-        </Grid>
+                    Click="Analyze_Click" VerticalAlignment="Center" />
+            <Button x:Name="CadenceButton" Content="Measure transfer cadence"
+                    Click="Cadence_Click" VerticalAlignment="Center" />
+            <Button x:Name="CadenceCancelButton" Content="Cancel" Click="CadenceCancel_Click"
+                    VerticalAlignment="Center" Visibility="Collapsed" />
+            <ComboBox x:Name="CadenceDevices" MinWidth="260" VerticalAlignment="Center"
+                      Visibility="Collapsed" SelectionChanged="CadenceDevices_SelectionChanged" />
+            <Button x:Name="ExportButton" Content="Export JSON" Click="Export_Click"
+                    VerticalAlignment="Center" Visibility="Collapsed" />
+            <Button x:Name="ExportCsvButton" Content="Export CSV" Click="ExportCsv_Click"
+                    VerticalAlignment="Center" Visibility="Collapsed" />
+        </StackPanel>
         <Grid Grid.Row="1" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
