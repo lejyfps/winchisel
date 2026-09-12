@@ -265,20 +265,12 @@ hstring toggle_tip(bool recommended_default, bool state) {
     return hstring{std::wstring(prefix) + L": " + (state ? L"On" : L"Off")};
 }
 
-// #3 TeachingTip (einmalig): Bulk-Profile ändern viele Tweaks auf einmal.
-void show_bulk_profile_tip(Windows::Foundation::IInspectable const& sender) {
-    if (winchisel::ui::teaching_tip_seen("bulk_profile")) return;
+void PerformancePage::show_bulk_profile_tip(Windows::Foundation::IInspectable const& sender) {
     auto anchor = sender.try_as<FrameworkElement>();
     if (!anchor) return;
-    winchisel::ui::dismiss_teaching_tip("bulk_profile");
-    Controls::TeachingTip tip;
-    tip.Title(L"Applies the full profile at once");
-    tip.Subtitle(L"Recommended/Defaults change many settings across all groups. Every change is logged in Change history and can be undone — a restore point first is still recommended.");
-    tip.Target(anchor);
-    tip.PreferredPlacement(Controls::TeachingTipPlacementMode::Bottom);
-    tip.IsLightDismissEnabled(true);
-    if (auto root = anchor.XamlRoot()) tip.XamlRoot(root);
-    tip.IsOpen(true);
+    winchisel::ui::open_teaching_tip(bulk_tip_, bulk_tip_closed_, anchor, "bulk_profile",
+        L"Applies the full profile at once",
+        L"Recommended/Defaults change many settings across all groups. Every change is logged in Change history and can be undone — a restore point first is still recommended.");
 }
 
 // State pill showing whether the current value matches Recommended or the

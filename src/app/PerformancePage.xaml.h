@@ -107,6 +107,9 @@ private:
     std::map<int, winrt::Windows::Foundation::IInspectable> detached_content_;
     void attach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
     void detach_group(winrt::Microsoft::UI::Xaml::Controls::Expander const& expander);
+    void show_bulk_profile_tip(winrt::Windows::Foundation::IInspectable const& sender);
+    winrt::Microsoft::UI::Xaml::Controls::TeachingTip bulk_tip_{nullptr};
+    winrt::event_token bulk_tip_closed_{};
 };
 
 }  // namespace winrt::Winchisel::implementation

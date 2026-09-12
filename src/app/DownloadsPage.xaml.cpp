@@ -58,11 +58,23 @@ DownloadsPage::DownloadsPage() {
  InitializeComponent(); catalog_=winchisel::core::get_download_catalog(); installed_.assign(catalog_.size(), false);
  auto weak=get_weak();
   timer_=DispatcherTimer(); timer_.Interval(std::chrono::milliseconds(120)); timer_token_=timer_.Tick([weak](auto&&,auto&&){ if(auto self=weak.get()) self->poll_worker(); }); search_timer_=DispatcherTimer();search_timer_.Interval(std::chrono::milliseconds(200));search_timer_token_=search_timer_.Tick([weak](auto&&,auto&&){ if(auto self=weak.get()){ self->search_timer_.Stop(); if(self->operation_==Operation::none)self->apply_filter(); }});ui_ready_=true;
-  // #2 RefreshContainer (Pull-to-Refresh): gleicher Pfad wie Refresh-Button.
-  refresh_token_=PullRefresh().RefreshRequested([weak](auto const&, auto const&) { if(auto self=weak.get()){ if(self->ui_ready_&&self->operation_==Operation::none) self->start_scan(true); } });
+  // #2 RefreshContainer: deferral holds the spinner until scan finishes.
+  refresh_token_=PullRefresh().RefreshRequested([weak](auto const&, Controls::RefreshRequestedEventArgs const& args) {
+    if(auto self=weak.get()){
+      self->complete_pull_refresh();
+      self->refresh_deferral_=args.GetDeferral();
+      if(self->ui_ready_&&self->operation_==Operation::none) self->start_scan(true);
+      else self->complete_pull_refresh();
+    }
+  });
   Loaded([weak](auto&&,auto&&){ if(auto self=weak.get()){ if(self->operation_!=Operation::none) self->timer_.Start(); } }); Unloaded([weak](auto&&,auto&&){ if(auto self=weak.get()) self->timer_.Stop(); }); start_scan();
 }
-DownloadsPage::~DownloadsPage() { timer_.Stop(); timer_.Tick(timer_token_);search_timer_.Stop();search_timer_.Tick(search_timer_token_); winchisel::ui::finish_in_background(scan_worker_); winchisel::ui::finish_in_background(install_worker_); winchisel::ui::finish_in_background(uninstall_worker_); }
+void DownloadsPage::complete_pull_refresh() {
+  if(!refresh_deferral_)return;
+  refresh_deferral_.Complete();
+  refresh_deferral_=nullptr;
+}
+DownloadsPage::~DownloadsPage() { timer_.Stop(); timer_.Tick(timer_token_);search_timer_.Stop();search_timer_.Tick(search_timer_token_); complete_pull_refresh(); winchisel::ui::finish_in_background(scan_worker_); winchisel::ui::finish_in_background(install_worker_); winchisel::ui::finish_in_background(uninstall_worker_); }
 void DownloadsPage::start_scan(bool force, bool clear_notice) {
     auto error_weak=get_weak();
     winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
@@ -70,12 +82,12 @@ void DownloadsPage::start_scan(bool force, bool clear_notice) {
     try {
         auto error_lifetime=get_strong();
 
-  if(operation_!=Operation::none)return; operation_=Operation::scan; Loading().Visibility(Visibility::Visible); Groups().IsHitTestVisible(false); Groups().Opacity(0.6); RefreshButton().IsEnabled(false); InstallButton().IsEnabled(false); UninstallButton().IsEnabled(false); if(clear_notice)Notice().IsOpen(false);
+  if(operation_!=Operation::none){complete_pull_refresh();return;} operation_=Operation::scan; Loading().Visibility(Visibility::Visible); Groups().IsHitTestVisible(false); Groups().Opacity(0.6); RefreshButton().IsEnabled(false); InstallButton().IsEnabled(false); UninstallButton().IsEnabled(false); if(clear_notice)Notice().IsOpen(false);
  scan_worker_=std::async(std::launch::async,[catalog=catalog_,force]{return winchisel::platform::scan_downloads_installed(catalog,force);}); timer_.Start();
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
-            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->complete_pull_refresh(); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
         });
     }
 }
@@ -88,7 +100,7 @@ void DownloadsPage::poll_worker() {
 
  if(operation_==Operation::scan) {
   if(!scan_worker_.valid()||scan_worker_.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
-  auto result=scan_worker_.get(); operation_=Operation::none; Loading().Visibility(Visibility::Collapsed); Groups().IsHitTestVisible(true); Groups().Opacity(1.0); RefreshButton().IsEnabled(true);
+  auto result=scan_worker_.get(); operation_=Operation::none; Loading().Visibility(Visibility::Collapsed); Groups().IsHitTestVisible(true); Groups().Opacity(1.0); RefreshButton().IsEnabled(true); complete_pull_refresh();
   if(result){installed_=std::move(*result);render_items();}else{Notice().Title(L"Scan failed");Notice().Message(to_hstring(result.error().detail));Notice().Severity(Controls::InfoBarSeverity::Error);Notice().IsOpen(true);} update_actions();
  } else if(operation_==Operation::install || operation_==Operation::uninstall) {
   const bool is_install=operation_==Operation::install;
@@ -100,7 +112,7 @@ void DownloadsPage::poll_worker() {
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
-            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
+            if (auto self=error_weak.get()) { self->operation_=Operation::none; self->timer_.Stop(); self->Loading().Visibility(Visibility::Collapsed); self->Groups().IsHitTestVisible(true); self->Groups().Opacity(1.0); self->RefreshButton().IsEnabled(true); self->complete_pull_refresh(); self->update_actions(); self->Notice().Title(L"Operation failed"); self->Notice().Message(text); self->Notice().Severity(Controls::InfoBarSeverity::Error); self->Notice().IsOpen(true); }
         });
     }
 }

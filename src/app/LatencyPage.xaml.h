@@ -58,6 +58,8 @@ private:
     std::vector<CadenceHistoryEntry> history_;
     winrt::Microsoft::UI::Xaml::DispatcherTimer timer_{nullptr};
     winrt::event_token timer_token_{};
+    winrt::Microsoft::UI::Xaml::Controls::TeachingTip cadence_tip_{nullptr};
+    winrt::event_token cadence_tip_closed_{};
     int progress_{};
 };
 

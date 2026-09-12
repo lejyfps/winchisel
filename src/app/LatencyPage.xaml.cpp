@@ -552,16 +552,10 @@ void LatencyPage::Cadence_Click(Windows::Foundation::IInspectable const&, Routed
         }
         // #3 TeachingTip (einmalig, nur ohne Elevation): Live-Traffic braucht
         // Admin — sonst ggf. unvollständig/ungültig.
-        if (!winchisel::platform::cleanup_process_elevated() && !winchisel::ui::teaching_tip_seen("cadence_admin")) {
-            winchisel::ui::dismiss_teaching_tip("cadence_admin");
-            Controls::TeachingTip tip;
-            tip.Title(L"Administrator rights recommended");
-            tip.Subtitle(L"Live USB traffic needs elevation — without it the measurement may be incomplete or invalid. Capturing changes nothing on your system.");
-            tip.Target(CadenceButton());
-            tip.PreferredPlacement(Controls::TeachingTipPlacementMode::Bottom);
-            tip.IsLightDismissEnabled(true);
-            tip.XamlRoot(XamlRoot());
-            tip.IsOpen(true);
+        if (!winchisel::platform::cleanup_process_elevated()) {
+            winchisel::ui::open_teaching_tip(cadence_tip_, cadence_tip_closed_, CadenceButton(), "cadence_admin",
+                L"Administrator rights recommended",
+                L"Live USB traffic needs elevation — without it the measurement may be incomplete or invalid. Capturing changes nothing on your system.");
         }
         progress_ = 0;
         Progress().Value(progress_);
