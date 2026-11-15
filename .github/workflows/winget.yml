@@ -2,7 +2,7 @@ name: Publish to Winget
 
 # Opens a PR against microsoft/winget-pkgs for every published STABLE release
 # (publishing the draft created by release.yml triggers this). Prereleases and
-# nightlies are skipped. Needs WINGET_TOKEN: a classic GitHub token with the
+# nightlies are skipped. Needs WINGET_GITHUB_TOKEN (environment "winchisel"): a classic GitHub token with the
 # public_repo scope; the action forks winget-pkgs under that account.
 on:
   release:
@@ -20,6 +20,8 @@ jobs:
   winget-publish:
     if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     runs-on: ubuntu-24.04
+    # WINGET_GITHUB_TOKEN lives in the `winchisel` environment.
+    environment: winchisel
     steps:
       - name: Reject nightly tags
         shell: bash
@@ -34,4 +36,4 @@ jobs:
           identifier: lejy.Winchisel
           installers-regex: '^Winchisel-Setup-x64\.exe$'
           release-tag: ${{ inputs.tag || github.event.release.tag_name }}
-          token: ${{ secrets.WINGET_TOKEN }}
+          token: ${{ secrets.WINGET_GITHUB_TOKEN }}
