@@ -58,6 +58,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.ref }}
+          # Full history + tags: tools/changelog.sh diffs against the previous release.
+          fetch-depth: 0
 
       # The exact commit being built: the release tag must point here, not at
       # whatever the default branch tip is when the job runs.
@@ -161,7 +163,11 @@ jobs:
           set -euo pipefail
           [ -n "$TAG" ] || { echo "::error::tag is required for release builds"; exit 1; }
           [ -f "$DIR/release.json.sig" ] || { echo "::error::refusing to publish an unsigned build"; exit 1; }
-          args=(--title "Winchisel $TAG" --target "$SHA" --generate-notes)
+          # Release notes from commit subjects since the previous release
+          # (GitHub's --generate-notes only lists merged PRs).
+          bash tools/changelog.sh "$TAG" "$SHA" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
+          args=(--title "$TAG" --target "$SHA" --notes-file "$RUNNER_TEMP/notes.md")
           [ "$PRERELEASE" = "true" ] && args+=(--prerelease)
           [ "$DRAFT" = "true" ] && args+=(--draft)
           if gh release view "$TAG" >/dev/null 2>&1; then
