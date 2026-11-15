@@ -48,6 +48,8 @@ store-api.cmd
 /release-output/
 /LOCAL_RELEASE.md
 /LOCAL_RELEASE.cmd
+/RELEASE_CI.cmd
+/NIGHTLY_CI.cmd
 /release_signer.obj
 fixes.md
 plan.md
