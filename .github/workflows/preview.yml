@@ -1,0 +1,56 @@
+name: Preview Build
+
+# Installable builds of a pull request, so a bug reporter can test a fix
+# before it ships. Add the `preview` label to the PR: it builds right away
+# and every later push rebuilds while the label stays. Adding labels needs
+# triage permission, which is the whole access control.
+#
+# The assets are run artifacts only, never a release. PRs from this repo get
+# the secrets and come out signed; fork PRs get none and come out unsigned
+# (build.yml decides that on its own).
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  meta:
+    if: |-
+      (github.event.action == 'labeled' && github.event.label.name == 'preview') ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview'))
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Preview version
+        id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --quiet
+          stable=$(git tag -l 'v*' | grep -v -- '-' | sed 's/^v//' | sort -V | tail -n1)
+          [ -n "$stable" ] || stable=0.0.0
+          IFS=. read -r major minor patch _ <<<"$stable"
+          # Nightly-shaped version so release.cmd accepts it; the run number
+          # keeps successive preview builds ordered.
+          echo "version=$major.$minor.$((patch + 1))-nightly.$(date -u +%Y%m%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+      version: ${{ needs.meta.outputs.version }}
+      preview: true

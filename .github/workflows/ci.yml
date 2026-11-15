@@ -1,0 +1,45 @@
+name: CI
+
+# Compile + tests on every push/PR. nightly.yml only ever ships a commit whose
+# CI run on master succeeded, so keep this workflow's file name stable.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: NuGet/setup-nuget@323ab0502cd38fdc493335025a96c8fdb0edc71f # v2.0.1
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2.0.0
+
+      - name: Restore packages
+        shell: cmd
+        run: nuget restore src\app\packages.config -PackagesDirectory packages
+
+      - name: Unit tests + catalog validation
+        shell: cmd
+        run: call tools\run_tests.cmd
+
+      - name: Build App (Release x64)
+        shell: cmd
+        run: msbuild src\app\Winchisel.App.vcxproj /m /nologo /verbosity:minimal /clp:ErrorsOnly /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /t:Rebuild
+
+      - name: Build Updater (Release x64)
+        shell: cmd
+        run: msbuild src\updater\Winchisel.Updater.vcxproj /m /nologo /verbosity:minimal /clp:ErrorsOnly /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /t:Rebuild

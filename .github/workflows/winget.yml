@@ -1,0 +1,37 @@
+name: Publish to Winget
+
+# Opens a PR against microsoft/winget-pkgs for every published STABLE release
+# (publishing the draft created by release.yml triggers this). Prereleases and
+# nightlies are skipped. Needs WINGET_TOKEN: a classic GitHub token with the
+# public_repo scope; the action forks winget-pkgs under that account.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Stable release tag to submit, e.g. v1.2.3"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  winget-publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Reject nightly tags
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          if [[ "$TAG" == *-* ]]; then echo "::error::$TAG is a prerelease; not submitting to winget"; exit 1; fi
+
+      - name: Submit to Winget
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
+        with:
+          identifier: lejy.Winchisel
+          installers-regex: '^Winchisel-Setup-x64\.exe$'
+          release-tag: ${{ inputs.tag || github.event.release.tag_name }}
+          token: ${{ secrets.WINGET_TOKEN }}

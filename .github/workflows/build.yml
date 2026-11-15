@@ -1,22 +1,79 @@
-name: Build Winchisel
+name: Build
 
+# Reusable packaging job used by release.yml (tags), nightly.yml (cron) and
+# preview.yml (labelled PRs). It is the single place that knows how to turn a
+# commit into the five release assets via tools\release.cmd, so the channels
+# cannot drift apart.
+#
+# Two modes:
+#   * release (default): assets are uploaded to the GitHub Release `tag`
+#     (created here). Requires the signing secrets; refuses to publish an
+#     unsigned build.
+#   * preview: assets are uploaded as workflow-run artifacts only. Signed when
+#     the secrets are available, unsigned otherwise. GitHub hands no secrets to
+#     pull requests from forks, so fork previews come out unsigned on their own.
+#
+# Secrets (all optional for previews, all required for releases):
+#   UPDATE_SIGNING_KEY_B64         base64 of release-keys\winchisel-update-private.key
+#   STORE_IDENTITY_NAME            values from release-keys\store.cmd
+#   STORE_PUBLISHER
+#   STORE_PUBLISHER_DISPLAY_NAME
 on:
-  push:
-    branches: [master]
-    tags: ["v*.*.*", "v*.*.*.*", "v*-nightly.*"]
-  pull_request:
-    branches: [master]
-  workflow_dispatch:
-
-permissions:
-  contents: read
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref or SHA to build."
+        required: true
+        type: string
+      version:
+        description: "Version without leading v (1.2.3, 1.2.3.4 or 1.2.3-nightly.YYYYMMDD.N)."
+        required: true
+        type: string
+      tag:
+        description: "Release tag to create. Ignored when preview is true."
+        required: false
+        default: ""
+        type: string
+      preview:
+        description: "Upload run artifacts instead of creating a GitHub Release."
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        required: false
+        default: false
+        type: boolean
+      draft:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      UPDATE_SIGNING_KEY_B64:
+        required: false
+      STORE_IDENTITY_NAME:
+        required: false
+      STORE_PUBLISHER:
+        required: false
+      STORE_PUBLISHER_DISPLAY_NAME:
+        required: false
 
 jobs:
-  build:
+  package:
+    # Permissions come from the caller: release/nightly grant contents: write,
+    # preview only contents: read.
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref }}
+
+      # The exact commit being built: the release tag must point here, not at
+      # whatever the default branch tip is when the job runs.
+      - name: Resolve built commit
+        id: built
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: NuGet/setup-nuget@323ab0502cd38fdc493335025a96c8fdb0edc71f # v2.0.1
 
@@ -27,19 +84,106 @@ jobs:
         shell: cmd
         run: nuget restore src\app\packages.config -PackagesDirectory packages
 
-      # Plain compile check only. Packaging, signing and publishing are
-      # maintainer-local (tools\release.cmd) and not part of CI.
-      - name: Build App (Release x64)
-        shell: cmd
-        run: msbuild src\app\Winchisel.App.vcxproj /m /nologo /verbosity:minimal /clp:ErrorsOnly /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /t:Rebuild
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
-      - name: Build Updater (Release x64)
-        shell: cmd
-        run: msbuild src\updater\Winchisel.Updater.vcxproj /m /nologo /verbosity:minimal /clp:ErrorsOnly /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /t:Rebuild
+      - name: Prepare signing material
+        id: signing
+        shell: pwsh
+        env:
+          UPDATE_KEY: ${{ secrets.UPDATE_SIGNING_KEY_B64 }}
+          STORE_IDENTITY_NAME: ${{ secrets.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ secrets.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.STORE_PUBLISHER_DISPLAY_NAME }}
+          PREVIEW: ${{ inputs.preview }}
+        run: |
+          $signed = $env:UPDATE_KEY -and $env:STORE_IDENTITY_NAME -and $env:STORE_PUBLISHER -and $env:STORE_PUBLISHER_DISPLAY_NAME
+          if (-not $signed) {
+            if ($env:PREVIEW -ne 'true') {
+              Write-Output "::error::Release builds need UPDATE_SIGNING_KEY_B64 and the STORE_* secrets."
+              exit 1
+            }
+            Write-Output "::warning::Signing secrets unavailable (fork PR or not configured); building unsigned."
+            "mode=--unsigned" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          New-Item -ItemType Directory -Force release-keys | Out-Null
+          [IO.File]::WriteAllBytes("$PWD\release-keys\winchisel-update-private.key", [Convert]::FromBase64String($env:UPDATE_KEY))
+          "WINCHISEL_STORE_IDENTITY_NAME=$env:STORE_IDENTITY_NAME" >> $env:GITHUB_ENV
+          "WINCHISEL_STORE_PUBLISHER=$env:STORE_PUBLISHER" >> $env:GITHUB_ENV
+          "WINCHISEL_STORE_PUBLISHER_DISPLAY_NAME=$env:STORE_PUBLISHER_DISPLAY_NAME" >> $env:GITHUB_ENV
+          "mode=" >> $env:GITHUB_OUTPUT
 
-      - name: Upload build output
+      - name: Build release assets
+        shell: cmd
+        env:
+          VERSION: ${{ inputs.version }}
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: call tools\release.cmd %VERSION% %MODE%
+
+      - name: Remove signing key
+        if: always()
+        shell: pwsh
+        run: Remove-Item -Force -ErrorAction SilentlyContinue release-keys\winchisel-update-private.key
+
+      - name: Collect assets
+        id: assets
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          dir="release-output/$VERSION"
+          files=()
+          for f in Winchisel-Setup-x64.exe Winchisel-Portable-x64.exe Winchisel-Store-x64.msix release.json release.json.sig; do
+            [ -f "$dir/$f" ] && files+=("$dir/$f")
+          done
+          printf '%s\n' "${files[@]}"
+          {
+            echo "dir=$dir"
+            echo "list<<EOF"
+            printf '%s\n' "${files[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          # SHA256 sums make manual verification and winget review easier.
+          (cd "$dir" && sha256sum $(for f in "${files[@]}"; do basename "$f"; done) > SHA256SUMS.txt)
+
+      - name: Upload run artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Winchisel-${{ github.ref_name }}
-          path: out/
+          name: Winchisel-${{ inputs.version }}
+          path: |
+            ${{ steps.assets.outputs.list }}
+            ${{ steps.assets.outputs.dir }}/SHA256SUMS.txt
           if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: ${{ !inputs.preview }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ steps.built.outputs.sha }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          DRAFT: ${{ inputs.draft }}
+          DIR: ${{ steps.assets.outputs.dir }}
+        run: |
+          set -euo pipefail
+          [ -n "$TAG" ] || { echo "::error::tag is required for release builds"; exit 1; }
+          [ -f "$DIR/release.json.sig" ] || { echo "::error::refusing to publish an unsigned build"; exit 1; }
+          args=(--title "Winchisel $TAG" --target "$SHA" --generate-notes)
+          [ "$PRERELEASE" = "true" ] && args+=(--prerelease)
+          [ "$DRAFT" = "true" ] && args+=(--draft)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists"; exit 1
+          fi
+          gh release create "$TAG" "${args[@]}" \
+            "$DIR/Winchisel-Setup-x64.exe" "$DIR/Winchisel-Portable-x64.exe" \
+            "$DIR/Winchisel-Store-x64.msix" "$DIR/release.json" "$DIR/release.json.sig" \
+            "$DIR/SHA256SUMS.txt"

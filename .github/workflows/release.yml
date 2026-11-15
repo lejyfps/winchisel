@@ -1,0 +1,60 @@
+name: Release
+
+# Thin dispatcher over build.yml for pushed version tags.
+#   v1.2.3 / v1.2.3.4          -> DRAFT release. Review it, then click
+#                                 "Publish"; that triggers winget.yml.
+#   v1.2.3-nightly.YYYYMMDD.N  -> published prerelease (manual nightly).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v1.2.3"
+        required: true
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - name: Resolve tag + version
+        id: meta
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            prerelease=false
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]]; then
+            prerelease=true
+          else
+            echo "::error::Unsupported tag $TAG (expected v1.2.3, v1.2.3.4 or v1.2.3-nightly.YYYYMMDD.N)"
+            exit 1
+          fi
+          { echo "tag=$TAG"; echo "version=$version"; echo "prerelease=$prerelease"; } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      ref: refs/tags/${{ needs.meta.outputs.tag }}
+      version: ${{ needs.meta.outputs.version }}
+      tag: ${{ needs.meta.outputs.tag }}
+      prerelease: ${{ needs.meta.outputs.prerelease == 'true' }}
+      draft: ${{ needs.meta.outputs.prerelease != 'true' }}
