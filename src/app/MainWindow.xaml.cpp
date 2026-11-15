@@ -389,7 +389,7 @@ void MainWindow::BugReport_Click(IInspectable const&, RoutedEventArgs const&) {
 }
 
 void MainWindow::Donate_Click(IInspectable const&, RoutedEventArgs const&) {
-    if (!winchisel::platform::open_https_url(L"https://pally.gg/p/lejy"))
+    if (!winchisel::platform::open_https_url(L"https://ko-fi.com/lejy"))
         winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Winchisel", L"Could not open the donation page.");
 }
 

@@ -166,7 +166,7 @@ Release artifacts (installer, portable executable, Store package) are built loca
 ## Support
 
 - Report a bug: [GitHub Issues](https://github.com/lejyfps/winchisel/issues)
-- Support development: [Donate via Pally](https://pally.gg/p/lejy)
+- Support development: [Support me on Ko-fi](https://ko-fi.com/lejy)
 
 ## License
 
