@@ -765,7 +765,7 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
             load_catalog_toggles();
             return;
         }
-        submit([id = item.id, enabled] { return winchisel::platform::write_special_performance_toggle(id, enabled); });
+        submit([id = item.id, enabled] { return winchisel::platform::write_special_performance_toggle(id, enabled); }, RefreshScope{.specials = {item.id}});
         return;
     }
     std::vector<std::pair<Target,Value>> registry;
@@ -787,6 +787,9 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
     if(!has_registry) tasks.emplace_back(std::string(item.id), enabled);
     const bool shell = needs_shell_restart(item.id);
     const std::string label = performance_tweak_label(item.id);
+    RefreshScope scope;
+    for (auto const& change : registry) scope.registry.push_back(change.first);
+    for (auto const& task : tasks) scope.tasks.push_back(task.first);
     submit([registry=std::move(registry),tasks=std::move(tasks),merge_rules=std::move(merge_rules),enabled,shell,label]() mutable {
         for (auto const& [merge_index, rule] : merge_rules) {
             auto fresh = catalog_desired(*rule, enabled, [&registry, index = merge_index](Target const& destination) -> winchisel::core::Result<Value> {
@@ -795,7 +798,7 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
             });
             if (fresh) registry[merge_index].second = std::move(*fresh);
         }
-        auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,std::nullopt,std::nullopt,"performance",label); if (applied && shell) winchisel::platform::restart_shell(); return applied; });
+        auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,std::nullopt,std::nullopt,"performance",label); if (applied && shell) winchisel::platform::restart_shell(); return applied; }, std::move(scope));
 }
 
 void PerformancePage::load_catalog_selections() {
@@ -856,7 +859,7 @@ void PerformancePage::save_catalog_selection(std::size_t index) {
     if(loading_gaming_selections_||index>=catalog_selections_.size())return;auto const& item=catalog_selections_[index];auto selected=item.control.SelectedIndex();if(selected<0)return;Target destination;std::uint32_t value{};
     if(item.id=="gaming-dns-server"){submit([selected]{return winchisel::platform::write_dns_profile(selected);});return;}
     if(item.id=="updates-policy-mode"){submit([selected]{return winchisel::platform::write_update_policy(selected);});return;}
-    if(item.id=="updates-delivery-optimization"){const auto user=target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const auto machine=target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const Value mode=selected==1?Value{std::uint32_t{1}}:selected==2?Value{std::uint32_t{3}}:selected==3?Value{std::uint32_t{99}}:Value{std::monostate{}};submit([user,machine,mode]{return winchisel::platform::write_registry_values_atomic({{user,mode},{machine,mode}},"performance",performance_tweak_label("updates-delivery-optimization"));});return;}
+    if(item.id=="updates-delivery-optimization"){const auto user=target(Hive::current_user,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const auto machine=target(Hive::local_machine,"SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization","DODownloadMode",Type::dword);const Value mode=selected==1?Value{std::uint32_t{1}}:selected==2?Value{std::uint32_t{3}}:selected==3?Value{std::uint32_t{99}}:Value{std::monostate{}};submit([user,machine,mode]{return winchisel::platform::write_registry_values_atomic({{user,mode},{machine,mode}},"performance",performance_tweak_label("updates-delivery-optimization"));},RefreshScope{.registry={user,machine}});return;}
     if(item.id=="gaming-win32-priority"){destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control\\PriorityControl","Win32PrioritySeparation",Type::dword);value=selected==0?38:24;}
     else if(item.id=="gaming-performance-svchost-split-threshold"){constexpr std::array<std::uint32_t,10> values{380000,327680,491520,655360,983040,1310720,1966080,2621440,5242880,10485760};if(selected>=static_cast<int>(values.size()))return;destination=target(Hive::local_machine,"SYSTEM\\CurrentControlSet\\Control","SvcHostSplitThresholdInKB",Type::dword);value=values[selected];}
         else if(item.id=="visual-effects-mode"){destination=target(Hive::current_user,"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects","VisualFXSetting",Type::dword);value=static_cast<std::uint32_t>(selected);}
@@ -867,7 +870,7 @@ void PerformancePage::save_catalog_selection(std::size_t index) {
     else return;
     const bool shell = needs_shell_restart(item.id);
     const std::string label = performance_tweak_label(item.id);
-    submit([destination,value,shell,label]{ auto applied = winchisel::platform::write_registry_values_atomic({{destination,Value{value}}},"performance",label); if (applied && shell) winchisel::platform::restart_shell(); return applied; });
+    submit([destination,value,shell,label]{ auto applied = winchisel::platform::write_registry_values_atomic({{destination,Value{value}}},"performance",label); if (applied && shell) winchisel::platform::restart_shell(); return applied; }, RefreshScope{.registry = {destination}});
 }
 
 void PerformancePage::load_gaming_toggles() {
@@ -902,7 +905,8 @@ void PerformancePage::save_gaming_toggle(std::size_t index) {
         changes.emplace_back(tweak.targets[target_index],values[target_index]);
     }
     const std::string label = "Performance: " + to_string(tweak.title);
-    submit([changes=std::move(changes),label]{return winchisel::platform::write_registry_values_atomic(changes,"performance",label);});
+    RefreshScope scope{.registry = tweak.targets};
+    submit([changes=std::move(changes),label]{return winchisel::platform::write_registry_values_atomic(changes,"performance",label);}, std::move(scope));
 }
 
 void PerformancePage::apply_gaming_profile(bool recommended) {
@@ -1061,7 +1065,7 @@ void PerformancePage::save_mouse_hover_time() {
     if(index < 0 || index >= static_cast<int>(values.size()))return;
     const auto destination=target(Hive::current_user,"Control Panel\\Mouse","MouseHoverTime",Type::string);
     const std::string value=values[index];
-    submit([destination,value]{return winchisel::platform::write_registry_values_atomic({{destination,Value{value}}},"performance","Performance: Mouse Hover Time");});
+    submit([destination,value]{return winchisel::platform::write_registry_values_atomic({{destination,Value{value}}},"performance","Performance: Mouse Hover Time");}, RefreshScope{.registry = {destination}});
 }
 void PerformancePage::save_background_apps() {
     if (loading_gaming_selections_) return;
@@ -1069,7 +1073,7 @@ void PerformancePage::save_background_apps() {
     const Value value = index == 1 ? Value{std::uint32_t{1}} : index == 2 ? Value{std::uint32_t{2}} : Value{std::monostate{}};
     const auto user = target(Hive::current_user, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
     const auto machine = target(Hive::local_machine, "SOFTWARE\\Policies\\Microsoft\\Windows\\AppPrivacy", "LetAppsRunInBackground", Type::dword);
-    submit([user,machine,value]{return winchisel::platform::write_registry_values_atomic({{user,value},{machine,value}},"performance","Performance: Let Apps Run in Background");});
+    submit([user,machine,value]{return winchisel::platform::write_registry_values_atomic({{user,value},{machine,value}},"performance","Performance: Let Apps Run in Background");}, RefreshScope{.registry = {user, machine}});
 }
 
 void PerformancePage::Recommended_Click(Windows::Foundation::IInspectable const& sender, RoutedEventArgs const&) {
@@ -1141,6 +1145,15 @@ winchisel::core::Result<bool> PerformancePage::cached_available(std::string cons
 }
 
 void PerformancePage::submit(std::function<winchisel::core::Result<void>()> change) {
+    refresh_full_ = true;
+    pending_changes_.push_back(std::move(change));
+    process_changes();
+}
+
+void PerformancePage::submit(std::function<winchisel::core::Result<void>()> change, RefreshScope scope) {
+    refresh_scope_.registry.insert(refresh_scope_.registry.end(), std::make_move_iterator(scope.registry.begin()), std::make_move_iterator(scope.registry.end()));
+    refresh_scope_.tasks.insert(refresh_scope_.tasks.end(), std::make_move_iterator(scope.tasks.begin()), std::make_move_iterator(scope.tasks.end()));
+    refresh_scope_.specials.insert(refresh_scope_.specials.end(), std::make_move_iterator(scope.specials.begin()), std::make_move_iterator(scope.specials.end()));
     pending_changes_.push_back(std::move(change));
     process_changes();
 }
@@ -1163,6 +1176,35 @@ winrt::fire_and_forget PerformancePage::process_changes() {
             const auto result=winchisel::ui::result_or_error(change);
             co_await ui;
             if(!result) { failure=result.error().detail; pending_changes_.clear(); break; }
+        }
+        // Scoped refresh: re-read only what the processed changes touched and
+        // merge it into the cached state. Needs a complete cache to merge
+        // into, and is skipped after a failure (a rollback may have touched
+        // more than the scope says).
+        const bool scoped = !refresh_full_ && failure.empty() && !registry_state_.empty();
+        auto scope = std::move(refresh_scope_);
+        refresh_scope_ = {};
+        refresh_full_ = false;
+        if (scoped) {
+            co_await winrt::resume_background();
+            std::map<RegistryKey,winchisel::core::Result<Value>> registry;
+            for(auto const& destination:scope.registry) {
+                RegistryKey key{destination.hive,destination.key_path,destination.value_name,destination.type};
+                if(!registry.contains(key))registry.emplace(std::move(key),winchisel::platform::read_registry_value(destination));
+            }
+            std::map<std::string,winchisel::core::Result<bool>> tasks;
+            for(auto const& id:scope.tasks)if(!tasks.contains(id))tasks.emplace(id,winchisel::platform::read_scheduled_task(id));
+            std::map<std::string,winchisel::core::Result<bool>> specials;
+            for(auto const& id:scope.specials)if(!specials.contains(id))specials.emplace(id,winchisel::platform::read_special_performance_toggle(id));
+            co_await ui;
+            for(auto& [key,value]:registry)registry_state_.insert_or_assign(key,std::move(value));
+            for(auto& [id,value]:tasks)task_state_.insert_or_assign(id,std::move(value));
+            for(auto& [id,value]:specials)special_state_.insert_or_assign(id,std::move(value));
+            load_gaming_toggles(); load_gaming_selections(); load_catalog_toggles(); load_catalog_selections();
+            work_running_=false; IsEnabled(true);
+            // A change queued while the scoped refresh was reading still needs its turn.
+            if(!pending_changes_.empty())process_changes();
+            co_return;
         }
         // Only plain registry targets and IDs cross the worker boundary.
         std::vector<Target> targets{

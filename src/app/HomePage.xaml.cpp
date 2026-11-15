@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "AsyncSupport.hpp"
 #include "HomePage.xaml.h"
+#include "Localization.hpp"
 
 #if __has_include("HomePage.g.cpp")
 #include "HomePage.g.cpp"
@@ -18,7 +19,9 @@ HomePage::HomePage() {
     timer_ = DispatcherTimer();
     timer_.Interval(std::chrono::seconds(5));
     auto weak = get_weak();
-    timer_token_ = timer_.Tick([weak](auto&&, auto&&) { if (auto self = weak.get()) self->Refresh(); });
+    // Skip the periodic refresh while the window is not active (same rule as
+    // the Processes page); it catches up on the next tick after activation.
+    timer_token_ = timer_.Tick([weak](auto&&, auto&&) { if (!winchisel::ui::app_foreground()) return; if (auto self = weak.get()) self->Refresh(); });
     Loaded([weak](auto&&, auto&&) { if (auto self = weak.get()) { self->timer_.Start(); if (!self->refresh_running_) self->Refresh(); } });
     Unloaded([weak](auto&&, auto&&) { if (auto self = weak.get()) self->timer_.Stop(); });
 }

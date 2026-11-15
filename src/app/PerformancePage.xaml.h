@@ -38,7 +38,18 @@ private:
     winchisel::core::Result<int> update_policy_state_{std::unexpected(winchisel::core::Error{"Not loaded"})};
     std::deque<std::function<winchisel::core::Result<void>()>> pending_changes_;
     bool work_running_{};
+    // What a change can have altered. After a change with a scope only these
+    // values are re-read; a change without one (bulk profile, DNS, update
+    // policy) or any failure falls back to the full scan.
+    struct RefreshScope {
+        std::vector<winchisel::core::RegistryTarget> registry;
+        std::vector<std::string> tasks;
+        std::vector<std::string> specials;
+    };
+    RefreshScope refresh_scope_;
+    bool refresh_full_{true};
     void submit(std::function<winchisel::core::Result<void>()> change);
+    void submit(std::function<winchisel::core::Result<void>()> change, RefreshScope scope);
     winrt::fire_and_forget process_changes();
     winchisel::core::Result<winchisel::core::RegistryValue> cached_value(winchisel::core::RegistryTarget const& target) const;
     winchisel::core::Result<bool> cached_task(std::string const& id) const;

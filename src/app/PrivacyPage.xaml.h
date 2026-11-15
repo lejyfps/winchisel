@@ -82,7 +82,9 @@ private:
     std::vector<SecurityToggle> security_toggles_;
     std::vector<PrivacyToggle> privacy_toggles_;
     struct PrivacySnapshot {
-        std::vector<bool> privacy;
+        // Keyed by catalog id and covering the whole catalog, so toggles of
+        // groups that are filled later can be populated from a cached snapshot.
+        std::map<std::string, bool, std::less<>> privacy;
         std::vector<bool> security;
         int uac{2};
         int smart_app_control{-1};
@@ -94,6 +96,9 @@ private:
     std::deque<std::function<winchisel::core::Result<void>()>> pending_;
     bool work_running_{};
     bool snapshot_ready_{};
+    // Last state read on the worker. Groups filled later are populated from
+    // it instead of re-reading the registry on the UI thread.
+    PrivacySnapshot snapshot_;
     winrt::Microsoft::UI::Xaml::Controls::ComboBox uac_level_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox smart_app_control_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::ComboBox powershell_policy_{nullptr};

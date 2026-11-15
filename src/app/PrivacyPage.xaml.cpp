@@ -446,7 +446,7 @@ void PrivacyPage::ensure_group(Controls::Expander const& expander) {
     attach_group(expander);
     if (expander.Content()) return;
     fill_group(expander);
-    if (snapshot_ready_) apply_snapshot(read_snapshot());
+    if (snapshot_ready_) apply_snapshot(snapshot_);
 }
 
 void PrivacyPage::ensure_all_groups() {
@@ -459,7 +459,7 @@ void PrivacyPage::ensure_all_groups() {
         fill_group(expander);
         filled = true;
     }
-    if (filled && snapshot_ready_) apply_snapshot(read_snapshot());
+    if (filled && snapshot_ready_) apply_snapshot(snapshot_);
 }
 
 void PrivacyPage::attach_group(Controls::Expander const& expander) {
@@ -673,20 +673,14 @@ Controls::StackPanel PrivacyPage::security_content() {
 
 PrivacyPage::PrivacySnapshot PrivacyPage::read_snapshot() const {
     PrivacySnapshot snapshot;
-    snapshot.privacy.reserve(privacy_toggles_.size());
-    for (auto const& item : privacy_toggles_) {
-        bool enabled = true;
-        for (auto const& rule : winchisel::core::get_privacy_registry_rules()) {
-            if (rule.id != item.id) continue;
-            auto destination = target(rule.root ? Hive::local_machine : Hive::current_user, rule.path.data(), rule.name.data(), rule.kind ? Type::string : Type::dword);
-            auto actual = winchisel::platform::read_registry_value(destination);
-            bool match = false;
-            if (actual) {
-                match = registry_tokens_match(rule.enabled_value, *actual);
-            }
-            enabled = enabled && match;
-        }
-        snapshot.privacy.push_back(enabled);
+    // One pass over the rules: a tweak is on when every one of its values
+    // matches. Reads only static catalog data, so it is safe on the worker.
+    for (auto const& rule : winchisel::core::get_privacy_registry_rules()) {
+        auto destination = target(rule.root ? Hive::local_machine : Hive::current_user, rule.path.data(), rule.name.data(), rule.kind ? Type::string : Type::dword);
+        auto actual = winchisel::platform::read_registry_value(destination);
+        const bool match = actual && registry_tokens_match(rule.enabled_value, *actual);
+        auto [entry, inserted] = snapshot.privacy.try_emplace(std::string(rule.id), match);
+        if (!inserted) entry->second = entry->second && match;
     }
     snapshot.security.reserve(security_toggles_.size());
     for (auto const& tweak : security_toggles_) {
@@ -741,10 +735,12 @@ PrivacyPage::PrivacySnapshot PrivacyPage::read_snapshot() const {
 
 void PrivacyPage::apply_snapshot(PrivacySnapshot const& snapshot) {
     loading_security_ = true;
-    for (std::size_t index{}; index < privacy_toggles_.size() && index < snapshot.privacy.size(); ++index) {
+    for (std::size_t index{}; index < privacy_toggles_.size(); ++index) {
         if (!privacy_toggles_[index].control) continue;
-        privacy_toggles_[index].control.IsOn(snapshot.privacy[index]);
-        const bool on = snapshot.privacy[index];
+        // A tweak without registry rules counts as on, as before.
+        const auto found = snapshot.privacy.find(privacy_toggles_[index].id);
+        const bool on = found == snapshot.privacy.end() || found->second;
+        privacy_toggles_[index].control.IsOn(on);
         update_state_badges(privacy_toggles_[index].rec_badge, privacy_toggles_[index].def_badge, !on, on);
     }
     for (std::size_t index{}; index < security_toggles_.size() && index < snapshot.security.size(); ++index) {
@@ -795,6 +791,7 @@ winrt::fire_and_forget PrivacyPage::process_changes() {
             auto snapshot = read_snapshot();
             co_await ui;
             apply_snapshot(snapshot);
+            snapshot_ = std::move(snapshot);
             snapshot_ready_ = true;
             work_running_ = false;
             if (pending_.empty() || !failure.empty()) break;
