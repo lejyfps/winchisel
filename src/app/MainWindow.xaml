@@ -20,9 +20,9 @@
                         ToolTipService.ToolTip="Check for updates" AutomationProperties.Name="Check for updates">
                     <Viewbox Width="10" Height="10"><SymbolIcon Symbol="Sync" /></Viewbox>
                 </Button>
-                <Button x:Name="UpdateProgressButton" Height="28" Padding="8,0" CornerRadius="4" BorderThickness="0" FontSize="12"
-                        Style="{StaticResource AccentButtonStyle}" IsEnabled="False"
-                        AutomationProperties.Name="Update progress"
+                <Button x:Name="UpdateProgressButton" Click="UpdateProgress_Click" Height="28" Padding="8,0" CornerRadius="4" BorderThickness="0" FontSize="12"
+                        Style="{StaticResource AccentButtonStyle}"
+                        ToolTipService.ToolTip="Show update details" AutomationProperties.Name="Update progress"
                         Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <ProgressRing x:Name="UpdateDownloadRing" Width="14" Height="14"

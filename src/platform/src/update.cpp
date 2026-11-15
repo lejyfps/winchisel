@@ -171,6 +171,72 @@ std::optional<std::string> asset_url(std::string const& api_json, std::string_vi
     }
 }
 
+// Decodes a raw JSON string body (without quotes). Covers the escapes GitHub
+// emits; \u escapes, including surrogate pairs, are converted to UTF-8.
+std::string json_unescape(std::string_view raw) {
+    std::string out;
+    out.reserve(raw.size());
+    auto hex4 = [&](std::size_t at) -> std::optional<unsigned> {
+        if (at + 4 > raw.size()) return std::nullopt;
+        unsigned value{};
+        for (std::size_t i = at; i < at + 4; ++i) {
+            const char c = raw[i];
+            value <<= 4;
+            if (c >= '0' && c <= '9') value |= static_cast<unsigned>(c - '0');
+            else if (c >= 'a' && c <= 'f') value |= static_cast<unsigned>(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') value |= static_cast<unsigned>(c - 'A' + 10);
+            else return std::nullopt;
+        }
+        return value;
+    };
+    auto put_utf8 = [&](unsigned cp) {
+        if (cp < 0x80) out += static_cast<char>(cp);
+        else if (cp < 0x800) { out += static_cast<char>(0xC0 | (cp >> 6)); out += static_cast<char>(0x80 | (cp & 0x3F)); }
+        else if (cp < 0x10000) { out += static_cast<char>(0xE0 | (cp >> 12)); out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); out += static_cast<char>(0x80 | (cp & 0x3F)); }
+        else { out += static_cast<char>(0xF0 | (cp >> 18)); out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F)); out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); out += static_cast<char>(0x80 | (cp & 0x3F)); }
+    };
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        if (raw[i] != '\\' || i + 1 >= raw.size()) { out += raw[i]; continue; }
+        const char e = raw[++i];
+        switch (e) {
+            case 'n': out += '\n'; break;
+            case 't': out += '\t'; break;
+            case 'r': case 'b': case 'f': break;
+            case 'u': {
+                auto cp = hex4(i + 1);
+                if (!cp) break;
+                i += 4;
+                if (*cp >= 0xD800 && *cp <= 0xDBFF && i + 6 < raw.size() && raw[i + 1] == '\\' && raw[i + 2] == 'u') {
+                    if (auto low = hex4(i + 3); low && *low >= 0xDC00 && *low <= 0xDFFF) {
+                        put_utf8(0x10000 + ((*cp - 0xD800) << 10) + (*low - 0xDC00));
+                        i += 6;
+                        break;
+                    }
+                }
+                put_utf8(*cp);
+                break;
+            }
+            default: out += e; break;
+        }
+    }
+    return out;
+}
+
+// Copies display-only release metadata onto a verified manifest. "release"
+// is the GitHub API object of exactly this release (or the slice of the list
+// response that belongs to it). The page URL is built from the verified
+// version instead of being taken from the response.
+void attach_release_metadata(ReleaseManifest& manifest, std::string_view release) {
+    if (auto body = json_string_field(release, "body")) {
+        auto notes = json_unescape(*body);
+        if (notes.size() > 64 * 1024) notes.resize(64 * 1024);
+        manifest.notes = std::move(notes);
+    }
+    if (auto published = json_string_field(release, "published_at"); published && published->size() <= 32)
+        manifest.published_at = *published;
+    manifest.release_url = "https://github.com/lejyfps/winchisel/releases/tag/v" + manifest.version;
+}
+
 std::vector<std::byte> decode_base64(std::string_view value) {
     DWORD size{};
     if (!CryptStringToBinaryA(value.data(), static_cast<DWORD>(value.size()), CRYPT_STRING_BASE64, nullptr, &size, nullptr, nullptr)) return {};
@@ -280,13 +346,16 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
     auto deadline=GetTickCount64()+120'000;
     // Percent-granular reports: hundreds of chunk callbacks would otherwise
     // flood the UI queue the caller marshals them through.
-    std::uint64_t reported_percent = static_cast<std::uint64_t>(-1);
+    std::uint64_t reported_permille = static_cast<std::uint64_t>(-1);
+    bool cancelled{};
+    // Per-mille reports keep the speed/ETA readout smooth without flooding
+    // the UI queue; the callback can cancel the download.
     auto report = [&](bool force) {
         if (!progress || !expected_size) return;
-        const auto percent = total * 100 / expected_size;
-        if (force || percent != reported_percent) {
-            reported_percent = percent;
-            progress(total, expected_size);
+        const auto permille = total * 1000 / expected_size;
+        if (force || permille != reported_permille) {
+            reported_permille = permille;
+            if (!progress(total, expected_size)) cancelled = true;
         }
     };
     for(;;){
@@ -304,11 +373,13 @@ winchisel::core::Result<void> download_https_file(std::string_view url, std::fil
             total+=read; available-=read;
             deadline=GetTickCount64()+120'000;
             report(false);
+            if(cancelled) break;
         }
-        if(failed||transport) break;
+        if(failed||transport||cancelled) break;
     }
     output.close();
     auto remove_partial=[&]{ std::error_code error; std::filesystem::remove(destination, error); };
+    if(cancelled){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail=std::string(k_update_cancelled)}); }
     if(transport){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail="HTTPS transfer failed"}); }
     if(failed||!output||total!=expected_size){ remove_partial(); return std::unexpected(winchisel::core::Error{.detail=failed&&total+1>expected_size?"Response exceeded declared size limit":"Unexpected download size"}); }
     const auto digest=hasher.finish();
@@ -414,7 +485,10 @@ winchisel::core::Result<ReleaseManifest> verify_release_manifest(std::string_vie
 }
 
 winchisel::core::Result<ReleaseManifest> check_github_latest_release() {
-    auto release=get_https(k_github_latest_release_api); if(!release)return std::unexpected(release.error()); auto manifest_url=asset_url(*release,"release.json"), signature_url=asset_url(*release,"release.json.sig"); if(!manifest_url||!signature_url)return fail("Release is missing manifest assets"); auto manifest=get_https(*manifest_url), signature=get_https(*signature_url); if(!manifest)return std::unexpected(manifest.error()); if(!signature)return std::unexpected(signature.error()); return verify_release_manifest(*manifest,*signature);
+    auto release=get_https(k_github_latest_release_api); if(!release)return std::unexpected(release.error()); auto manifest_url=asset_url(*release,"release.json"), signature_url=asset_url(*release,"release.json.sig"); if(!manifest_url||!signature_url)return fail("Release is missing manifest assets"); auto manifest=get_https(*manifest_url), signature=get_https(*signature_url); if(!manifest)return std::unexpected(manifest.error()); if(!signature)return std::unexpected(signature.error());
+    auto verified=verify_release_manifest(*manifest,*signature);
+    if(verified)attach_release_metadata(*verified,*release);
+    return verified;
 }
 
 winchisel::core::Result<ReleaseManifest> check_github_nightly_release() {
@@ -444,7 +518,7 @@ winchisel::core::Result<ReleaseManifest> check_github_nightly_release() {
         if(!manifest_url||!signature_url) continue;
         auto manifest=get_https(*manifest_url); if(!manifest){ error=manifest.error().detail; continue; }
         auto signature=get_https(*signature_url); if(!signature){ error=signature.error().detail; continue; }
-        if (auto verified=verify_release_manifest(*manifest,*signature)) return verified;
+        if (auto verified=verify_release_manifest(*manifest,*signature)) { attach_release_metadata(*verified, candidates[index].block); return verified; }
         else error=verified.error().detail;
     }
     return fail(std::move(error));
@@ -491,7 +565,7 @@ winchisel::core::Result<std::filesystem::path> stage_release_artifact(ReleaseMan
         const auto staged_size = std::filesystem::file_size(final, size_error);
         if (!size_error && staged_size == artifact->size && sha256_hex_file(final) == artifact->sha256) {
             if (!write_manifest_siblings()) return std::unexpected(winchisel::core::Error{.detail="Could not persist update metadata"});
-            if (progress) progress(artifact->size, artifact->size);
+            if (progress) (void)progress(artifact->size, artifact->size);
             return final;
         }
     }

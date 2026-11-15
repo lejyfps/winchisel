@@ -27,6 +27,12 @@ struct ReleaseManifest {
     // updater can re-verify without trusting caller-provided hashes alone.
     std::string raw_json;
     std::string raw_signature;
+    // Display-only metadata from the GitHub release (NOT covered by the
+    // signature): Markdown release notes, ISO-8601 publish date and the
+    // release page. Never use these for any security decision.
+    std::string notes;
+    std::string published_at;
+    std::string release_url;
 };
 
 // Validates the exact UTF-8 bytes of release.json against release.json.sig.
@@ -46,7 +52,10 @@ winchisel::core::Result<ReleaseManifest> check_github_nightly_release();
 
 // Progress while staging an artifact: downloaded bytes vs expected total
 // (total > 0). Invoked on a background thread; must not touch UI directly.
-using UpdateProgress = std::function<void(std::uint64_t downloaded_bytes, std::uint64_t total_bytes)>;
+// Return false to cancel: staging then stops, removes the partial download
+// and fails with k_update_cancelled.
+using UpdateProgress = std::function<bool(std::uint64_t downloaded_bytes, std::uint64_t total_bytes)>;
+inline constexpr std::string_view k_update_cancelled = "Update download cancelled";
 
 // Downloads exactly one signed-manifest artifact into a private staging folder.
 // The returned file has passed size and SHA-256 validation.

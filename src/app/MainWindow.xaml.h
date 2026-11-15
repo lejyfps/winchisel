@@ -4,6 +4,7 @@
 #include "MainWindow.xaml.g.h"
 #include "winchisel/core/revert.hpp"
 #include "winchisel/platform/update.hpp"
+#include "UpdateDialog.hpp"
 #include <cstdint>
 #include <filesystem>
 #include <list>
@@ -27,6 +28,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void Update_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UpdateRestart_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void UpdateDismiss_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void UpdateProgress_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void BugReport_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
     void Donate_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
 private:
@@ -91,6 +93,20 @@ private:
     std::filesystem::path pending_staged_;
     winchisel::platform::ReleaseArtifact pending_artifact_;
     std::string pending_version_;
+    // Update dialog flow. update_offer_ is the verified manifest being
+    // offered/downloaded/staged (kept until installed or dismissed) so the
+    // dialog can be reopened from the title bar at any point.
+    std::optional<winchisel::platform::ReleaseManifest> update_offer_;
+    std::string update_offer_artifact_;
+    bool update_offer_downgrade_{};
+    bool update_downloading_{};
+    std::uint64_t update_done_{};
+    std::uint64_t update_total_{};
+    std::shared_ptr<std::atomic_bool> update_cancel_;
+    std::shared_ptr<winchisel::ui::UpdateDialog> update_dialog_;
+    winrt::fire_and_forget open_update_dialog();
+    winrt::fire_and_forget start_update_download(bool silent);
+    void on_update_progress(std::uint64_t done, std::uint64_t total);
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer_{nullptr};
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer update_poll_timer_{nullptr};
     winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);

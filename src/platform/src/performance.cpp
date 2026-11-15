@@ -680,9 +680,68 @@ winchisel::core::Result<void> write_nvidia_drs_toggle(std::string_view id, bool 
     return nvidia_drs::write_dword(setting, enabled ? on_value : off_value);
 }
 }
+// Fast path for read_dns_profile: one `netsh show dnsservers` lists every
+// interface, which replaces one netsh process per adapter (each spawn costs
+// tens of milliseconds). The listing is split into its per-interface
+// paragraphs and each adapter's paragraph is evaluated exactly like the
+// per-adapter output.
+//
+// The listing only contains interfaces that currently exist, while
+// ipv4_adapters() also returns stale connection names (removed Wi-Fi dongles,
+// virtual adapters). Asking netsh for such a name prints nothing, which used to
+// read as "custom" and made the whole machine report a custom DNS mix. Names
+// without a paragraph are therefore skipped.
+//
+// Returns nullopt when the listing cannot be trusted: no adapter matched, a
+// name matched twice, or more than one listed interface (loopback is the one
+// expected extra) matched no name, e.g. because of a name encoding mismatch.
+// The caller then asks netsh per adapter as before.
+std::optional<int> dns_profile_from_listing(std::vector<std::wstring> const& adapters, std::string listing){
+    std::erase(listing, '\r');
+    std::vector<std::string_view> paragraphs;
+    const std::string_view text{listing};
+    for(std::size_t start{}; start<text.size();){
+        auto end=text.find("\n\n",start);
+        if(end==std::string_view::npos)end=text.size();
+        auto paragraph=text.substr(start,end-start);
+        while(!paragraph.empty()&&paragraph.front()=='\n')paragraph.remove_prefix(1);
+        if(!paragraph.empty())paragraphs.push_back(paragraph);
+        start=end+2;
+    }
+    std::size_t listed{};
+    for(auto const& paragraph:paragraphs){
+        if(paragraph.substr(0,paragraph.find('\n')).find('"')!=std::string_view::npos)++listed;
+    }
+    std::size_t matched{};
+    bool mixed{};
+    int common=-1;
+    for(auto const& name:adapters){
+        // netsh writes its output in the OEM code page.
+        const int size=WideCharToMultiByte(CP_OEMCP,0,name.data(),static_cast<int>(name.size()),nullptr,0,nullptr,nullptr);
+        if(size<=0)return std::nullopt;
+        std::string needle(static_cast<std::size_t>(size)+2,'"');
+        if(WideCharToMultiByte(CP_OEMCP,0,name.data(),static_cast<int>(name.size()),needle.data()+1,size,nullptr,nullptr)!=size)return std::nullopt;
+        std::string_view match;
+        for(auto const& paragraph:paragraphs){
+            const auto header=paragraph.substr(0,paragraph.find('\n'));
+            if(header.find(needle)==std::string_view::npos)continue;
+            if(!match.empty())return std::nullopt;
+            match=paragraph;
+        }
+        if(match.empty())continue;
+        ++matched;
+        const auto profile=profile_from_dns_text(std::string(match));
+        if(common<0)common=profile; else if(common!=profile)mixed=true;
+    }
+    if(!matched||matched+1<listed)return std::nullopt;
+    return mixed?7:common;
+}
 winchisel::core::Result<int> read_dns_profile(){
     auto adapters=ipv4_adapters();
     if(adapters.empty()){auto result=run_netsh(L"netsh.exe interface ipv4 show dnsservers");if(result.code)return std::unexpected(netsh_error(result,"show dnsservers"));return profile_from_dns_text(result.output);}
+    if(auto listing=run_netsh(L"netsh.exe interface ipv4 show dnsservers");!listing.code){
+        if(auto profile=dns_profile_from_listing(adapters,std::move(listing.output)))return *profile;
+    }
     int common=-1;
     for(auto const& name:adapters){
         auto result=run_netsh(L"netsh.exe interface ipv4 show dnsservers name="+quoted(name));

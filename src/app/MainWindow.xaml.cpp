@@ -324,7 +324,192 @@ void MainWindow::UpdateDismiss_Click(IInspectable const&, RoutedEventArgs const&
     pending_staged_.clear();
     pending_artifact_ = winchisel::platform::ReleaseArtifact{};
     pending_version_.clear();
+    update_offer_.reset();
     show_update_idle();
+}
+
+void MainWindow::UpdateProgress_Click(IInspectable const&, RoutedEventArgs const&) {
+    // While checking there is nothing to show yet; once an update is offered,
+    // downloading or verifying, the pill reopens the dialog.
+    if (update_offer_ && !update_dialog_) open_update_dialog();
+}
+
+void MainWindow::on_update_progress(std::uint64_t done, std::uint64_t total) {
+    update_done_ = done;
+    update_total_ = total;
+    const bool verifying = total && done >= total;
+    if (verifying) show_update_busy(hstring{winchisel::core::loc(L"Verifying update \u2026")});
+    else show_update_progress(total ? static_cast<unsigned>(done * 100 / total) : 0);
+    if (update_dialog_) {
+        if (verifying) update_dialog_->set_verifying();
+        else update_dialog_->set_downloading(done, total);
+    }
+}
+
+winrt::fire_and_forget MainWindow::open_update_dialog() {
+    auto error_weak = get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue = DispatcherQueue(); } catch (...) {}
+    try {
+        auto lifetime = get_strong();
+        if (update_dialog_ || !update_offer_) co_return;
+        winchisel::core::DialogSlot slot;
+        if (!winchisel::ui::dialog_available(slot)) {
+            if (!update_downloading_ && !update_ready_) show_update_idle();
+            co_return;
+        }
+        winchisel::ui::UpdateDialog::Info info;
+        info.current_version = winchisel::platform::current_app_version();
+        info.new_version = update_offer_->version;
+        info.published_at = update_offer_->published_at;
+        info.notes = update_offer_->notes;
+        info.release_url = update_offer_->release_url;
+        info.downgrade_to_stable = update_offer_downgrade_;
+        info.portable = winchisel::platform::is_portable_install();
+        auto dialog = std::make_shared<winchisel::ui::UpdateDialog>(std::move(info));
+        dialog->dialog().XamlRoot(Content().XamlRoot());
+        if (update_ready_) dialog->set_ready();
+        else if (update_downloading_) {
+            if (update_total_ && update_done_ >= update_total_) { dialog->set_downloading(update_done_, update_total_); dialog->set_verifying(); }
+            else dialog->set_downloading(update_done_, update_total_);
+        }
+        update_dialog_ = dialog;
+
+        // What the user chose, read after the dialog closed.
+        struct Choice { bool restart{}; bool cancel{}; };
+        auto choice = std::make_shared<Choice>();
+        auto weak = get_weak();
+        std::weak_ptr<winchisel::ui::UpdateDialog> dialog_weak = dialog;
+        dialog->dialog().PrimaryButtonClick([weak, dialog_weak, choice](auto&&, Controls::ContentDialogButtonClickEventArgs const& args) {
+            auto self = weak.get();
+            auto current = dialog_weak.lock();
+            if (!self || !current) return;
+            using State = winchisel::ui::UpdateDialog::State;
+            if (current->state() == State::Ready) { choice->restart = true; return; }
+            // Offer / Try again: start downloading and keep the dialog open.
+            args.Cancel(true);
+            self->start_update_download(false);
+        });
+        dialog->dialog().SecondaryButtonClick([dialog_weak, choice](auto&&, auto&&) {
+            if (auto current = dialog_weak.lock(); current && current->state() == winchisel::ui::UpdateDialog::State::Downloading) choice->cancel = true;
+        });
+
+        const auto state_before_close = co_await dialog->dialog().ShowAsync();
+        (void)state_before_close;
+        const auto final_state = dialog->state();
+        update_dialog_.reset();
+        using State = winchisel::ui::UpdateDialog::State;
+        if (choice->cancel && update_cancel_) {
+            update_cancel_->store(true);
+            co_return;  // start_update_download resets the title bar when staging stops.
+        }
+        if (choice->restart) {
+            UpdateRestart_Click(nullptr, nullptr);
+            co_return;
+        }
+        switch (final_state) {
+            case State::Offer: {
+                // "Later" snoozes this version for automatic checks (no
+                // nagging every restart); a manual check still offers it.
+                auto dismissed = winchisel::application::Session::instance().settings();
+                dismissed.dismissed_update_version = update_offer_ ? update_offer_->version : std::string{};
+                (void)winchisel::application::Session::instance().set_settings(dismissed);
+                update_offer_.reset();
+                show_update_idle();
+                break;
+            }
+            case State::Failed:
+                if (!update_downloading_) { update_offer_.reset(); show_update_idle(); }
+                break;
+            case State::Ready:
+                if (update_ready_) show_update_ready(to_hstring(pending_version_));
+                break;
+            case State::Downloading:
+            case State::Verifying:
+                break;  // "Hide": the download keeps running in the title bar.
+        }
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self = error_weak.get()) { self->update_dialog_.reset(); (void)text; }
+        });
+    }
+}
+
+winrt::fire_and_forget MainWindow::start_update_download(bool silent) {
+    auto error_weak = get_weak();
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue error_queue{nullptr};
+    try { error_queue = DispatcherQueue(); } catch (...) {}
+    try {
+        auto lifetime = get_strong();
+        if (update_downloading_ || !update_offer_) co_return;
+        update_downloading_ = true;
+        update_check_running_ = true;
+        update_done_ = 0;
+        update_total_ = 0;
+        auto cancel = std::make_shared<std::atomic_bool>(false);
+        update_cancel_ = cancel;
+        const auto manifest = *update_offer_;
+        const auto artifact_id = update_offer_artifact_;
+        const auto artifact = std::ranges::find_if(manifest.artifacts, [&](auto const& item) { return item.id == artifact_id; });
+        show_update_progress(0);
+        if (update_dialog_) update_dialog_->set_downloading(0, 0);
+        winrt::apartment_context ui_thread;
+        auto ui_queue = DispatcherQueue();
+        auto progress_weak = get_weak();
+        winchisel::platform::boot_log(("update stage begin v" + manifest.version).c_str());
+        co_await winrt::resume_background();
+        auto staged = winchisel::platform::stage_release_artifact(manifest, artifact_id,
+            [ui_queue, progress_weak, cancel](std::uint64_t done, std::uint64_t total) {
+                (void)winchisel::ui::enqueue_safe(ui_queue, [progress_weak, done, total] {
+                    if (auto self = progress_weak.get()) self->on_update_progress(done, total);
+                });
+                return !cancel->load();
+            });
+        co_await ui_thread;
+        update_downloading_ = false;
+        update_cancel_.reset();
+        if (!staged) {
+            const bool cancelled = staged.error().detail == winchisel::platform::k_update_cancelled;
+            winchisel::platform::boot_log(("update stage " + std::string(cancelled ? "cancelled" : "failed: ") + (cancelled ? "" : staged.error().detail)).c_str());
+            show_update_idle();
+            if (cancelled) {
+                if (update_dialog_) update_dialog_->set_offer();
+                else update_offer_.reset();
+                co_return;
+            }
+            const std::wstring message = staged.error().detail == "SHA-256 mismatch"
+                ? winchisel::core::loc(L"The downloaded file did not match the signed release and was discarded. Nothing was changed.")
+                : winchisel::core::loc(L"The update could not be downloaded. Check your connection and try again. Nothing was changed.");
+            if (update_dialog_) update_dialog_->set_failed(message);
+            else {
+                update_offer_.reset();
+                if (!silent) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update failed", message);
+            }
+            co_return;
+        }
+        pending_staged_ = *staged;
+        pending_artifact_ = artifact != manifest.artifacts.end() ? *artifact : winchisel::platform::ReleaseArtifact{};
+        pending_version_ = manifest.version;
+        update_ready_ = true;
+        update_check_running_ = false;
+        const hstring version_text = to_hstring(manifest.version);
+        show_update_ready(version_text);
+        if (update_dialog_) update_dialog_->set_ready();
+        else if (silent) {
+            // The poller found and staged this on its own: one toast so the
+            // ready button in the title bar is not a silent surprise.
+            const hstring ready_text = L"Version " + version_text + L" is ready. Restart Winchisel to install it.";
+            winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Update ready", std::wstring(ready_text.c_str()));
+        }
+        winchisel::platform::boot_log("update staged, waiting for restart");
+    } catch (...) {
+        winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
+            if (auto self = error_weak.get()) {
+                self->update_downloading_ = false;
+                self->show_update_idle(); (void)text;
+            }
+        });
+    }
 }
 
 winrt::fire_and_forget MainWindow::install_pending_update() {
@@ -878,71 +1063,18 @@ winrt::fire_and_forget MainWindow::check_for_updates(UpdateCheckMode mode) {
         if (mode == UpdateCheckMode::Manual) winchisel::ui::show_toast(Controls::InfoBarSeverity::Error, L"Update unavailable", L"No compatible update package was found.");
         co_return;
     }
-    // The slot covers the confirm prompt only. The download itself is
-    // non-modal (Zed-style): the title-bar ring tracks progress and the
-    // update installs on explicit restart instead of auto-closing the app.
-    // The silent poller skips the prompt and downloads straight away.
-    const hstring version_text = to_hstring(manifest->version);
-    if (mode != UpdateCheckMode::Silent) {
-        winchisel::core::DialogSlot dialog_slot; if(!winchisel::ui::dialog_available(dialog_slot)){show_update_idle(); co_return;}
-    {
-        Controls::ContentDialog dialog;
-        dialog.XamlRoot(Content().XamlRoot());
-        dialog.Title(box_value(hstring{winchisel::core::loc(L"Winchisel update available")}));
-        if (downgrade_to_stable) {
-            dialog.Content(box_value(L"Version " + version_text + L" (stable) is available. You are running " + to_hstring(current_version) + L". Switch back to the stable release? It will be downloaded in the background."));
-            dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Switch to stable")});
-        } else {
-            dialog.Content(box_value(L"Version " + version_text + L" is available. Download it in the background?"));
-            dialog.PrimaryButtonText(hstring{winchisel::core::loc(L"Download")});
-        }
-        dialog.CloseButtonText(hstring{winchisel::core::loc(L"Later")});
-        if (co_await dialog.ShowAsync() != Controls::ContentDialogResult::Primary) {
-            // "Later" snoozes this version for automatic checks (no nagging
-            // every restart); a manual check still offers it again.
-            auto dismissed = winchisel::application::Session::instance().settings();
-            dismissed.dismissed_update_version = manifest->version;
-            (void)winchisel::application::Session::instance().set_settings(dismissed);
-            show_update_idle(); co_return;
-        }
-    }
-    }
-    show_update_progress(0);
-    auto ui_queue = DispatcherQueue();
-    auto progress_weak = get_weak();
-    winchisel::platform::boot_log(("update stage begin v" + manifest->version).c_str());
-    co_await winrt::resume_background();
-    auto staged = winchisel::platform::stage_release_artifact(*manifest, artifact_id,
-        [ui_queue, progress_weak](std::uint64_t done, std::uint64_t total) {
-            (void)winchisel::ui::enqueue_safe(ui_queue, [progress_weak, done, total] {
-                if (auto self = progress_weak.get()) {
-                    if (!total) return;
-                    const auto percent = static_cast<unsigned>(done * 100 / total);
-                    self->show_update_progress(percent);
-                }
-            });
-        });
-    co_await ui_thread;
-    if (!staged) {
-        winchisel::platform::boot_log(("update stage failed: " + staged.error().detail).c_str());
-        show_update_idle();
-        if (mode != UpdateCheckMode::Silent) winchisel::platform::show_error_message(L"The update could not be downloaded or verified.");
+    // Interactive checks open the update dialog (version, release notes, then
+    // live download/verify/install progress). The silent poller downloads
+    // straight away and only announces the staged update with a toast.
+    update_offer_ = *manifest;
+    update_offer_artifact_ = std::string(artifact_id);
+    update_offer_downgrade_ = downgrade_to_stable;
+    if (mode == UpdateCheckMode::Silent) {
+        start_update_download(true);
         co_return;
     }
-    pending_staged_ = *staged;
-    pending_artifact_ = *artifact;
-    pending_version_ = manifest->version;
-    update_ready_ = true;
-    update_check_running_ = false;
-    show_update_ready(version_text);
-    // The poller found and staged this on its own: one toast so the ready
-    // button in the title bar is not a silent surprise. Later polls skip
-    // while update_ready_ holds, so this fires once per version.
-    if (mode == UpdateCheckMode::Silent) {
-        const hstring ready_text = L"Version " + version_text + L" is ready. Restart Winchisel to install it.";
-        winchisel::ui::show_toast(Controls::InfoBarSeverity::Success, L"Update ready", std::wstring(ready_text.c_str()));
-    }
-    winchisel::platform::boot_log("update staged, waiting for restart");
+    show_update_busy(hstring{winchisel::core::loc(L"Update available")});
+    open_update_dialog();
 
     } catch (...) {
         winchisel::ui::report_async_error(error_queue, [error_weak](winrt::hstring const& text) {
