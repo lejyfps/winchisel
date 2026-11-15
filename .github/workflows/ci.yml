@@ -1,7 +1,12 @@
 name: CI
 
-# Compile + tests on every push/PR. nightly.yml only ever ships a commit whose
-# CI run on master succeeded, so keep this workflow's file name stable.
+# Compile + tests + AddressSanitizer on every push/PR. nightly.yml only ever
+# ships a commit whose CI run on master succeeded, so keep this file name.
+#
+# `changes` skips the Windows jobs when a push/PR touches only docs or repo
+# metadata. They then report "skipped" and the final `Check` job still passes,
+# so `Check` can be the single required status check for branch protection
+# (a plain paths-ignore would leave a required check pending forever).
 on:
   push:
     branches: [master]
@@ -12,12 +17,52 @@ on:
 permissions:
   contents: read
 
+# Pull requests: a new push supersedes the running check. master: every commit
+# finishes, otherwise a cancelled commit never turns green and the nightly
+# gate skips it.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect code changes
+        id: detect
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # Fail open: anything unexpected runs the full pipeline.
+          base=""
+          if [ "$EVENT" = "pull_request" ]; then base="$BASE"
+          elif [ "$EVENT" = "push" ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then base="$BEFORE"
+          fi
+          if [ -z "$base" ] || ! files=$(git diff --name-only "$base" "$HEAD" 2>/dev/null); then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "No usable base; running everything."; exit 0
+          fi
+          printf 'Changed files:\n%s\n' "$files"
+          # Docs and repo metadata that cannot affect the build or tests.
+          code=$(printf '%s\n' "$files" | grep -v -E '(^|/)[^/]+\.md$|^LICENSE$|^\.github/FUNDING\.yml$|^\.github/ISSUE_TEMPLATE/|^\.github/dependabot\.yml$|^assets/.*\.(png|jpg|gif|svg)$|^docs/' || true)
+          if [ -n "$code" ]; then echo "code=true" >> "$GITHUB_OUTPUT"; else echo "code=false" >> "$GITHUB_OUTPUT"; echo "Docs-only change; skipping Windows jobs."; fi
+
   test:
+    name: Build and test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -27,6 +72,14 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3.0.0
+
+      # The key changes only with packages.config, so the WindowsAppSDK and
+      # friends are downloaded once instead of on every run.
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('src/app/packages.config') }}
 
       - name: Restore packages
         shell: cmd
@@ -43,3 +96,33 @@ jobs:
       - name: Build Updater (Release x64)
         shell: cmd
         run: msbuild src\updater\Winchisel.Updater.vcxproj /m /nologo /verbosity:minimal /clp:ErrorsOnly /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\ /t:Rebuild
+
+  asan:
+    name: AddressSanitizer
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and run tests with AddressSanitizer
+        shell: cmd
+        run: call tools\run_tests_asan.cmd
+
+  # Single required check: passes only when every job passed, or was skipped
+  # because `changes` found a docs-only change.
+  check:
+    name: Check
+    if: always()
+    needs: [changes, test, asan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e '.changes.result == "success" and (.changes.outputs.code as $code
+            | [.test, .asan] | all(.result == "success" or (.result == "skipped" and $code == "false")))' > /dev/null

@@ -73,6 +73,12 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3.0.0
 
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('src/app/packages.config') }}
+
       - name: Restore packages
         shell: cmd
         run: nuget restore src\app\packages.config -PackagesDirectory packages
@@ -147,6 +153,10 @@ jobs:
             ${{ steps.assets.outputs.list }}
             ${{ steps.assets.outputs.dir }}/SHA256SUMS.txt
           if-no-files-found: error
+          # Artifact storage counts against the account quota even for public
+          # repos. Releases keep their assets on the Release page anyway, so the
+          # run copy is only a short-lived backup; previews are for quick tests.
+          retention-days: ${{ inputs.preview && 7 || 14 }}
 
       - name: Create GitHub Release
         if: ${{ !inputs.preview }}

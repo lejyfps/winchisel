@@ -1,0 +1,26 @@
+name: Tweak problem
+description: A tweak is wrong, toggles the wrong thing, or has a wrong Recommended/Default.
+labels: [tweak, needs-triage]
+body:
+  - type: input
+    id: tweak
+    attributes:
+      label: Tweak
+      description: Page, group and name as shown in Winchisel.
+      placeholder: "Performance > Graphics > Auto HDR"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Winchisel version
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong?
+      description: What the switch shows, what Windows actually does, and what you expected.
+    validations:
+      required: true

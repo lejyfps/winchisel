@@ -1,0 +1,39 @@
+name: Issue Labels
+
+# Keeps the labels the issue templates and stale.yml rely on in sync with this
+# file. Runs when the templates or this workflow change, or on demand.
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/ISSUE_TEMPLATE/**
+      - .github/workflows/issue-labels.yml
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    name: Sync issue labels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Ensure managed labels exist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # name|color|description  (--force updates color/description of existing labels)
+          while IFS='|' read -r name color desc; do
+            [ -z "$name" ] && continue
+            gh label create "$name" --color "$color" --description "$desc" --force
+          done <<'EOF'
+          bug|d73a4a|Something is broken or behaving incorrectly.
+          enhancement|a2eeef|Requested improvement or new capability.
+          tweak|5319e7|A Windows tweak is wrong, missing or has the wrong default.
+          needs-triage|fbca04|Needs maintainer review and initial categorization.
+          needs more info|d4c5f9|Waiting for details from the reporter; closes after 7 days without reply.
+          EOF

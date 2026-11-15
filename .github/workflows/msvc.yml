@@ -3,11 +3,28 @@ name: Microsoft C++ Code Analysis
 # MSVC /analyze through MSBuild (the msvc-code-analysis-action only supports
 # CMake). Each translation unit writes a *.nativecodeanalysis.sarif next to
 # its object file; they are collected and uploaded to Code Scanning.
+#
+# Not a required check, so plain paths-ignore is fine here: docs-only changes
+# simply do not run the (long) analysis build.
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+      - ".github/FUNDING.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/dependabot.yml"
+      - "docs/**"
   pull_request:
     branches: [master]
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+      - ".github/FUNDING.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/dependabot.yml"
+      - "docs/**"
   schedule:
     - cron: "38 17 * * 5"
   workflow_dispatch:
@@ -15,9 +32,10 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded PR runs only; every master commit gets analysed.
 concurrency:
-  group: msvc-analysis-${{ github.ref }}
-  cancel-in-progress: true
+  group: msvc-analysis-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
@@ -40,6 +58,12 @@ jobs:
       - name: Generate solution
         shell: cmd
         run: call tools\generate-solution.cmd
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('src/app/packages.config') }}
 
       - name: Restore packages
         shell: cmd

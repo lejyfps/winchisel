@@ -46,6 +46,32 @@ jobs:
           fi
           { echo "tag=$TAG"; echo "version=$version"; echo "prerelease=$prerelease"; } >> "$GITHUB_OUTPUT"
 
+      # Optional policy (repository variable STABLE_FROM_NIGHTLY=true): a stable
+      # tag must point at a commit that already shipped as a nightly, so stable
+      # only ever contains code nightly users have run. Off by default.
+      - name: Checkout tags for nightly policy
+        if: vars.STABLE_FROM_NIGHTLY == 'true' && steps.meta.outputs.prerelease == 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Require a nightly of this commit
+        if: vars.STABLE_FROM_NIGHTLY == 'true' && steps.meta.outputs.prerelease == 'false'
+        shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --quiet
+          sha=$(git rev-list -n1 "$TAG")
+          for t in $(git tag -l 'v*-nightly.*'); do
+            if [ "$(git rev-list -n1 "$t")" = "$sha" ]; then
+              echo "OK: $TAG matches nightly $t."; exit 0
+            fi
+          done
+          echo "::error::STABLE_FROM_NIGHTLY is on, but ${sha:0:7} never shipped as a nightly. Run NIGHTLY_CI.cmd first, test it, then tag that commit (or unset the variable)."
+          exit 1
+
   build:
     needs: meta
     permissions:

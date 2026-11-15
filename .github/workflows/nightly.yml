@@ -12,8 +12,13 @@ name: Nightly
 # reach winget.yml (which additionally skips prereleases).
 on:
   schedule:
-    - cron: "0 3 * * *" # 03:00 UTC daily
+    # 03:17 UTC daily. Off the full hour, when GitHub's scheduler is busiest.
+    - cron: "17 3 * * *"
   workflow_dispatch: {}
+
+# Pause scheduled nightlies without touching code: set the repository variable
+# PAUSE_NIGHTLY=true (Settings > Secrets and variables > Actions > Variables).
+# Manual runs (NIGHTLY_CI.cmd / "Run workflow") still work while paused.
 
 concurrency:
   group: nightly
@@ -21,6 +26,7 @@ concurrency:
 
 jobs:
   gate:
+    if: github.event_name != 'schedule' || vars.PAUSE_NIGHTLY != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -56,14 +62,21 @@ jobs:
             echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          # Commit of the newest existing nightly tag (by tag creation date).
-          last_tag=$(git tag -l 'v*-nightly.*' --sort=-creatordate | head -n1)
+          # Newest shipped build: the latest nightly or stable tag, by date.
+          last_tag=$(git tag -l 'v*' --sort=-creatordate | head -n1)
           if [ -n "$last_tag" ]; then
             last_sha=$(git rev-list -n1 "$last_tag")
             # Never ship the same or an OLDER commit: the updater would offer it
             # as newer (higher date) and users would silently downgrade.
             if git merge-base --is-ancestor "$sha" "$last_sha"; then
               echo "Green commit $sha is already contained in $last_tag."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            # Docs-only changes since then are not worth a new build.
+            code=$(git diff --name-only "$last_sha" "$sha" \
+              | grep -v -E '(^|/)[^/]+\.md$|^LICENSE$|^\.github/|^assets/.*\.(png|jpg|gif|svg)$|^docs/' || true)
+            if [ -z "$code" ]; then
+              echo "Only docs/repo metadata changed since $last_tag; skipping."
               echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
             fi
           fi

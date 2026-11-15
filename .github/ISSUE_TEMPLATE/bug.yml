@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in Winchisel is broken or behaves incorrectly.
+labels: [bug, needs-triage]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Winchisel version
+      description: Settings > About, or the release you installed.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed via
+      options: [winget, Setup (.exe), Portable, Nightly]
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: "winver, e.g. Windows 11 24H2 (26100.xxxx)"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Steps to reproduce, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Change history / screenshots
+      description: Optional. Entries from Change history or screenshots help a lot.
