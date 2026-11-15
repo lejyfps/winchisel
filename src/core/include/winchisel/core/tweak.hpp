@@ -25,6 +25,9 @@ struct PerformanceRegistryRule {
     std::string_view id, path, name, enabled_values, disabled_values;
     std::int32_t root{}, kind{}, byte_index{};
     std::uint8_t bit_mask{};
+    // Non-empty: the value is a "Key=Value;" string shared by several tweaks and
+    // this rule only owns the sub-key with this name (Winhance CompositeStringKey).
+    std::string_view composite_key{};
 };
 struct PerformanceProfileRule {
     std::string_view id;

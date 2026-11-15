@@ -630,6 +630,58 @@ void PerformancePage::detach_group(Controls::Expander const& expander) {
     expander.Content(nullptr);
 }
 
+// "Key=Value;Key=Value;" strings (e.g. DirectXUserGlobalSettings) hold several
+// independent tweaks. Keys compare case-insensitively, like Winhance.
+bool composite_key_equals(std::string_view a, std::string_view b) {
+    return a.size() == b.size() && std::ranges::equal(a, b, [](unsigned char x, unsigned char y) { return std::tolower(x) == std::tolower(y); });
+}
+
+std::optional<std::string> composite_get(std::string_view text, std::string_view key) {
+    std::size_t start = 0;
+    while (start < text.size()) {
+        auto end = text.find(';', start);
+        if (end == std::string_view::npos) end = text.size();
+        const auto entry = text.substr(start, end - start);
+        if (const auto eq = entry.find('='); eq != std::string_view::npos && eq > 0 && composite_key_equals(entry.substr(0, eq), key))
+            return std::string(entry.substr(eq + 1));
+        start = end + 1;
+    }
+    return std::nullopt;
+}
+
+std::string composite_set(std::string_view text, std::string_view key, std::optional<std::string_view> value) {
+    std::string result;
+    bool written = false;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        auto end = text.find(';', start);
+        if (end == std::string_view::npos) end = text.size();
+        const auto entry = text.substr(start, end - start);
+        const auto eq = entry.find('=');
+        if (eq != std::string_view::npos && eq > 0 && composite_key_equals(entry.substr(0, eq), key)) {
+            if (value && !written) { result.append(key).append("=").append(*value).append(";"); written = true; }
+        } else if (!entry.empty()) {
+            result.append(entry).append(";");
+        }
+        start = end + 1;
+    }
+    if (value && !written) result.append(key).append("=").append(*value).append(";");
+    return result;
+}
+
+// Reduces a full registry value to the sub-value a composite rule owns:
+// a string when the sub-key exists, otherwise "missing".
+Value composite_view(auto const& rule, Value const& actual) {
+    if (rule.composite_key.empty()) return actual;
+    if (auto text = std::get_if<std::string>(&actual))
+        if (auto sub = composite_get(*text, rule.composite_key)) return Value{std::move(*sub)};
+    return Value{std::monostate{}};
+}
+
+bool same_target(Target const& a, Target const& b) {
+    return a.hive == b.hive && a.key_path == b.key_path && a.value_name == b.value_name && a.type == b.type;
+}
+
 void PerformancePage::load_catalog_toggles() {
     loading_gaming_toggles_ = true;
     for (auto& item : catalog_toggles_) {
@@ -649,6 +701,7 @@ void PerformancePage::load_catalog_toggles() {
             found = true;
             auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
             auto actual = cached_value(target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type));
+            if (actual) actual = composite_view(rule, *actual);
             bool matches{};
             if (actual) {
                 std::size_t start{};
@@ -683,6 +736,13 @@ std::optional<Value> catalog_desired(auto const& rule, bool enabled, auto&& read
         else if (auto parsed = parse_dword_token(value)) desired = Value{*parsed};
         else return std::nullopt;
     }
+    else if (rule.kind == 1 && !rule.composite_key.empty()) {
+        auto current = read(destination);
+        auto text = current ? std::get_if<std::string>(&*current) : nullptr;
+        auto merged = composite_set(text ? std::string_view(*text) : std::string_view{}, rule.composite_key,
+            value == "__MISSING__" ? std::nullopt : std::optional<std::string_view>(value));
+        desired = merged.empty() ? Value{std::monostate{}} : Value{std::move(merged)};
+    }
     else if (rule.kind == 1) desired = value == "__MISSING__" ? Value{std::monostate{}} : Value{std::string(value)};
     else {
         auto current=read(destination);
@@ -710,19 +770,32 @@ void PerformancePage::save_catalog_toggle(std::size_t index) {
     }
     std::vector<std::pair<Target,Value>> registry;
     std::vector<std::pair<std::string,bool>> tasks;
+    // Rules that merge into a shared value (composite strings, binary bit masks)
+    // are re-evaluated on the worker against the live registry, so quick
+    // successive toggles on the same value cannot overwrite each other.
+    std::vector<std::pair<std::size_t, winchisel::core::PerformanceRegistryRule const*>> merge_rules;
     for (auto const& rule : winchisel::core::get_performance_registry_rules()) {
         if (rule.id != item.id) continue;
         auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
         auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
         auto desired = catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);});
         if (!desired) { show_write_error("A performance catalog entry is invalid and was not applied."); load_catalog_toggles(); return; }
+        if (rule.kind == 2 || !rule.composite_key.empty()) merge_rules.emplace_back(registry.size(), &rule);
         registry.emplace_back(destination, std::move(*desired));
     }
     const bool has_registry=std::ranges::any_of(winchisel::core::get_performance_registry_rules(),[&](auto const& rule){return rule.id==item.id;}) || winchisel::platform::is_special_performance_toggle(item.id);
     if(!has_registry) tasks.emplace_back(std::string(item.id), enabled);
     const bool shell = needs_shell_restart(item.id);
     const std::string label = performance_tweak_label(item.id);
-    submit([registry=std::move(registry),tasks=std::move(tasks),shell,label]{ auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,std::nullopt,std::nullopt,"performance",label); if (applied && shell) winchisel::platform::restart_shell(); return applied; });
+    submit([registry=std::move(registry),tasks=std::move(tasks),merge_rules=std::move(merge_rules),enabled,shell,label]() mutable {
+        for (auto const& [merge_index, rule] : merge_rules) {
+            auto fresh = catalog_desired(*rule, enabled, [&registry, index = merge_index](Target const& destination) -> winchisel::core::Result<Value> {
+                for (std::size_t i = index; i-- > 0;) if (same_target(registry[i].first, destination)) return registry[i].second;
+                return winchisel::platform::read_registry_value(destination);
+            });
+            if (fresh) registry[merge_index].second = std::move(*fresh);
+        }
+        auto applied = winchisel::platform::apply_registry_and_tasks(registry,tasks,std::nullopt,std::nullopt,"performance",label); if (applied && shell) winchisel::platform::restart_shell(); return applied; });
 }
 
 void PerformancePage::load_catalog_selections() {
@@ -884,9 +957,17 @@ void PerformancePage::apply_catalog_profile(bool recommended) {
             has_registry = true;
             auto type = rule.kind == 0 ? Type::dword : rule.kind == 1 ? Type::string : Type::binary;
             auto destination = target(rule.root == 0 ? Hive::current_user : Hive::local_machine, rule.path.data(), rule.name.data(), type);
-            auto desired = catalog_desired(rule, enabled, [this](auto const& destination){return cached_value(destination);});
+            // Read through earlier pending writes so several rules sharing one value
+            // (composite strings, binary bit masks) combine instead of overwriting each other.
+            auto desired = catalog_desired(rule, enabled, [this, &registry](auto const& destination) -> winchisel::core::Result<Value> {
+                for (auto it = registry.rbegin(); it != registry.rend(); ++it) if (same_target(it->first, destination)) return it->second;
+                return cached_value(destination);
+            });
             if (!desired) { show_write_error("A performance catalog entry is invalid and was not applied."); load_catalog_toggles(); load_catalog_selections(); return; }
-            registry.emplace_back(destination, std::move(*desired));
+            if (auto existing = std::ranges::find_if(registry, [&](auto const& change) { return same_target(change.first, destination); }); existing != registry.end())
+                existing->second = std::move(*desired);
+            else
+                registry.emplace_back(destination, std::move(*desired));
         }
         if (!has_registry) tasks.emplace_back(item.id, enabled);
     }

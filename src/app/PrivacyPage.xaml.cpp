@@ -48,6 +48,27 @@ std::optional<std::uint32_t> parse_dword_token(std::string_view token) {
     return value;
 }
 
+// Catalog value tokens may list alternatives separated by '|'. The first
+// token is what gets written; any token counts as a match when reading, so a
+// missing value (Windows default) can be recognised as "enabled".
+std::string_view first_token(std::string_view tokens) {
+    return tokens.substr(0, tokens.find('|'));
+}
+
+bool registry_tokens_match(std::string_view tokens, winchisel::core::RegistryValue const& actual) {
+    std::size_t start = 0;
+    while (start <= tokens.size()) {
+        auto end = tokens.find('|', start);
+        if (end == std::string_view::npos) end = tokens.size();
+        const auto token = tokens.substr(start, end - start);
+        if (token == "__MISSING__") { if (std::holds_alternative<std::monostate>(actual)) return true; }
+        else if (auto dword = std::get_if<std::uint32_t>(&actual); dword) { if (token == std::to_string(*dword)) return true; }
+        else if (auto text = std::get_if<std::string>(&actual); text) { if (token == *text) return true; }
+        start = end + 1;
+    }
+    return false;
+}
+
 std::string description_for(std::string_view id) {
     if (id == "security") return "Windows protection, Defender, SmartScreen, and account security.";
     if (id == "ads") return "Advertising identifiers, suggestions, and tailored experiences.";
@@ -580,7 +601,7 @@ Controls::StackPanel PrivacyPage::privacy_content(std::int32_t group) {
     return content;
 }
 
-void PrivacyPage::save_privacy_toggle(std::size_t index){if(loading_security_||index>=privacy_toggles_.size())return;auto const& item=privacy_toggles_[index];std::vector<std::pair<Target,Value>> changes;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto token=item.control.IsOn()?rule.enabled_value:rule.disabled_value;Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else if(auto parsed=parse_dword_token(std::string_view(token)))value=*parsed;else{show_write_error("A privacy catalog entry is invalid and was not applied.");submit([] { return winchisel::core::Result<void>{}; });return;}changes.emplace_back(destination,value);}const std::string label=privacy_tweak_label(item.id);submit([changes=std::move(changes),label] { return winchisel::platform::write_registry_values_atomic(changes,"privacy_security",label); });}
+void PrivacyPage::save_privacy_toggle(std::size_t index){if(loading_security_||index>=privacy_toggles_.size())return;auto const& item=privacy_toggles_[index];std::vector<std::pair<Target,Value>> changes;for(auto const& rule:winchisel::core::get_privacy_registry_rules()){if(rule.id!=item.id)continue;auto destination=target(rule.root?Hive::local_machine:Hive::current_user,rule.path.data(),rule.name.data(),rule.kind?Type::string:Type::dword);auto token=first_token(item.control.IsOn()?rule.enabled_value:rule.disabled_value);Value value;if(token=="__MISSING__")value=std::monostate{};else if(rule.kind)value=std::string(token);else if(auto parsed=parse_dword_token(std::string_view(token)))value=*parsed;else{show_write_error("A privacy catalog entry is invalid and was not applied.");submit([] { return winchisel::core::Result<void>{}; });return;}changes.emplace_back(destination,value);}const std::string label=privacy_tweak_label(item.id);submit([changes=std::move(changes),label] { return winchisel::platform::write_registry_values_atomic(changes,"privacy_security",label); });}
 
 Controls::StackPanel PrivacyPage::security_content() {
     auto content = Controls::StackPanel();
@@ -661,9 +682,7 @@ PrivacyPage::PrivacySnapshot PrivacyPage::read_snapshot() const {
             auto actual = winchisel::platform::read_registry_value(destination);
             bool match = false;
             if (actual) {
-                if (rule.enabled_value == "__MISSING__") match = std::holds_alternative<std::monostate>(*actual);
-                else if (auto dword = std::get_if<std::uint32_t>(&*actual); dword) match = rule.enabled_value == std::to_string(*dword);
-                else if (auto text = std::get_if<std::string>(&*actual); text) match = rule.enabled_value == *text;
+                match = registry_tokens_match(rule.enabled_value, *actual);
             }
             enabled = enabled && match;
         }
@@ -828,7 +847,7 @@ bool PrivacyPage::append_privacy_rules(std::vector<std::pair<Target,Value>>& cha
     for (auto const& rule : winchisel::core::get_privacy_registry_rules()) {
         if (rule.id != id) continue;
         auto destination = target(rule.root ? Hive::local_machine : Hive::current_user, rule.path.data(), rule.name.data(), rule.kind ? Type::string : Type::dword);
-        auto token = enabled ? rule.enabled_value : rule.disabled_value;
+        auto token = first_token(enabled ? rule.enabled_value : rule.disabled_value);
         Value value; if (token == "__MISSING__") value = std::monostate{}; else if (rule.kind) value = std::string(token); else if (auto parsed = parse_dword_token(std::string_view(token))) value = *parsed; else return false;
         changes.emplace_back(destination, value);
     }
@@ -853,9 +872,7 @@ int PrivacyPage::detect_ads_mode() const {
             auto actual = winchisel::platform::read_registry_value(target(rule.root ? Hive::local_machine : Hive::current_user, rule.path.data(), rule.name.data(), rule.kind ? Type::string : Type::dword));
             bool match = false;
             if (actual) {
-                if (rule.enabled_value == "__MISSING__") match = std::holds_alternative<std::monostate>(*actual);
-                else if (auto dword = std::get_if<std::uint32_t>(&*actual); dword) match = rule.enabled_value == std::to_string(*dword);
-                else if (auto text = std::get_if<std::string>(&*actual); text) match = rule.enabled_value == *text;
+                match = registry_tokens_match(rule.enabled_value, *actual);
             }
             matches_enabled = matches_enabled && match;
         }
