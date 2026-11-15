@@ -53,14 +53,11 @@ fixes.md
 plan.md
 todo.md
 changes.md
-# Maintainer-local build/test/release/submit scripts - never commit.
-# These exist only on the maintainer machine; GitHub holds source only.
-/tools/*.cmd
-/tools/*.ps1
+# Microsoft Store tooling is not used (never accepted); keep it local.
+/tools/store-submit.*
 # Release manual for the local scripts above - kept local only.
 docs/releasing.md
 installer/Package.appxmanifest
-installer/Winchisel.iss
 .env
 /docs/competitor-takeaways.md
 feedback.md

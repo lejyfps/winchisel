@@ -1,117 +1,77 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-#
-# Find more information at:
-# https://github.com/microsoft/msvc-code-analysis-action
-
 name: Microsoft C++ Code Analysis
 
+# MSVC /analyze through MSBuild (the msvc-code-analysis-action only supports
+# CMake). Each translation unit writes a *.nativecodeanalysis.sarif next to
+# its object file; they are collected and uploaded to Code Scanning.
 on:
   push:
-    branches: [ "master" ]
+    branches: [master]
   pull_request:
-    branches: [ "master" ]
+    branches: [master]
   schedule:
-    - cron: '38 17 * * 5'
+    - cron: "38 17 * * 5"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: msvc-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
-    permissions:
-      contents: read # for actions/checkout to fetch code
-      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
-      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
     name: Analyze
-    runs-on: windows-latest
-
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to Code Scanning
+      actions: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@323ab0502cd38fdc493335025a96c8fdb0edc71f # v2.0.1
+      - uses: NuGet/setup-nuget@323ab0502cd38fdc493335025a96c8fdb0edc71f # v2.0.1
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2.0.0
 
-      # The solution file is maintainer-local (see .gitignore); CI recreates
-      # it on the fly so restore and analysis work on a fresh checkout.
       - name: Generate solution
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $t = [char]9
-          $lines = @(
-            'Microsoft Visual Studio Solution File, Format Version 12.00',
-            '# Visual Studio Version 18',
-            'VisualStudioVersion = 18.0.0.0',
-            'MinimumVisualStudioVersion = 10.0.40219.1',
-            'Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Winchisel.Core", "src\core\Winchisel.Core.vcxproj", "{A1C0E001-0001-4000-8000-000000000001}"',
-            'EndProject',
-            'Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Winchisel.Platform", "src\platform\Winchisel.Platform.vcxproj", "{A1C0E001-0002-4000-8000-000000000002}"',
-            'EndProject',
-            'Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Winchisel.App", "src\app\Winchisel.App.vcxproj", "{A1C0E001-0004-4000-8000-000000000004}"',
-            'EndProject',
-            'Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Winchisel.Updater", "src\updater\Winchisel.Updater.vcxproj", "{A1C0E001-0005-4000-8000-000000000005}"',
-            'EndProject',
-            'Global',
-            ($t + 'GlobalSection(SolutionConfigurationPlatforms) = preSolution'),
-            ($t + $t + 'Debug|x64 = Debug|x64'),
-            ($t + $t + 'Release|x64 = Release|x64'),
-            ($t + 'EndGlobalSection'),
-            ($t + 'GlobalSection(ProjectConfigurationPlatforms) = postSolution'),
-            ($t + $t + '{A1C0E001-0001-4000-8000-000000000001}.Debug|x64.ActiveCfg = Debug|x64'),
-            ($t + $t + '{A1C0E001-0001-4000-8000-000000000001}.Debug|x64.Build.0 = Debug|x64'),
-            ($t + $t + '{A1C0E001-0001-4000-8000-000000000001}.Release|x64.ActiveCfg = Release|x64'),
-            ($t + $t + '{A1C0E001-0001-4000-8000-000000000001}.Release|x64.Build.0 = Release|x64'),
-            ($t + $t + '{A1C0E001-0002-4000-8000-000000000002}.Debug|x64.ActiveCfg = Debug|x64'),
-            ($t + $t + '{A1C0E001-0002-4000-8000-000000000002}.Debug|x64.Build.0 = Debug|x64'),
-            ($t + $t + '{A1C0E001-0002-4000-8000-000000000002}.Release|x64.ActiveCfg = Release|x64'),
-            ($t + $t + '{A1C0E001-0002-4000-8000-000000000002}.Release|x64.Build.0 = Release|x64'),
-            ($t + $t + '{A1C0E001-0004-4000-8000-000000000004}.Debug|x64.ActiveCfg = Debug|x64'),
-            ($t + $t + '{A1C0E001-0004-4000-8000-000000000004}.Debug|x64.Build.0 = Debug|x64'),
-            ($t + $t + '{A1C0E001-0004-4000-8000-000000000004}.Release|x64.ActiveCfg = Release|x64'),
-            ($t + $t + '{A1C0E001-0004-4000-8000-000000000004}.Release|x64.Build.0 = Release|x64'),
-            ($t + $t + '{A1C0E001-0005-4000-8000-000000000005}.Debug|x64.ActiveCfg = Debug|x64'),
-            ($t + $t + '{A1C0E001-0005-4000-8000-000000000005}.Debug|x64.Build.0 = Debug|x64'),
-            ($t + $t + '{A1C0E001-0005-4000-8000-000000000005}.Release|x64.ActiveCfg = Release|x64'),
-            ($t + $t + '{A1C0E001-0005-4000-8000-000000000005}.Release|x64.Build.0 = Release|x64'),
-            ($t + 'EndGlobalSection'),
-            ($t + 'GlobalSection(SolutionProperties) = preSolution'),
-            ($t + $t + 'HideSolutionNode = FALSE'),
-            ($t + 'EndGlobalSection'),
-            'EndGlobal'
-          )
-          [IO.File]::WriteAllLines('Winchisel.sln', $lines, [Text.UTF8Encoding]::new($false))
+        shell: cmd
+        run: call tools\generate-solution.cmd
 
       - name: Restore packages
         shell: cmd
         run: nuget restore Winchisel.sln -PackagesDirectory packages
 
-      - name: Initialize MSVC Code Analysis
-        uses: microsoft/msvc-code-analysis-action@04825f6d9e00f87422d6bf04e1a38b1f3ed60d99
-        # Provide a unique ID to access the sarif output path
-        id: run-analysis
-        with:
-          msBuildDirectory: ${{ github.workspace }}
-          buildConfiguration: Release
-          buildPlatform: x64
-          # Ruleset file that will determine what checks will be run
-          ruleset: NativeRecommendedRules.ruleset
+      # Analysis findings are reported, not fatal: warnings-as-errors is
+      # switched off for this run only.
+      - name: Build with code analysis
+        shell: cmd
+        run: >-
+          msbuild Winchisel.sln /m /nologo /verbosity:minimal
+          /p:Configuration=Release /p:Platform=x64
+          /p:RunCodeAnalysis=true
+          /p:CodeAnalysisRuleSet=NativeRecommendedRules.ruleset
+          /p:CodeAnalysisTreatWarningsAsErrors=false
+          /p:TreatWarningAsError=false
 
-      # Upload SARIF file to GitHub Code Scanning Alerts
+      - name: Collect SARIF
+        id: sarif
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force sarif | Out-Null
+          $i = 0
+          Get-ChildItem -Recurse -Filter *.sarif -Path src, out -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notlike "*\sarif\*" } |
+            ForEach-Object { Copy-Item $_.FullName ("sarif\{0:D4}-{1}" -f $i++, $_.Name) }
+          Write-Output "Collected $i SARIF file(s)."
+          "count=$i" >> $env:GITHUB_OUTPUT
+
       - name: Upload SARIF to GitHub
+        if: steps.sarif.outputs.count != '0'
         uses: github/codeql-action/upload-sarif@51f77329afa6477de8c49fc9c7046c15b9a4e79d # v3.29.5
         with:
-          sarif_file: ${{ steps.run-analysis.outputs.sarif }}
-
-      # Upload SARIF file as an Artifact to download and view
-      # - name: Upload SARIF as an Artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: sarif-file
-      #     path: ${{ steps.run-analysis.outputs.sarif }}
+          sarif_file: sarif
+          category: msvc-analysis

@@ -2,7 +2,7 @@ name: Build
 
 # Reusable packaging job used by release.yml (tags), nightly.yml (cron) and
 # preview.yml (labelled PRs). It is the single place that knows how to turn a
-# commit into the five release assets via tools\release.cmd, so the channels
+# commit into the release assets via tools\release.cmd, so the channels
 # cannot drift apart.
 #
 # Two modes:
@@ -13,11 +13,8 @@ name: Build
 #     the secrets are available, unsigned otherwise. GitHub hands no secrets to
 #     pull requests from forks, so fork previews come out unsigned on their own.
 #
-# Secrets (all optional for previews, all required for releases):
-#   UPDATE_SIGNING_KEY_B64         base64 of release-keys\winchisel-update-private.key
-#   STORE_IDENTITY_NAME            values from release-keys\store.cmd
-#   STORE_PUBLISHER
-#   STORE_PUBLISHER_DISPLAY_NAME
+# Secret (optional for previews, required for releases):
+#   UPDATE_SIGNING_KEY_B64   base64 of release-keys\winchisel-update-private.key
 on:
   workflow_call:
     inputs:
@@ -49,12 +46,6 @@ on:
         type: boolean
     secrets:
       UPDATE_SIGNING_KEY_B64:
-        required: false
-      STORE_IDENTITY_NAME:
-        required: false
-      STORE_PUBLISHER:
-        required: false
-      STORE_PUBLISHER_DISPLAY_NAME:
         required: false
 
 jobs:
@@ -97,15 +88,11 @@ jobs:
         shell: pwsh
         env:
           UPDATE_KEY: ${{ secrets.UPDATE_SIGNING_KEY_B64 }}
-          STORE_IDENTITY_NAME: ${{ secrets.STORE_IDENTITY_NAME }}
-          STORE_PUBLISHER: ${{ secrets.STORE_PUBLISHER }}
-          STORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.STORE_PUBLISHER_DISPLAY_NAME }}
           PREVIEW: ${{ inputs.preview }}
         run: |
-          $signed = $env:UPDATE_KEY -and $env:STORE_IDENTITY_NAME -and $env:STORE_PUBLISHER -and $env:STORE_PUBLISHER_DISPLAY_NAME
-          if (-not $signed) {
+          if (-not $env:UPDATE_KEY) {
             if ($env:PREVIEW -ne 'true') {
-              Write-Output "::error::Release builds need UPDATE_SIGNING_KEY_B64 and the STORE_* secrets."
+              Write-Output "::error::Release builds need the UPDATE_SIGNING_KEY_B64 secret."
               exit 1
             }
             Write-Output "::warning::Signing secrets unavailable (fork PR or not configured); building unsigned."
@@ -114,9 +101,6 @@ jobs:
           }
           New-Item -ItemType Directory -Force release-keys | Out-Null
           [IO.File]::WriteAllBytes("$PWD\release-keys\winchisel-update-private.key", [Convert]::FromBase64String($env:UPDATE_KEY))
-          "WINCHISEL_STORE_IDENTITY_NAME=$env:STORE_IDENTITY_NAME" >> $env:GITHUB_ENV
-          "WINCHISEL_STORE_PUBLISHER=$env:STORE_PUBLISHER" >> $env:GITHUB_ENV
-          "WINCHISEL_STORE_PUBLISHER_DISPLAY_NAME=$env:STORE_PUBLISHER_DISPLAY_NAME" >> $env:GITHUB_ENV
           "mode=" >> $env:GITHUB_OUTPUT
 
       - name: Build release assets
@@ -140,7 +124,7 @@ jobs:
           set -euo pipefail
           dir="release-output/$VERSION"
           files=()
-          for f in Winchisel-Setup-x64.exe Winchisel-Portable-x64.exe Winchisel-Store-x64.msix release.json release.json.sig; do
+          for f in Winchisel-Setup-x64.exe Winchisel-Portable-x64.exe release.json release.json.sig; do
             [ -f "$dir/$f" ] && files+=("$dir/$f")
           done
           printf '%s\n' "${files[@]}"
@@ -185,5 +169,5 @@ jobs:
           fi
           gh release create "$TAG" "${args[@]}" \
             "$DIR/Winchisel-Setup-x64.exe" "$DIR/Winchisel-Portable-x64.exe" \
-            "$DIR/Winchisel-Store-x64.msix" "$DIR/release.json" "$DIR/release.json.sig" \
+            "$DIR/release.json" "$DIR/release.json.sig" \
             "$DIR/SHA256SUMS.txt"
