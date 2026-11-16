@@ -31,12 +31,13 @@ done <<<"$candidates"
 range="$head"
 [ -n "$prev" ] && range="$prev..$head"
 
-declare -a features fixes security improvements maintenance
+features=(); fixes=(); security=(); improvements=(); maintenance=()
 while IFS=$'\t' read -r sha subject; do
   [ -z "$sha" ] && continue
   line="- $subject ([\`$sha\`](https://github.com/$repo/commit/$sha))"
   lower="${subject,,}"
-  if [[ "$lower" =~ (\.gitignore|workflow|\bci\b|funding|dependabot|winget token|release tooling|helper script) ]]; then
+  # bash ERE has no \b, so "ci" is matched as a whole word explicitly.
+  if [[ "$lower" =~ (\.gitignore|workflow|(^|[^a-z])ci([^a-z]|$)|funding|dependabot|winget token|release tooling|helper script) ]]; then
     maintenance+=("$line")
   elif [[ "$lower" =~ ^(add|introduce|support|expose|show|enable) ]]; then
     features+=("$line")

@@ -28,6 +28,10 @@
 #include "winchisel/platform/shell.hpp"
 #include "winchisel/platform/system.hpp"
 #include "winchisel/platform/update.hpp"
+#include "winchisel/platform/debloater.hpp"
+#include "winchisel/platform/download.hpp"
+#include "winchisel/core/debloater.hpp"
+#include "winchisel/core/download.hpp"
 
 #include <microsoft.ui.xaml.window.h>
 #include <winrt/Microsoft.UI.Composition.SystemBackdrops.h>
@@ -236,6 +240,14 @@ MainWindow::MainWindow() {
     update_poll_timer_.IsRepeating(true);
     update_poll_timer_.Tick([poll_weak = get_weak()](auto&&, auto&&) { if (auto self = poll_weak.get()) self->poll_for_updates(); });
     update_poll_timer_.Start();
+    // Warm the slow page scans after startup has settled (window shown, first
+    // page rendered), not during it. They fill the same caches the pages read
+    // and share an in-flight scan, so a page opened meanwhile just waits for it.
+    scan_prewarm_timer_ = DispatcherQueue().CreateTimer();
+    scan_prewarm_timer_.Interval(std::chrono::seconds(4));
+    scan_prewarm_timer_.IsRepeating(false);
+    scan_prewarm_timer_.Tick([prewarm_weak = get_weak()](auto&&, auto&&) { if (auto self = prewarm_weak.get()) self->prewarm_scans(); });
+    scan_prewarm_timer_.Start();
     if (auto items = Nav().MenuItems(); items.Size() > 0) {
         Nav().SelectedItem(items.GetAt(0));
         const auto weak = get_weak();
@@ -256,6 +268,22 @@ MainWindow::MainWindow() {
         auto home = make_page(L"home"); pages_.emplace(L"home", home); touch_page(L"home"); ContentFrame().Content(home); fade_page_in();
     }
     notify_if_updated();
+}
+
+void MainWindow::prewarm_scans() {
+    // Results are discarded: the point is the platform-side cache. Futures are
+    // parked so window close never blocks on them (bounded drain on close).
+    auto debloat = std::async(std::launch::async, [] {
+        (void)winchisel::platform::scan_debloater_installed(winchisel::core::get_debloat_catalog());
+    });
+    winchisel::ui::finish_in_background(debloat);
+    // Packaged (Store) builds hide the Downloads page, so they skip winget.
+    if (!winchisel::platform::is_packaged_install()) {
+        auto downloads = std::async(std::launch::async, [] {
+            (void)winchisel::platform::scan_downloads_installed(winchisel::core::get_download_catalog());
+        });
+        winchisel::ui::finish_in_background(downloads);
+    }
 }
 
 void MainWindow::update_titlebar_inset() {

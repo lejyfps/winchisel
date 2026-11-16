@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <future>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -31,6 +33,9 @@ struct DebloatScan { StringSet apps, capabilities, features; Clock::time_point a
 std::mutex scan_mutex;
 DebloatScan scan_cache;
 bool scan_cache_valid{};
+// A scan in progress, shared by every caller that arrives meanwhile (page
+// open during the startup prewarm, quick page switches) so DISM runs once.
+std::shared_ptr<std::shared_future<winchisel::core::Result<DebloatScan>>> scan_inflight;
 struct CommandResult{DWORD code{};bool timed_out{};std::string output;};
 winchisel::core::Error error(std::string detail){return{.detail=std::move(detail)};}
 std::string lower(std::string value){std::ranges::transform(value,value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return value;}
@@ -81,16 +86,35 @@ winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
         }
     }
     if (!hit) {
-        auto apps = appx_packages();
-        if (!apps) return std::unexpected(apps.error());
-        auto capabilities = dism_packages(true);
-        if (!capabilities) return std::unexpected(capabilities.error());
-        auto features = dism_packages(false);
-        if (!features) return std::unexpected(features.error());
-        data = {std::move(*apps), std::move(*capabilities), std::move(*features), Clock::now()};
+        std::shared_ptr<std::shared_future<winchisel::core::Result<DebloatScan>>> flight;
+        {
+            std::scoped_lock lock(scan_mutex);
+            if (!scan_inflight) {
+                scan_inflight = std::make_shared<std::shared_future<winchisel::core::Result<DebloatScan>>>(
+                    std::async(std::launch::async, []() -> winchisel::core::Result<DebloatScan> {
+                        // The AppX enumeration (WinRT, in-process) runs while
+                        // DISM works. The two DISM queries stay sequential:
+                        // concurrent DISM sessions on the online image can
+                        // block or fail each other.
+                        auto apps = std::async(std::launch::async, appx_packages);
+                        auto capabilities = dism_packages(true);
+                        auto features = capabilities ? dism_packages(false) : winchisel::core::Result<StringSet>{};
+                        auto app_result = apps.get();
+                        if (!app_result) return std::unexpected(app_result.error());
+                        if (!capabilities) return std::unexpected(capabilities.error());
+                        if (!features) return std::unexpected(features.error());
+                        return DebloatScan{std::move(*app_result), std::move(*capabilities), std::move(*features), Clock::now()};
+                    }).share());
+            }
+            flight = scan_inflight;
+        }
+        auto scanned = flight->get();
         std::scoped_lock lock(scan_mutex);
-        scan_cache = data;
+        if (scan_inflight == flight) scan_inflight.reset();
+        if (!scanned) return std::unexpected(scanned.error());
+        scan_cache = *scanned;
         scan_cache_valid = true;
+        data = scan_cache;
     }
     std::vector<bool> result;
     result.reserve(catalog.size());

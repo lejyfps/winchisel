@@ -109,6 +109,10 @@ private:
     void on_update_progress(std::uint64_t done, std::uint64_t total);
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer_{nullptr};
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer update_poll_timer_{nullptr};
+    // One-shot: warms the Debloater/Downloads scan caches shortly after start
+    // so opening those pages does not wait for DISM/winget.
+    winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer scan_prewarm_timer_{nullptr};
+    void prewarm_scans();
     winrt::Microsoft::UI::Xaml::FrameworkElement make_page(winrt::hstring const& tag);
 };
 
