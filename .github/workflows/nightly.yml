@@ -14,7 +14,12 @@ on:
   schedule:
     # 03:17 UTC daily. Off the full hour, when GitHub's scheduler is busiest.
     - cron: "17 3 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even if the newest green commit already shipped (e.g. to test the updater). Never builds an OLDER commit."
+        type: boolean
+        default: false
 
 # Pause scheduled nightlies without touching code: set the repository variable
 # PAUSE_NIGHTLY=true (Settings > Secrets and variables > Actions > Variables).
@@ -46,6 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force && 'true' || 'false' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -66,18 +72,28 @@ jobs:
           last_tag=$(git tag -l 'v*' --sort=-creatordate | head -n1)
           if [ -n "$last_tag" ]; then
             last_sha=$(git rev-list -n1 "$last_tag")
-            # Never ship the same or an OLDER commit: the updater would offer it
-            # as newer (higher date) and users would silently downgrade.
-            if git merge-base --is-ancestor "$sha" "$last_sha"; then
-              echo "Green commit $sha is already contained in $last_tag."
+            # Never ship an OLDER commit: the updater would offer it as newer
+            # (higher date) and users would silently downgrade. Without force
+            # the same commit is skipped too (nothing new to ship); with force
+            # the same commit may be rebuilt, e.g. to test the updater.
+            if [ "$sha" != "$last_sha" ] && git merge-base --is-ancestor "$sha" "$last_sha"; then
+              echo "Green commit $sha is older than $last_tag; refusing (even with force)."
               echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
             fi
-            # Docs-only changes since then are not worth a new build.
-            code=$(git diff --name-only "$last_sha" "$sha" \
-              | grep -v -E '(^|/)[^/]+\.md$|^LICENSE$|^\.github/|^assets/.*\.(png|jpg|gif|svg)$|^docs/' || true)
-            if [ -z "$code" ]; then
-              echo "Only docs/repo metadata changed since $last_tag; skipping."
-              echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
+            if [ "$FORCE" != "true" ]; then
+              if [ "$sha" = "$last_sha" ]; then
+                echo "Green commit $sha is already contained in $last_tag."
+                echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+              # Docs-only changes since then are not worth a new build.
+              code=$(git diff --name-only "$last_sha" "$sha" \
+                | grep -v -E '(^|/)[^/]+\.md$|^LICENSE$|^\.github/|^assets/.*\.(png|jpg|gif|svg)$|^docs/' || true)
+              if [ -z "$code" ]; then
+                echo "Only docs/repo metadata changed since $last_tag; skipping."
+                echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+            else
+              echo "Force requested: building $sha although it matches or is newer than $last_tag."
             fi
           fi
 
