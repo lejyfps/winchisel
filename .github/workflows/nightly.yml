@@ -68,6 +68,16 @@ jobs:
             echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
+          # GITHUB_TOKEN may not create a tag whose workflow files differ from
+          # the default branch (GitHub answers 403 when the release is
+          # created). That happens while CI of a newer commit that changed
+          # .github/workflows is still running: wait for it instead of
+          # building for minutes and failing at the end.
+          if ! git diff --quiet "$sha" origin/master -- .github/workflows; then
+            echo "::warning::Newest green commit ${sha:0:7} has different workflow files than master; wait until CI of master is green, then run again."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
           # Newest shipped build: the latest nightly or stable tag, by date.
           last_tag=$(git tag -l 'v*' --sort=-creatordate | head -n1)
           if [ -n "$last_tag" ]; then
