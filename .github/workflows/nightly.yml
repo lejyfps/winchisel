@@ -57,15 +57,23 @@ jobs:
           set -euo pipefail
           git fetch --tags --force --quiet
 
-          # Newest successful CI run on master. The runs API does not return a
-          # reliable order with the status filter, so sort ourselves.
-          since=$(date -u -d '-30 days' +%Y-%m-%d)
-          sha=$(gh api \
-            "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=master&event=push&status=success&created=>=$since&per_page=100" \
-            --jq '[.workflow_runs[]] | sort_by(.created_at) | last | .head_sha // ""')
-          if [ -z "$sha" ]; then
-            echo "No successful CI run on master - nothing to ship."
-            echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
+          if [ "$FORCE" = "true" ]; then
+            # Force: build the current master tip, whatever CI says. Same
+            # workflow files as master by definition, so the release can
+            # always be created.
+            sha=$(git rev-parse origin/master)
+            echo "Force: building master ${sha:0:7} regardless of CI state."
+          else
+            # Newest successful CI run on master. The runs API does not return a
+            # reliable order with the status filter, so sort ourselves.
+            since=$(date -u -d '-30 days' +%Y-%m-%d)
+            sha=$(gh api \
+              "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=master&event=push&status=success&created=>=$since&per_page=100" \
+              --jq '[.workflow_runs[]] | sort_by(.created_at) | last | .head_sha // ""')
+            if [ -z "$sha" ]; then
+              echo "No successful CI run on master - nothing to ship."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
           fi
 
           # GITHUB_TOKEN may not create a tag whose workflow files differ from
