@@ -229,9 +229,15 @@ ExtrasPage::ExtrasPage(){
     load_states();load_command_states();
 }
 bool ExtrasPage::read_dword(HKEY root,wchar_t const* path,wchar_t const* name,DWORD& value){DWORD size=sizeof(value);return RegGetValueW(root,path,name,RRF_RT_REG_DWORD,nullptr,&value,&size)==ERROR_SUCCESS;}
-bool ExtrasPage::read_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring& value){DWORD size{};if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,nullptr,&size)!=ERROR_SUCCESS)return false;value.resize(size/sizeof(wchar_t));if(RegGetValueW(root,path,name,RRF_RT_REG_SZ,nullptr,value.data(),&size)!=ERROR_SUCCESS)return false;if(!value.empty()&&!value.back())value.pop_back();return true;}
+// Reads REG_SZ and REG_EXPAND_SZ alike, without expanding %variables%, so a
+// value compares against exactly what was written (e.g. ServiceDll).
+bool ExtrasPage::read_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring& value){constexpr DWORD flags=RRF_RT_REG_SZ|RRF_RT_REG_EXPAND_SZ|RRF_NOEXPAND;DWORD size{};if(RegGetValueW(root,path,name,flags,nullptr,nullptr,&size)!=ERROR_SUCCESS)return false;value.resize(size/sizeof(wchar_t));if(RegGetValueW(root,path,name,flags,nullptr,value.data(),&size)!=ERROR_SUCCESS)return false;if(!value.empty()&&!value.back())value.pop_back();return true;}
 bool ExtrasPage::write_dword(HKEY root,wchar_t const* path,wchar_t const* name,std::optional<DWORD> value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;LSTATUS result=value?RegSetValueExW(key,name,0,REG_DWORD,reinterpret_cast<BYTE const*>(&*value),sizeof(DWORD)):RegDeleteValueW(key,name);RegCloseKey(key);return result==ERROR_SUCCESS||(!value&&result==ERROR_FILE_NOT_FOUND);}
-bool ExtrasPage::write_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring const& value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;auto result=RegSetValueExW(key,name,0,REG_SZ,reinterpret_cast<BYTE const*>(value.c_str()),static_cast<DWORD>((value.size()+1)*sizeof(wchar_t)));RegCloseKey(key);return result==ERROR_SUCCESS;}
+// Values containing %variables% (e.g. a service's ServiceDll) must be
+// REG_EXPAND_SZ: the Service Control Manager does not expand a REG_SZ, so a
+// "%SystemRoot%\..." path written as REG_SZ leaves the service unable to load
+// its DLL. An existing REG_EXPAND_SZ value keeps its type as well.
+bool ExtrasPage::write_string(HKEY root,wchar_t const* path,wchar_t const* name,std::wstring const& value){HKEY key{};if(RegCreateKeyExW(root,path,0,nullptr,0,KEY_SET_VALUE|KEY_QUERY_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)return false;DWORD existing{};const bool was_expand=RegQueryValueExW(key,name,nullptr,&existing,nullptr,nullptr)==ERROR_SUCCESS&&existing==REG_EXPAND_SZ;const DWORD type=(was_expand||value.find(L'%')!=std::wstring::npos)?REG_EXPAND_SZ:REG_SZ;auto result=RegSetValueExW(key,name,0,type,reinterpret_cast<BYTE const*>(value.c_str()),static_cast<DWORD>((value.size()+1)*sizeof(wchar_t)));RegCloseKey(key);return result==ERROR_SUCCESS;}
 void ExtrasPage::show_result(bool ok,std::wstring const& text){const std::wstring title=winchisel::core::loc(ok?L"Applied":L"Could not apply setting");if(ok){ResultBar().IsOpen(false);}else{ResultBar().Title(winrt::hstring{title});ResultBar().Severity(muxc::InfoBarSeverity::Error);ResultBar().Message(winrt::hstring{text});ResultBar().IsOpen(true);}winchisel::ui::show_toast(ok?muxc::InfoBarSeverity::Success:muxc::InfoBarSeverity::Error,title,text);winchisel::platform::boot_log(winrt::to_string(text).c_str());}
 
 void ExtrasPage::load_states(){
@@ -352,6 +358,10 @@ ExtrasPage::WorkResult ExtrasPage::do_registry_work(RegistryToggle which, bool e
                 auto result=RegDeleteValueW(key,L"POWERSHELL_TELEMETRY_OPTOUT");RegCloseKey(key);ok=result==ERROR_SUCCESS||result==ERROR_FILE_NOT_FOUND;
             } else ok = false;
         }
+        // Like [Environment]::SetEnvironmentVariable(..., 'Machine'): tell
+        // Explorer and other top-level windows the environment changed, so
+        // newly started shells see the value without signing out.
+        if (ok) SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, reinterpret_cast<LPARAM>(L"Environment"), SMTO_ABORTIFHUNG, 5000, nullptr);
         break;
     case RegistryToggle::long_paths:
         ok = write_dword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\FileSystem",L"LongPathsEnabled",enabled?std::optional<DWORD>{1}:std::optional<DWORD>{0});
