@@ -1,5 +1,6 @@
 #include "winchisel/platform/download.hpp"
 #include "process_wait.hpp"
+#include "scan_cache.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -110,8 +111,45 @@ StringSet scan_uninstall_registry() {
     return result;
 }
 
+// Change signals for what `winget export` reports: installing or removing a
+// classic app adds/removes a subkey under one of the Uninstall keys (machine,
+// 32-bit view, every loaded user profile); MSIX/Store apps change the AppX
+// repository of the current user.
+std::string winget_fingerprint() {
+    std::string fingerprint = persistent_cache::key_stamp(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
+        + "|" + persistent_cache::key_stamp(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
+        + "|" + persistent_cache::key_stamp(HKEY_CURRENT_USER, L"Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppModel\\Repository\\Packages");
+    HKEY users{};
+    if (RegOpenKeyExW(HKEY_USERS, nullptr, 0, KEY_READ, &users) == ERROR_SUCCESS) {
+        for (DWORD i{};; ++i) {
+            std::array<wchar_t, 256> sid{};
+            DWORD length = static_cast<DWORD>(sid.size());
+            const auto status = RegEnumKeyExW(users, i, sid.data(), &length, nullptr, nullptr, nullptr, nullptr);
+            if (status == ERROR_NO_MORE_ITEMS) break;
+            if (status != ERROR_SUCCESS || wcsstr(sid.data(), L"_Classes")) continue;
+            const std::wstring path = std::wstring(sid.data(), length) + L"\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+            std::string name;
+            for (DWORD c{}; c < length; ++c) name += static_cast<char>(sid[c] < 128 ? sid[c] : '?');
+            fingerprint += "|" + name + "=" + persistent_cache::key_stamp(HKEY_USERS, path.c_str());
+        }
+        RegCloseKey(users);
+    }
+    return fingerprint;
+}
+
+// winget ids from the persistent cache while nothing was installed/removed,
+// otherwise from `winget export` (seconds on a cold start).
+winchisel::core::Result<StringSet> cached_winget_ids() {
+    const auto fingerprint = winget_fingerprint();
+    if (auto cached = persistent_cache::load("downloads-winget", fingerprint, std::chrono::hours(24)))
+        return StringSet((*cached)["ids"].begin(), (*cached)["ids"].end());
+    auto ids = winget_ids();
+    if (ids) persistent_cache::store("downloads-winget", fingerprint, {{"ids", {ids->begin(), ids->end()}}});
+    return ids;
+}
+
 winchisel::core::Result<ScanData> perform_scan() {
-    auto ids = std::async(std::launch::async, winget_ids);
+    auto ids = std::async(std::launch::async, cached_winget_ids);
     auto registry = std::async(std::launch::async, scan_uninstall_registry);
     auto id_result = ids.get();
     auto registry_result = registry.get();
@@ -136,6 +174,7 @@ winchisel::core::Result<std::vector<bool>> scan_downloads_installed(
     std::shared_ptr<std::shared_future<winchisel::core::Result<ScanData>>> flight;
     {
         std::scoped_lock lock(cache_mutex);
+        if (force_refresh) persistent_cache::invalidate("downloads-winget");
         if (!force_refresh && cache_valid && Clock::now() - cache.at < std::chrono::minutes(10)) {
             data = cache;
         } else {
@@ -171,8 +210,8 @@ winchisel::core::Result<std::vector<bool>> scan_downloads_installed(
     return result;
 }
 
-winchisel::core::Result<DownloadInstallResult> install_downloads(std::span<winchisel::core::DownloadCatalogEntry const* const> items){DownloadInstallResult result;for(auto item:items){auto end=item->winget_ids.find('|');auto id=item->winget_ids.substr(0,end);if(id.empty()){++result.failed;result.failure_details.push_back(std::string(item->name)+": no winget ID");continue;}auto command=run_hidden(L"winget.exe install --id \""+wide(id)+L"\" --exact --accept-package-agreements --accept-source-agreements --disable-interactivity", 30 * 60 * 1000);if(command&&command->exit_code==0){++result.succeeded;std::string installed(id);std::ranges::transform(installed,installed.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});std::scoped_lock lock(cache_mutex);if(cache_valid){cache.ids.insert(std::move(installed));}}else{++result.failed;result.failure_details.push_back(std::string(item->name)+": "+(command?(command->timed_out?"winget timed out":"winget exit "+std::to_string(command->exit_code)):command.error().detail));}}return result;}
+winchisel::core::Result<DownloadInstallResult> install_downloads(std::span<winchisel::core::DownloadCatalogEntry const* const> items){persistent_cache::invalidate("downloads-winget");DownloadInstallResult result;for(auto item:items){auto end=item->winget_ids.find('|');auto id=item->winget_ids.substr(0,end);if(id.empty()){++result.failed;result.failure_details.push_back(std::string(item->name)+": no winget ID");continue;}auto command=run_hidden(L"winget.exe install --id \""+wide(id)+L"\" --exact --accept-package-agreements --accept-source-agreements --disable-interactivity", 30 * 60 * 1000);if(command&&command->exit_code==0){++result.succeeded;std::string installed(id);std::ranges::transform(installed,installed.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});std::scoped_lock lock(cache_mutex);if(cache_valid){cache.ids.insert(std::move(installed));}}else{++result.failed;result.failure_details.push_back(std::string(item->name)+": "+(command?(command->timed_out?"winget timed out":"winget exit "+std::to_string(command->exit_code)):command.error().detail));}}return result;}
 
-winchisel::core::Result<DownloadInstallResult> uninstall_downloads(std::span<winchisel::core::DownloadCatalogEntry const* const> items){DownloadInstallResult result;for(auto item:items){auto end=item->winget_ids.find('|');auto id=item->winget_ids.substr(0,end);if(id.empty()){++result.failed;result.failure_details.push_back(std::string(item->name)+": no winget ID");continue;}auto command=run_hidden(L"winget.exe uninstall --id \""+wide(id)+L"\" --exact --disable-interactivity", 10 * 60 * 1000);if(command&&command->exit_code==0){++result.succeeded;std::string removed(id);std::ranges::transform(removed,removed.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});std::scoped_lock lock(cache_mutex);if(cache_valid){cache.ids.erase(removed);}}else{++result.failed;result.failure_details.push_back(std::string(item->name)+": "+(command?(command->timed_out?"winget timed out":"winget exit "+std::to_string(command->exit_code)):command.error().detail));}}return result;}
+winchisel::core::Result<DownloadInstallResult> uninstall_downloads(std::span<winchisel::core::DownloadCatalogEntry const* const> items){persistent_cache::invalidate("downloads-winget");DownloadInstallResult result;for(auto item:items){auto end=item->winget_ids.find('|');auto id=item->winget_ids.substr(0,end);if(id.empty()){++result.failed;result.failure_details.push_back(std::string(item->name)+": no winget ID");continue;}auto command=run_hidden(L"winget.exe uninstall --id \""+wide(id)+L"\" --exact --disable-interactivity", 10 * 60 * 1000);if(command&&command->exit_code==0){++result.succeeded;std::string removed(id);std::ranges::transform(removed,removed.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});std::scoped_lock lock(cache_mutex);if(cache_valid){cache.ids.erase(removed);}}else{++result.failed;result.failure_details.push_back(std::string(item->name)+": "+(command?(command->timed_out?"winget timed out":"winget exit "+std::to_string(command->exit_code)):command.error().detail));}}return result;}
 
 }  // namespace winchisel::platform

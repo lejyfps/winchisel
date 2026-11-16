@@ -79,6 +79,7 @@
     <ClCompile Include="src\startup.cpp" />
     <ClCompile Include="src\cleanup.cpp" />
     <ClCompile Include="src\revert.cpp" />
+    <ClCompile Include="src\scan_cache.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\core\Winchisel.Core.vcxproj">

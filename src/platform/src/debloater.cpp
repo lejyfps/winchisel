@@ -1,6 +1,7 @@
 #include "winchisel/platform/debloater.hpp"
 #include "process_wait.hpp"
 #include "com_apartment.hpp"
+#include "scan_cache.hpp"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -33,6 +34,17 @@ struct DebloatScan { StringSet apps, capabilities, features; Clock::time_point a
 std::mutex scan_mutex;
 DebloatScan scan_cache;
 bool scan_cache_valid{};
+// Change signals for the DISM state: every feature/capability change runs a
+// servicing session, which rewrites Sessions.xml and touches the CBS Packages
+// key; a Windows update changes the build/UBR.
+std::string dism_fingerprint() {
+    wchar_t windows[MAX_PATH]{};
+    const auto length = GetWindowsDirectoryW(windows, MAX_PATH);
+    const std::filesystem::path sessions = std::filesystem::path(std::wstring(windows, length)) / L"servicing" / L"Sessions" / L"Sessions.xml";
+    return persistent_cache::windows_build_stamp()
+        + "|" + persistent_cache::key_stamp(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\Packages")
+        + "|" + persistent_cache::file_stamp(sessions);
+}
 // A scan in progress, shared by every caller that arrives meanwhile (page
 // open during the startup prewarm, quick page switches) so DISM runs once.
 std::shared_ptr<std::shared_future<winchisel::core::Result<DebloatScan>>> scan_inflight;
@@ -78,6 +90,8 @@ winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
     std::span<winchisel::core::DebloatCatalogEntry const> catalog, bool force_refresh) {
     DebloatScan data;
     bool hit{};
+    // Manual refresh: bypass the persistent DISM cache as well.
+    if (force_refresh) persistent_cache::invalidate("debloat-dism");
     {
         std::scoped_lock lock(scan_mutex);
         if (!force_refresh && scan_cache_valid && Clock::now() - scan_cache.at < std::chrono::minutes(10)) {
@@ -97,8 +111,24 @@ winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
                         // concurrent DISM sessions on the online image can
                         // block or fail each other.
                         auto apps = std::async(std::launch::async, appx_packages);
-                        auto capabilities = dism_packages(true);
-                        auto features = capabilities ? dism_packages(false) : winchisel::core::Result<StringSet>{};
+                        // DISM results come from the persistent cache while
+                        // the servicing fingerprint is unchanged. Computed
+                        // before scanning, so a change during the scan only
+                        // makes the next start rescan (never stale data).
+                        const auto fingerprint = dism_fingerprint();
+                        winchisel::core::Result<StringSet> capabilities{std::unexpect, error("not scanned")};
+                        winchisel::core::Result<StringSet> features{std::unexpect, error("not scanned")};
+                        if (auto cached = persistent_cache::load("debloat-dism", fingerprint, std::chrono::hours(24))) {
+                            capabilities = StringSet((*cached)["capabilities"].begin(), (*cached)["capabilities"].end());
+                            features = StringSet((*cached)["features"].begin(), (*cached)["features"].end());
+                        } else {
+                            capabilities = dism_packages(true);
+                            features = capabilities ? dism_packages(false) : winchisel::core::Result<StringSet>{};
+                            if (capabilities && features)
+                                persistent_cache::store("debloat-dism", fingerprint, {
+                                    {"capabilities", {capabilities->begin(), capabilities->end()}},
+                                    {"features", {features->begin(), features->end()}}});
+                        }
                         auto app_result = apps.get();
                         if (!app_result) return std::unexpected(app_result.error());
                         if (!capabilities) return std::unexpected(capabilities.error());
@@ -127,8 +157,11 @@ winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
 }
 
 void invalidate_debloat_scan() {
-    std::scoped_lock lock(scan_mutex);
-    scan_cache_valid = false;
+    {
+        std::scoped_lock lock(scan_mutex);
+        scan_cache_valid = false;
+    }
+    persistent_cache::invalidate("debloat-dism");
 }
 // One COM apartment, one PackageManager and one enumeration shared by every
 // AppX item of the batch instead of re-initializing per item. Members are
