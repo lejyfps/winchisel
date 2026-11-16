@@ -817,7 +817,9 @@ ExtrasCommandState read_extras_command_state() {
     }
     HKEY widgets{};
     state.widgets_removed = true;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Data", 0, KEY_READ, &widgets) == ERROR_SUCCESS) {
+    // Cache\Package\Data uses numeric subkeys; the package names are the
+    // subkeys of Index\PackageFullName.
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateRepository\\Cache\\Package\\Index\\PackageFullName", 0, KEY_READ, &widgets) == ERROR_SUCCESS) {
         for (DWORD index{};; ++index) {
             std::array<wchar_t, 512> name{}; DWORD length = static_cast<DWORD>(name.size());
             const auto status = RegEnumKeyExW(widgets, index, name.data(), &length, nullptr, nullptr, nullptr, nullptr);

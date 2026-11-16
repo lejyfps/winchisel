@@ -497,11 +497,28 @@ winrt::fire_and_forget ExtrasPage::apply_registry_toggle(RegistryToggle which, m
             }
         }
         const auto snapshot = read_registry_snapshot();
+        bool actual = enabled;
+        switch (which) {
+        case RegistryToggle::modern_standby: actual = snapshot.modern_standby; break;
+        case RegistryToggle::sync_provider: actual = snapshot.sync_provider; break;
+        case RegistryToggle::brave: actual = snapshot.brave; break;
+        case RegistryToggle::edge: actual = snapshot.edge; break;
+        case RegistryToggle::ctfmon: actual = snapshot.ctfmon; break;
+        case RegistryToggle::ctfmon_dll: actual = snapshot.ctfmon_dll; break;
+        case RegistryToggle::timer_resolution: actual = snapshot.timer_resolution; break;
+        case RegistryToggle::ipv6: actual = snapshot.ipv6; break;
+        case RegistryToggle::ps7: actual = snapshot.ps7; break;
+        case RegistryToggle::long_paths: actual = snapshot.long_paths; break;
+        case RegistryToggle::developer_mode: actual = snapshot.developer_mode; break;
+        case RegistryToggle::verbose_boot: actual = snapshot.verbose_boot; break;
+        }
         co_await ui;
         if (auto self = weak.get()) {
             self->apply_registry_snapshot(snapshot);
             toggle.IsEnabled(true);
-            if (!work.ok) self->show_result(false, L"Could not apply the setting. Windows error " + std::to_wstring(work.error) + L"." + std::wstring(work.note.begin(), work.note.end()));
+            if (work.ok && actual != enabled)
+                self->show_result(false, L"Windows reported success, but the setting reads back unchanged. Another policy or tool may be resetting it.");
+            else if (!work.ok) self->show_result(false, L"Could not apply the setting. Windows error " + std::to_wstring(work.error) + L"." + std::wstring(work.note.begin(), work.note.end()));
             else if (!work.note.empty()) self->show_result(true, L"Setting applied." + std::wstring(work.note.begin(), work.note.end()));
             else self->show_result(true, L"Setting applied.");
         }
@@ -575,12 +592,25 @@ winrt::fire_and_forget ExtrasPage::run_command(CommandAction action, bool enable
  co_await winrt::resume_background();
  winchisel::core::Result<void> result{};
  switch(action){case CommandAction::power_plan: result=winchisel::platform::apply_winchisel_power_plan(); break; case CommandAction::ultimate_plan: result=winchisel::platform::apply_ultimate_performance_plan(); break; case CommandAction::widgets: result=winchisel::platform::set_widgets_removed(enabled); break; case CommandAction::teredo: result=winchisel::platform::set_teredo_disabled(enabled); break; case CommandAction::hpet: result=winchisel::platform::set_hpet_disabled(enabled); break; case CommandAction::dynamic_tick: result=winchisel::platform::set_dynamic_tick_disabled(enabled); break;}
-  const bool enqueued = winchisel::ui::enqueue_safe(queue, [lifetime, action, enabled, result] {
+ // Re-read the real state instead of trusting the exit code alone.
+ bool actual=enabled;
+ if(result){
+  if(action==CommandAction::teredo){actual=read_registry_snapshot().teredo;}
+  else if(action==CommandAction::widgets||action==CommandAction::hpet||action==CommandAction::dynamic_tick){
+   const auto state=winchisel::platform::read_extras_command_state();
+   if(action==CommandAction::widgets)actual=state.widgets_removed;
+   else if(action==CommandAction::hpet)actual=state.hpet_disabled.value_or(false);
+   else actual=state.dynamic_tick_disabled.value_or(false);
+  }
+ }
+  const bool enqueued = winchisel::ui::enqueue_safe(queue, [lifetime, action, enabled, result, actual] {
    lifetime->set_command_busy(false);
    if(!result){lifetime->load_states();lifetime->show_result(false,std::wstring(L"Could not apply the setting: ")+std::wstring(winrt::to_hstring(result.error().detail)));return;}
    lifetime->loading_=true;
-   if(action==CommandAction::widgets)lifetime->Widgets().IsOn(enabled); else if(action==CommandAction::teredo)lifetime->Teredo().IsOn(enabled); else if(action==CommandAction::hpet)lifetime->Hpet().IsOn(enabled); else if(action==CommandAction::dynamic_tick)lifetime->DynamicTick().IsOn(enabled); else if(action==CommandAction::ultimate_plan){lifetime->UltimatePlanButton().Content(box_value(L"Active")); lifetime->PowerPlanButton().Content(box_value(L"Apply"));} else {lifetime->PowerPlanButton().Content(box_value(L"Active")); lifetime->UltimatePlanButton().Content(box_value(L"Apply"));}
-   lifetime->loading_=false; lifetime->show_result(true,action==CommandAction::power_plan?L"Winchisel power plan applied successfully.":action==CommandAction::ultimate_plan?L"Ultimate Performance plan applied successfully.":L"Setting applied.");
+   if(action==CommandAction::widgets)lifetime->Widgets().IsOn(actual); else if(action==CommandAction::teredo)lifetime->Teredo().IsOn(actual); else if(action==CommandAction::hpet)lifetime->Hpet().IsOn(actual); else if(action==CommandAction::dynamic_tick)lifetime->DynamicTick().IsOn(actual); else if(action==CommandAction::ultimate_plan){lifetime->UltimatePlanButton().Content(box_value(L"Active")); lifetime->PowerPlanButton().Content(box_value(L"Apply"));} else {lifetime->PowerPlanButton().Content(box_value(L"Active")); lifetime->UltimatePlanButton().Content(box_value(L"Apply"));}
+   lifetime->loading_=false;
+   if(actual!=enabled){lifetime->show_result(false,L"The command reported success, but the setting reads back unchanged.");return;}
+   lifetime->show_result(true,action==CommandAction::power_plan?L"Winchisel power plan applied successfully.":action==CommandAction::ultimate_plan?L"Ultimate Performance plan applied successfully.":L"Setting applied.");
   });
   if (!enqueued) { set_command_busy(false); co_return; }
 
