@@ -17,7 +17,9 @@
 #include <chrono>
 #include <future>
 #include <memory>
+#include <atomic>
 #include <mutex>
+#include <thread>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -84,6 +86,40 @@ winchisel::core::Result<bool> update_appx(
     winrt::Windows::Management::Deployment::PackageManager& manager,
     std::vector<std::pair<std::string, winrt::Windows::ApplicationModel::Package>> const& packages,
     winchisel::core::DebloatCatalogEntry const& item){if(!item.store_id.empty()){auto uri=L"ms-windows-store://pdp/?ProductId="+wide(item.store_id);if(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",uri.c_str(),nullptr,nullptr,SW_SHOWNORMAL))<=32)return std::unexpected(error(std::string(item.package_name)+": Store listing could not be opened"));return false;}return change_appx(manager,packages,item,true);}
+
+// Every DISM scan (foreground or background) runs under this lock: two
+// concurrent DISM sessions on the online image can block or fail each other.
+std::mutex dism_scan_mutex;
+std::atomic_bool dism_background_running{};
+
+struct DismState { winchisel::core::Result<StringSet> capabilities, features; };
+DismState scan_dism_now(std::string const& fingerprint) {
+    std::scoped_lock lock(dism_scan_mutex);
+    DismState state{dism_packages(true), {}};
+    state.features = state.capabilities ? dism_packages(false) : winchisel::core::Result<StringSet>{};
+    if (state.capabilities && state.features)
+        persistent_cache::store("debloat-dism", fingerprint, {
+            {"capabilities", {state.capabilities->begin(), state.capabilities->end()}},
+            {"features", {state.features->begin(), state.features->end()}}});
+    return state;
+}
+
+// Rescans DISM for a stale (but fingerprint-matching) cache entry without
+// making anyone wait. If the result differs, the in-memory scan is dropped so
+// the next page open shows it. One background refresh at a time.
+void refresh_dism_in_background(std::string fingerprint, StringSet cached_capabilities, StringSet cached_features) {
+    if (dism_background_running.exchange(true)) return;
+    std::thread([fingerprint = std::move(fingerprint), cached_capabilities = std::move(cached_capabilities), cached_features = std::move(cached_features)] {
+        try {
+            auto fresh = scan_dism_now(fingerprint);
+            if (fresh.capabilities && fresh.features && (*fresh.capabilities != cached_capabilities || *fresh.features != cached_features)) {
+                std::scoped_lock lock(scan_mutex);
+                scan_cache_valid = false;
+            }
+        } catch (...) {}
+        dism_background_running = false;
+    }).detach();
+}
 }
 
 winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
@@ -112,22 +148,22 @@ winchisel::core::Result<std::vector<bool>> scan_debloater_installed(
                         // block or fail each other.
                         auto apps = std::async(std::launch::async, appx_packages);
                         // DISM results come from the persistent cache while
-                        // the servicing fingerprint is unchanged. Computed
+                        // the servicing fingerprint is unchanged (computed
                         // before scanning, so a change during the scan only
-                        // makes the next start rescan (never stale data).
+                        // makes the next start rescan). Entries never expire;
+                        // after 24 h a hit is still shown at once and DISM
+                        // re-checks it in the background.
                         const auto fingerprint = dism_fingerprint();
                         winchisel::core::Result<StringSet> capabilities{std::unexpect, error("not scanned")};
                         winchisel::core::Result<StringSet> features{std::unexpect, error("not scanned")};
                         if (auto cached = persistent_cache::load("debloat-dism", fingerprint, std::chrono::hours(24))) {
-                            capabilities = StringSet((*cached)["capabilities"].begin(), (*cached)["capabilities"].end());
-                            features = StringSet((*cached)["features"].begin(), (*cached)["features"].end());
+                            capabilities = StringSet(cached->lists["capabilities"].begin(), cached->lists["capabilities"].end());
+                            features = StringSet(cached->lists["features"].begin(), cached->lists["features"].end());
+                            if (cached->stale) refresh_dism_in_background(fingerprint, *capabilities, *features);
                         } else {
-                            capabilities = dism_packages(true);
-                            features = capabilities ? dism_packages(false) : winchisel::core::Result<StringSet>{};
-                            if (capabilities && features)
-                                persistent_cache::store("debloat-dism", fingerprint, {
-                                    {"capabilities", {capabilities->begin(), capabilities->end()}},
-                                    {"features", {features->begin(), features->end()}}});
+                            auto state = scan_dism_now(fingerprint);
+                            capabilities = std::move(state.capabilities);
+                            features = std::move(state.features);
                         }
                         auto app_result = apps.get();
                         if (!app_result) return std::unexpected(app_result.error());

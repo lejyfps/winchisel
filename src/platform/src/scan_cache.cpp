@@ -225,7 +225,7 @@ std::string filetime_text(FILETIME const& time) {
 
 }  // namespace
 
-std::optional<Lists> load(std::string_view name, std::string_view fingerprint, std::chrono::seconds max_age) {
+std::optional<Hit> load(std::string_view name, std::string_view fingerprint, std::chrono::seconds refresh_after) {
     std::scoped_lock lock(g_mutex);
     for (auto const& [entry_name, entry] : read_entries()) {
         if (entry_name != name || entry.kind != Value::Kind::object) continue;
@@ -233,9 +233,11 @@ std::optional<Lists> load(std::string_view name, std::string_view fingerprint, s
         auto const* saved = entry.get("saved");
         auto const* lists = entry.get("lists");
         if (!stored || stored->text != fingerprint || !saved || !lists || lists->kind != Value::Kind::object) return std::nullopt;
+        Hit hit;
+        // A timestamp in the future (clock moved back) also counts as stale.
         const auto age = now_seconds() - saved->number;
-        if (age < 0 || age > max_age.count()) return std::nullopt;
-        Lists result;
+        hit.stale = age < 0 || age > refresh_after.count();
+        Lists& result = hit.lists;
         for (auto const& [list_name, list] : lists->members) {
             if (list.kind != Value::Kind::array) return std::nullopt;
             auto& target = result[list_name];
@@ -245,7 +247,7 @@ std::optional<Lists> load(std::string_view name, std::string_view fingerprint, s
                 target.push_back(item.text);
             }
         }
-        return result;
+        return hit;
     }
     return std::nullopt;
 }

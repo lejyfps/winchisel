@@ -3,9 +3,11 @@
 //
 // Each entry stores named string lists plus a fingerprint: cheap change
 // signals (registry key last-write times, file stamps, Windows build) computed
-// by the caller. A stored entry is used only while its fingerprint still
-// matches and it is younger than max_age, so the slow scan runs only when the
-// system actually changed - or at least once per max_age as a safety net.
+// by the caller. Entries never expire. A stored entry is used while its
+// fingerprint still matches, so the slow scan runs only when the system
+// actually changed. Hits older than refresh_after are flagged "stale": the
+// caller shows them immediately and rescans in the background, which catches
+// changes the fingerprint cannot see (e.g. a refreshed winget index).
 //
 // Storage: %LocalAppData%\Winchisel\cache\scan-cache.json, written atomically.
 // A missing, corrupt or foreign-format file just means "no cache".
@@ -25,7 +27,11 @@ namespace winchisel::platform::persistent_cache {
 
 using Lists = std::map<std::string, std::vector<std::string>, std::less<>>;
 
-std::optional<Lists> load(std::string_view name, std::string_view fingerprint, std::chrono::seconds max_age);
+struct Hit {
+    Lists lists;
+    bool stale{};  // older than refresh_after: use it, but rescan in the background
+};
+std::optional<Hit> load(std::string_view name, std::string_view fingerprint, std::chrono::seconds refresh_after);
 void store(std::string_view name, std::string_view fingerprint, Lists const& lists);
 void invalidate(std::string_view name);
 

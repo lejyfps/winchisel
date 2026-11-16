@@ -9,7 +9,9 @@
 #include <future>
 #include <fstream>
 #include <memory>
+#include <atomic>
 #include <mutex>
+#include <thread>
 #include <regex>
 #include <string>
 #include <unordered_set>
@@ -137,12 +139,40 @@ std::string winget_fingerprint() {
     return fingerprint;
 }
 
+std::atomic_bool winget_background_running{};
+
+// Re-runs `winget export` for a stale (but fingerprint-matching) entry without
+// making anyone wait, e.g. to pick up ids a refreshed winget index now maps.
+// If the ids changed, the in-memory scan is dropped so the next page open
+// shows them. One background refresh at a time.
+void refresh_winget_in_background(std::string fingerprint, StringSet cached) {
+    if (winget_background_running.exchange(true)) return;
+    std::thread([fingerprint = std::move(fingerprint), cached = std::move(cached)] {
+        try {
+            auto ids = winget_ids();
+            if (ids) {
+                persistent_cache::store("downloads-winget", fingerprint, {{"ids", {ids->begin(), ids->end()}}});
+                if (*ids != cached) {
+                    std::scoped_lock lock(cache_mutex);
+                    cache_valid = false;
+                }
+            }
+        } catch (...) {}
+        winget_background_running = false;
+    }).detach();
+}
+
 // winget ids from the persistent cache while nothing was installed/removed,
-// otherwise from `winget export` (seconds on a cold start).
+// otherwise from `winget export` (seconds on a cold start). Entries never
+// expire; after 24 h a hit is still used at once and re-checked in the
+// background.
 winchisel::core::Result<StringSet> cached_winget_ids() {
     const auto fingerprint = winget_fingerprint();
-    if (auto cached = persistent_cache::load("downloads-winget", fingerprint, std::chrono::hours(24)))
-        return StringSet((*cached)["ids"].begin(), (*cached)["ids"].end());
+    if (auto cached = persistent_cache::load("downloads-winget", fingerprint, std::chrono::hours(24))) {
+        StringSet ids(cached->lists["ids"].begin(), cached->lists["ids"].end());
+        if (cached->stale) refresh_winget_in_background(fingerprint, ids);
+        return ids;
+    }
     auto ids = winget_ids();
     if (ids) persistent_cache::store("downloads-winget", fingerprint, {{"ids", {ids->begin(), ids->end()}}});
     return ids;
